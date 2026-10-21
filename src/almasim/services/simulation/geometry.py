@@ -8,7 +8,7 @@ from typing import Any
 import astropy.units as U
 import numpy as np
 
-from ..external_skymodel import infer_external_cube_geometry, is_external_source_type
+from ..external_skymodel import CubeWcs, is_external_source_type, read_cube_wcs
 from ..instrument.channels import Channels, channels_from_resolution
 from ..instrument.geometry import (
     cell_arcsec,
@@ -80,9 +80,13 @@ def resolve_cube_geometry(params: SimulationParams, *, strict: bool = True) -> C
 
     The cell is a fifth of the synthesised beam unless ``n_pix`` is given, in
     which case the field of view sets it; the channel count is the spectral
-    window's unless ``n_channels`` is given. An external model in "preserve"
-    header mode keeps its own size. With ``strict=False`` (the estimate) an
-    unreadable external model falls back to the computed size.
+    window's unless ``n_channels`` is given.
+
+    An input cube (an external FITS model) sets all of that itself, from its
+    header: its size, its pixel, and its frequency axis (centre, channel width,
+    channels); ``n_pix`` and ``n_channels`` are then ignored. A 2D input image
+    sets the size and pixel, the metadata the channels. With ``strict=False``
+    (the estimate) an unreadable input falls back to the computed geometry.
     """
     source_freq = params.freq * U.GHz
     band_range, central_freq, t_channels, delta_freq = freq_supp_extractor(
@@ -92,6 +96,16 @@ def resolve_cube_geometry(params: SimulationParams, *, strict: bool = True) -> C
     channels = channels_from_resolution(delta_freq.to(U.Hz).value, band_range.to(U.Hz).value)
     delta_freq = (channels.width_hz * U.Hz).to(U.GHz)
     t_channels = int((band_range / delta_freq).decompose().value + 1e-6)
+    cube = _input_cube(params, strict=strict)
+    axis = _spectral_axis(cube)
+    if axis is not None:
+        centre_hz, width_hz, cube_channels = axis
+        central_freq = (centre_hz * U.Hz).to(central_freq.unit)
+        delta_freq = (width_hz * U.Hz).to(delta_freq.unit)
+        band_range = (cube_channels * width_hz * U.Hz).to(band_range.unit)
+        if not np.isclose(width_hz, channels.width_hz, rtol=1e-6):
+            # Not the window's channels: nothing known of their averaging.
+            channels = Channels(width_hz)
     observation_plan = build_single_pointing_observation_plan(params)
     max_baseline_km = max(
         ual_antenna.get_max_baseline_from_antenna_array(config.antenna_array, params.main_dir)
@@ -114,21 +128,11 @@ def resolve_cube_geometry(params: SimulationParams, *, strict: bool = True) -> C
         )
         cell_size = beam_size / 5
 
-    external_geometry = None
-    if is_external_source_type(params.source_type) and params.external_header_mode == "preserve":
-        try:
-            external_geometry = infer_external_cube_geometry(
-                source_type=params.source_type,
-                skymodel_path=params.external_skymodel_path,
-                component_table_path=params.external_component_table_path,
-            )
-        except Exception:
-            if strict:
-                raise
-
     n_pix = _clean(params.n_pix)
-    if n_pix is None and external_geometry is not None:
-        n_pix = int(external_geometry["n_pix"])
+    if cube is not None:
+        n_pix = cube.n_pix
+        if cube.cell_arcsec:
+            cell_size = cube.cell_arcsec * U.arcsec
     elif n_pix is None:
         n_pix = image_size(1.5 * fov.value, cell_size.value, rounding="pow2")
     else:
@@ -136,8 +140,8 @@ def resolve_cube_geometry(params: SimulationParams, *, strict: bool = True) -> C
         cell_size = fov / n_pix
 
     n_channels = _clean(params.n_channels)
-    if n_channels is None and external_geometry is not None:
-        n_channels = int(external_geometry["n_channels"])
+    if axis is not None:
+        n_channels = axis[2]
     elif n_channels is None:
         n_channels = t_channels
     else:
@@ -156,6 +160,41 @@ def resolve_cube_geometry(params: SimulationParams, *, strict: bool = True) -> C
         n_channels=n_channels,
         channels=channels,
     )
+
+
+def _spectral_axis(cube: CubeWcs | None) -> tuple[float, float, int] | None:
+    """An input cube's frequency axis: centre and channel width (Hz), channels."""
+    if cube is None or cube.central_freq_hz is None or cube.channel_width_hz is None:
+        return None
+    if not cube.n_channels:
+        return None
+    return cube.central_freq_hz, cube.channel_width_hz, cube.n_channels
+
+
+def _input_cube(params: SimulationParams, *, strict: bool) -> CubeWcs | None:
+    """The grid of the run's input cube or image, if it has one."""
+    source_type = str(params.source_type).lower()
+    if not is_external_source_type(source_type) or source_type == "external-components":
+        return None
+    if params.external_skymodel_path is None:
+        return None
+    try:
+        wcs = read_cube_wcs(params.external_skymodel_path)
+    except (OSError, ValueError, KeyError):
+        if strict:
+            raise
+        return None
+    if source_type == "external-fits-image":  # one plane: the metadata gives the channels
+        return CubeWcs(
+            n_pix_x=wcs.n_pix_x,
+            n_pix_y=wcs.n_pix_y,
+            n_channels=None,
+            central_freq_hz=None,
+            channel_width_hz=None,
+            descending=False,
+            cell_arcsec=wcs.cell_arcsec,
+        )
+    return wcs
 
 
 def estimate_simulation_footprint(params: SimulationParams) -> dict[str, Any]:

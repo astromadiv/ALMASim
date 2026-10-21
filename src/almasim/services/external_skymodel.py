@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -12,7 +13,7 @@ from astropy.table import Table
 from scipy.ndimage import zoom
 
 from ..skymodels.registry import SKYMODELS
-from .imaging.fits_io import read_cube, read_image
+from .imaging.fits_io import read_cube
 
 EXTERNAL_SOURCE_TYPES = {name for name, spec in SKYMODELS.items() if spec.external}
 
@@ -31,6 +32,61 @@ def is_external_source_type(source_type: str) -> bool:
     return str(source_type).lower() in EXTERNAL_SOURCE_TYPES
 
 
+@dataclass(frozen=True)
+class CubeWcs:
+    """An input cube's grid, from its header alone (its data may be gigabytes)."""
+
+    n_pix_x: int
+    n_pix_y: int
+    n_channels: int | None  # the spectral axis's length; None without one
+    central_freq_hz: float | None  # the middle of the spectral axis
+    channel_width_hz: float | None  # positive
+    descending: bool  # the channels go down in frequency
+    cell_arcsec: float | None
+
+    @property
+    def n_pix(self) -> int:
+        return max(self.n_pix_x, self.n_pix_y)
+
+
+def read_cube_wcs(path: str | Path) -> CubeWcs:
+    """The grid a FITS image or cube is on: its spatial size and pixel, and
+    its spectral axis (a FREQ axis, else a third axis) if it has one.
+    Degenerate axes (a one-plane Stokes axis) are left out."""
+    with fits.open(path, memmap=True) as hdus:
+        header = next(
+            (hdu.header for hdu in hdus if hdu.is_image and hdu.header.get("NAXIS", 0) >= 2),
+            None,
+        )
+    if header is None:
+        raise ValueError(f"{path} does not contain image data")
+    axes = range(1, int(header["NAXIS"]) + 1)
+    spectral = next(
+        (k for k in axes if str(header.get(f"CTYPE{k}", "")).upper().startswith("FREQ")),
+        3 if header["NAXIS"] >= 3 and header["NAXIS3"] > 1 else None,
+    )
+    n_channels = central = width = None
+    descending = False
+    if spectral is not None:
+        n_channels = int(header[f"NAXIS{spectral}"])
+        cdelt = float(header.get(f"CDELT{spectral}", 0.0) or 0.0)
+        if cdelt and str(header.get(f"CTYPE{spectral}", "")).upper().startswith("FREQ"):
+            crval = float(header.get(f"CRVAL{spectral}", 0.0))
+            crpix = float(header.get(f"CRPIX{spectral}", 1.0))
+            central = crval + ((n_channels + 1) / 2 - crpix) * cdelt
+            width, descending = abs(cdelt), cdelt < 0
+    pixel = header.get("CDELT2") or header.get("CDELT1")
+    return CubeWcs(
+        n_pix_x=int(header["NAXIS1"]),
+        n_pix_y=int(header["NAXIS2"]),
+        n_channels=n_channels,
+        central_freq_hz=central,
+        channel_width_hz=width,
+        descending=descending,
+        cell_arcsec=abs(float(pixel)) * 3600 if pixel else None,  # celestial axes are in degrees
+    )
+
+
 def infer_external_cube_geometry(
     *,
     source_type: str,
@@ -47,12 +103,13 @@ def infer_external_cube_geometry(
     if skymodel_path is None:
         raise ValueError("external_skymodel_path is required for external FITS inputs")
 
-    cube = _coerce_fits_to_channel_first(read_image(skymodel_path), source_type=source_type)
+    wcs = read_cube_wcs(skymodel_path)
+    channels = wcs.n_channels or 1
     return {
-        "n_channels": int(cube.shape[0]),
-        "n_pix_y": int(cube.shape[1]),
-        "n_pix_x": int(cube.shape[2]),
-        "n_pix": int(max(cube.shape[1], cube.shape[2])),
+        "n_channels": 1 if source_type == "external-fits-image" else channels,
+        "n_pix_y": wcs.n_pix_y,
+        "n_pix_x": wcs.n_pix_x,
+        "n_pix": wcs.n_pix,
     }
 
 
@@ -103,8 +160,15 @@ def load_external_sky_model(
         fits_input = read_cube(skymodel_path)
         input_header = fits_input.header
         cube = _coerce_fits_to_channel_first(fits_input.data, source_type=source_type)
+        if _descending(input_header):
+            cube = cube[::-1]  # the simulation's channels go up in frequency
+        # Blanked pixels (WSClean writes flagged channels as NaN) hold no emission.
+        blank = int(np.count_nonzero(~np.isfinite(cube)))
+        if blank:
+            cube = np.nan_to_num(cube, nan=0.0, posinf=0.0, neginf=0.0)
         metadata = {
             "input_kind": "fits",
+            "blank_pixels": blank,
             "input_path": str(skymodel_path),
             "alignment_mode": alignment_mode,
             "header_mode": header_mode,
@@ -136,8 +200,13 @@ def load_external_sky_model(
 
 
 def _coerce_fits_to_channel_first(data: np.ndarray, *, source_type: str) -> np.ndarray:
-    """Normalize FITS image/cube data to `(chan, y, x)` order."""
+    """Normalize FITS image/cube data to `(chan, y, x)` order.
+
+    A Stokes axis (numpy's first, FITS's fourth) keeps its first plane, Stokes I.
+    """
     source_type = str(source_type).lower()
+    while data.ndim > 3:
+        data = data[0]
     if data.ndim == 2:
         return data[np.newaxis, :, :].astype(np.float32)
     if data.ndim != 3:
@@ -293,3 +362,11 @@ def _row_value(row, columns: dict[str, str], keys: list[str], *, default: Any) -
             continue
         return value
     return default
+
+
+def _descending(header: fits.Header) -> bool:
+    """Whether the header's FREQ axis runs down in frequency."""
+    for k in range(1, int(header.get("NAXIS", 0)) + 1):
+        if str(header.get(f"CTYPE{k}", "")).upper().startswith("FREQ"):
+            return float(header.get(f"CDELT{k}", 0.0) or 0.0) < 0
+    return False
