@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Command, Param } from './commandForm';
-import { batchGb, simulationArgv, simulationCpus, simulationDefaults } from './simulate';
+import {
+	batchGb,
+	cubeVolume,
+	cubesGb,
+	simulationArgv,
+	simulationCpus,
+	simulationDefaults
+} from './simulate';
 
 const option = (name: string, extra: Partial<Param> = {}): Param => ({
 	name,
@@ -115,5 +122,40 @@ describe('simulationCpus', () => {
 		const values = simulationDefaults(command);
 		expect(values.backend).toBe('local');
 		expect(simulationCpus(values)).toBe(1); // until the page sets the site's CPUs
+	});
+});
+
+describe('runs from input cubes', () => {
+	const command: Command = {
+		...SIMULATION,
+		params: [
+			...SIMULATION.params,
+			option('input_path', { type: 'path', flags: ['--input'] }),
+			option('n_channels', { type: 'integer' }),
+			option('output_dir', { type: 'path' })
+		]
+	};
+	const cube = { path: '/data/cubes/x.ms.split/SPW-1/wsclean-cube-model.fits', label: 'x_SPW-1' };
+
+	it('give the cube and leave its size to it', () => {
+		const values = { ...simulationDefaults(command), n_pix: '64', n_channels: '8' };
+		const argv = simulationArgv(command, values, '/m.csv', 3, false, cube);
+		expect(argv).toContain('--input');
+		expect(argv[argv.indexOf('--input') + 1]).toBe(cube.path);
+		expect(argv).not.toContain('--n-pix');
+		expect(argv).not.toContain('--n-channels');
+	});
+
+	it('get a folder each, named after the cube, in a shared output folder', () => {
+		const values = { ...simulationDefaults(command), output_dir: '/data/sims' };
+		const argv = simulationArgv(command, values, '/m.csv', 3, true, cube);
+		expect(argv[argv.indexOf('--output-dir') + 1]).toBe('/data/sims/x_SPW-1');
+	});
+
+	it('add up by each cube s volume', () => {
+		expect(cubeVolume({ n_pix_x: 10, n_pix_y: 20, n_channels: 3 })).toBe(1200);
+		expect(cubesGb(2, [100, 300], 1)).toBe(8); // the first is 2 GB, the second three times it
+		expect(cubesGb(2, [100, 300], 2)).toBe(16);
+		expect(cubesGb(2, [], 1)).toBe(0);
 	});
 });

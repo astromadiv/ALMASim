@@ -99,3 +99,68 @@ def test_a_missing_row_or_file_is_an_error(client, area):
         "/api/v2/simulation/estimate", json={"metadata_path": str(area / "data" / "nope.csv")}
     )
     assert nothing.status_code == 404
+
+
+EB = "uid___A002_X11a1c8d_X12c8e"  # an execution block of the Cloverleaf observation
+
+
+def _model_cube(path, *, centre_hz=126e9):
+    import numpy as np
+    from astropy.io import fits
+
+    header = fits.Header()
+    header.update(
+        CTYPE1="RA---SIN", CDELT1=-0.4 / 3600, CTYPE2="DEC--SIN", CDELT2=0.4 / 3600,
+        CTYPE3="FREQ", CRPIX3=1.0, CRVAL3=centre_hz - 1.5 * 4e6, CDELT3=4e6, CTYPE4="STOKES",
+    )  # fmt: skip
+    path.parent.mkdir(parents=True)
+    fits.PrimaryHDU(np.zeros((1, 4, 24, 24), dtype=np.float32), header=header).writeto(path)
+    return path
+
+
+@pytest.fixture
+def imaging_run(area):
+    """Two windows of the Cloverleaf observation, and a products CSV that says so."""
+    run = area / "data" / "cubes"
+    for spw in ("SPW-25_FIELD-2", "SPW-27_FIELD-2"):
+        _model_cube(run / f"{EB}.ms.split" / spw / "wsclean-cube-model.fits")
+    with (area / "data" / "resolved_products.csv").open("w", newline="") as f:
+        csv.writer(f).writerows(
+            [["uid", "filename"], [ROW["member_ous_uid"], f"2023.1.00133.S_{EB}.asdm.sdm.tar"]]
+        )
+    return run
+
+
+def test_a_folder_of_cubes_lists_each_window_with_its_row(client, area, imaging_run):
+    got = client.post(
+        "/api/v2/simulation/cubes",
+        json={"metadata_path": str(area / "data" / "meta.csv"), "input_path": str(imaging_run)},
+    )
+    assert got.status_code == 200, got.text
+    body = got.json()
+    assert [(c["label"], c["row_idx"], c["source_name"]) for c in body["cubes"]] == [
+        (f"{EB}_SPW-25_FIELD-2", 0, "Cloverleaf"),
+        (f"{EB}_SPW-27_FIELD-2", 0, "Cloverleaf"),
+    ]
+    cube = body["cubes"][0]
+    assert (cube["n_pix_x"], cube["n_pix_y"], cube["n_channels"]) == (24, 24, 4)
+    assert cube["central_freq_ghz"] == pytest.approx(126.0)
+    assert cube["channel_width_mhz"] == pytest.approx(4.0)
+    assert cube["cell_arcsec"] == pytest.approx(0.4)
+    assert body["unmatched"] == [] and body["products"][0].endswith("resolved_products.csv")
+
+
+def test_an_input_cube_sizes_the_estimate(client, area, imaging_run):
+    cube = next(imaging_run.rglob("wsclean-cube-model.fits"))
+    got = client.post(
+        "/api/v2/simulation/estimate",
+        json={
+            "metadata_path": str(area / "data" / "meta.csv"),
+            "input_path": str(cube),
+            "n_pix": 512,  # ignored: the cube sets its own grid
+        },
+    )
+    assert got.status_code == 200, got.text
+    body = got.json()
+    assert body["cube_shape"] == [4, 24, 24]
+    assert body["cell_size_arcsec"] == pytest.approx(0.4)

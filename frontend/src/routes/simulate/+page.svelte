@@ -23,6 +23,8 @@
 	import {
 		ROW_FIELDS,
 		batchGb,
+		cubeVolume,
+		cubesGb,
 		simulationArgv,
 		simulationCpus,
 		simulationDefaults
@@ -31,6 +33,8 @@
 
 	type Estimate = components['schemas']['Estimate'];
 	type Plan = components['schemas']['Plan'];
+	type CubeList = components['schemas']['CubeList'];
+	type InputCube = components['schemas']['InputCube'];
 
 	let simulation = $state<Command | null>(null);
 	let values = $state<Values>({});
@@ -48,9 +52,31 @@
 	// site gives a simulation job (which the worker count starts from).
 	let plan = $state<Plan | null>(null);
 	let siteCpus = $state<number | null>(null);
+	// Input cubes (optional): a cube, or a folder of them; each matched to the
+	// metadata row of its observation by the console.
+	let inputPath = $state(page.url.searchParams.get('input') ?? '');
+	let cubeList = $state<CubeList | null>(null);
+	let cubesError = $state<unknown>(null);
+	let readingCubes = $state(false);
 
 	const rows = $derived([...selected].sort((a, b) => a - b));
 	const perRow = $derived(Number(values.simulations_per_row) || 1);
+	const usingCubes = $derived(cubeList !== null && inputPath.trim() !== '');
+	// One run per ticked row, or with cubes, per cube of a ticked row.
+	const runs = $derived<{ row: number; cube: InputCube | null }[]>(
+		usingCubes && cubeList
+			? cubeList.cubes
+					.filter((c) => selected.has(c.row_idx))
+					.map((c) => ({ row: c.row_idx, cube: c }))
+			: rows.map((row) => ({ row, cube: null }))
+	);
+	// The page's own fields, and with cubes, what a cube sets itself.
+	const hidden = $derived([
+		...ROW_FIELDS,
+		'input_path',
+		'products_csv',
+		...(usingCubes ? ['n_pix', 'n_channels', 'source_type'] : [])
+	]);
 
 	$effect(() => {
 		void (async () => {
@@ -86,15 +112,45 @@
 		return () => (stale = true);
 	});
 
-	// How big the cubes will be: for the first ticked row, a moment after a change.
+	// The input cubes and their rows, once both paths are set; their rows get ticked.
+	$effect(() => {
+		const path = inputPath.trim();
+		const metadata = metadataPath.trim();
+		cubeList = null;
+		cubesError = null;
+		if (!path || !table) return;
+		const controller = new AbortController();
+		const timer = setTimeout(async () => {
+			readingCubes = true;
+			try {
+				const { data } = await api.POST('/api/v2/simulation/cubes', {
+					body: { metadata_path: metadata, input_path: path },
+					signal: controller.signal
+				});
+				cubeList = data ?? null;
+				if (data) selected = new Set(data.cubes.map((c) => c.row_idx));
+			} catch (err) {
+				if (!controller.signal.aborted) cubesError = err;
+			} finally {
+				readingCubes = false;
+			}
+		}, 400);
+		return () => {
+			clearTimeout(timer);
+			controller.abort();
+		};
+	});
+
+	// How big the cubes will be: for the first run, a moment after a change.
 	$effect(() => {
 		const body = {
 			metadata_path: metadataPath.trim(),
-			row_idx: rows[0] ?? -1,
+			row_idx: runs[0]?.row ?? -1,
 			n_pix: Number(values.n_pix) || null,
 			n_channels: Number(values.n_channels) || null,
 			source_type: String(values.source_type || 'point'),
-			instrument_geometry: String(values.instrument_geometry || 'legacy')
+			instrument_geometry: String(values.instrument_geometry || 'legacy'),
+			input_path: runs[0]?.cube?.path ?? null
 		};
 		if (!table || body.row_idx < 0) {
 			estimate = null;
@@ -125,13 +181,21 @@
 		};
 	});
 
-	// Where and how each run goes: a moment after a change, for the first ticked row.
+	// Where and how each run goes: a moment after a change, for the first run.
 	$effect(() => {
-		if (!simulation || !table || rows[0] === undefined) {
+		const first = runs[0];
+		if (!simulation || !table || !first) {
 			plan = null;
 			return;
 		}
-		const argv = simulationArgv(simulation, values, metadataPath.trim(), rows[0], rows.length > 1);
+		const argv = simulationArgv(
+			simulation,
+			values,
+			metadataPath.trim(),
+			first.row,
+			runs.length > 1,
+			first.cube
+		);
 		const cpus = simulationCpus(values);
 		const controller = new AbortController();
 		const timer = setTimeout(async () => {
@@ -164,18 +228,30 @@
 	});
 
 	async function submit() {
-		if (!simulation || !rows.length) return;
+		if (!simulation || !runs.length) return;
 		submitting = true;
 		const made: Run[] = [];
 		try {
-			for (const i of rows) {
-				const source = table?.records[i]?.ALMA_source_name || `row ${i}`;
+			for (const { row, cube } of runs) {
+				const source = table?.records[row]?.ALMA_source_name || `row ${row}`;
 				const { data } = await api.POST('/api/v2/jobs', {
 					body: {
-						argv: simulationArgv(simulation, values, metadataPath.trim(), i, rows.length > 1),
+						argv: simulationArgv(
+							simulation,
+							values,
+							metadataPath.trim(),
+							row,
+							runs.length > 1,
+							cube
+						),
 						resources: { cpus: simulationCpus(values) },
-						params: { ...values, metadata_path: metadataPath.trim(), row_idx: i },
-						title: `Simulation · ${source}`
+						params: {
+							...values,
+							metadata_path: metadataPath.trim(),
+							row_idx: row,
+							input_path: cube?.path ?? ''
+						},
+						title: `Simulation · ${source}${cube ? ` · ${cube.label}` : ''}`
 					}
 				});
 				if (data) {
@@ -186,7 +262,7 @@
 			toasts.show(`Submitted ${made.length} simulation${made.length === 1 ? '' : 's'}`, 'ok');
 		} catch (err) {
 			toasts.show(
-				`Submitted ${made.length} of ${rows.length}, then: ${errorMessage(err)}`,
+				`Submitted ${made.length} of ${runs.length}, then: ${errorMessage(err)}`,
 				'danger'
 			);
 		} finally {
@@ -233,22 +309,88 @@
 		{:else if table}
 			<ResultsTable records={table.records} columns={table.columns} bind:selected />
 		{/if}
+		{#if table}
+			<PathPicker
+				bind:value={inputPath}
+				label="Sky-model cubes (optional)"
+				kind="path"
+				hint="A cube, or a folder of them (an imaging run's: each spectral window's model cube). Each is simulated with the row of its observation, on its own grid."
+			/>
+			{#if cubesError}
+				<ErrorMessage error={cubesError} title="Could not match the cubes" />
+			{:else if readingCubes}
+				<p class="flex items-center gap-2 text-sm text-fg-muted">
+					<Spinner /> Matching the cubes to the metadata…
+				</p>
+			{:else if cubeList}
+				<p class="m-0 text-sm">
+					{cubeList.cubes.length} cube{cubeList.cubes.length === 1 ? '' : 's'} of
+					{new Set(cubeList.cubes.map((c) => c.row_idx)).size} observation{new Set(
+						cubeList.cubes.map((c) => c.row_idx)
+					).size === 1
+						? ''
+						: 's'} (their rows are ticked): <strong>{runs.length} will run</strong>, each on its own
+					grid.
+					{#if cubeList.unmatched.length}
+						{cubeList.unmatched.length} match no row (their path names no observation here).
+					{/if}
+				</p>
+				{#if cubeList.cubes.length}
+					<div class="max-h-72 overflow-auto">
+						<table class="w-full text-sm" aria-label="Input cubes and their observations">
+							<thead>
+								<tr class="text-left text-xs font-semibold tracking-wide text-fg-muted uppercase">
+									<th scope="col" class="px-3 py-2">Cube</th>
+									<th scope="col" class="px-3 py-2">Observation</th>
+									<th scope="col" class="px-3 py-2 text-right">Pixels × channels</th>
+									<th scope="col" class="px-3 py-2 text-right">Centre GHz</th>
+									<th scope="col" class="px-3 py-2 text-right">Channel MHz</th>
+									<th scope="col" class="px-3 py-2 text-right">Pixel ″</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each cubeList.cubes as cube (`${cube.path}#${cube.row_idx}`)}
+									<tr class="border-t border-sunk {selected.has(cube.row_idx) ? '' : 'opacity-50'}">
+										<td class="max-w-72 truncate px-3 py-1.5 font-mono text-xs" title={cube.path}
+											>{cube.label}</td
+										>
+										<td class="px-3 py-1.5">{cube.source_name} (row {cube.row_idx})</td>
+										<td class="px-3 py-1.5 text-right font-mono"
+											>{cube.n_pix_x} × {cube.n_pix_y} × {cube.n_channels ?? 1}</td
+										>
+										<td class="px-3 py-1.5 text-right font-mono"
+											>{cube.central_freq_ghz?.toFixed(3) ?? '—'}</td
+										>
+										<td class="px-3 py-1.5 text-right font-mono"
+											>{cube.channel_width_mhz?.toFixed(3) ?? '—'}</td
+										>
+										<td class="px-3 py-1.5 text-right font-mono"
+											>{cube.cell_arcsec?.toFixed(3) ?? '—'}</td
+										>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					</div>
+				{/if}
+			{/if}
+		{/if}
 	</section>
 
 	{#if simulation && table}
 		<p class="m-0 text-sm text-fg-muted">
 			<code>{'{run_dir}'}</code> in a path is each run's own folder (its job page lists what is in
 			it). By default every simulation keeps its FITS products and its ML shard there; a folder you
-			choose instead gets one <code>row-&lt;n&gt;</code> folder per observation.
+			choose instead gets one folder per run (<code>row-&lt;n&gt;</code>, or the cube's name).
 		</p>
-		<CommandSections command={simulation} bind:values hide={ROW_FIELDS} />
+		<CommandSections command={simulation} bind:values hide={hidden} />
 
 		<section class="alma-panel flex flex-col gap-3 rounded-lg p-5" aria-labelledby="e-h">
 			<div class="flex items-center gap-2">
 				<h2 id="e-h" class="m-0 text-xl font-semibold">Size</h2>
 				{#if estimating}<Spinner />{/if}
 			</div>
-			{#if !rows.length}
+			{#if !runs.length}
 				<p class="m-0 text-sm text-fg-muted">Tick at least one observation.</p>
 			{:else if estimateError}
 				<ErrorMessage error={estimateError} title="Could not estimate it" />
@@ -261,11 +403,25 @@
 					<strong>{gb(estimate.estimated_standard_output_gb)} GB</strong> of standard outputs.
 				</p>
 				<p class="m-0 text-sm">
-					{rows.length} observation{rows.length === 1 ? '' : 's'} × {perRow} per observation: about
-					<strong
-						>{gb(batchGb(estimate.estimated_standard_output_gb, rows.length, perRow))} GB</strong
-					>
-					in all (if the others are like the first).
+					{#if usingCubes}
+						{runs.length} cube{runs.length === 1 ? '' : 's'} × {perRow} each: about
+						<strong
+							>{gb(
+								cubesGb(
+									estimate.estimated_standard_output_gb,
+									runs.map((r) => (r.cube ? cubeVolume(r.cube) : 0)),
+									perRow
+								)
+							)} GB</strong
+						>
+						in all (each cube's share by its size).
+					{:else}
+						{rows.length} observation{rows.length === 1 ? '' : 's'} × {perRow} per observation: about
+						<strong
+							>{gb(batchGb(estimate.estimated_standard_output_gb, rows.length, perRow))} GB</strong
+						>
+						in all (if the others are like the first).
+					{/if}
 				</p>
 				<p class="m-0 text-xs text-fg-dim">{estimate.note}</p>
 			{/if}
@@ -289,11 +445,13 @@
 				<button
 					type="button"
 					class="btn-accent"
-					disabled={!rows.length || submitting}
+					disabled={!runs.length || submitting}
 					onclick={submit}
 					>{submitting
 						? 'Submitting…'
-						: `Simulate ${rows.length} observation${rows.length === 1 ? '' : 's'}`}</button
+						: usingCubes
+							? `Simulate ${runs.length} cube${runs.length === 1 ? '' : 's'}`
+							: `Simulate ${rows.length} observation${rows.length === 1 ? '' : 's'}`}</button
 				>
 			</div>
 		</section>

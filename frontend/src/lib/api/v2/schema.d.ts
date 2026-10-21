@@ -433,6 +433,26 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	'/api/v2/simulation/cubes': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Input Cubes
+		 * @description The input cubes under a path, each with the metadata row of its observation.
+		 */
+		post: operations['input_cubes_api_v2_simulation_cubes_post'];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	'/api/v2/simulation/estimate': {
 		parameters: {
 			query?: never;
@@ -558,6 +578,24 @@ export interface components {
 			/** Total */
 			total: number;
 		};
+		/** CubeList */
+		CubeList: {
+			/** Cubes */
+			cubes: components['schemas']['InputCube'][];
+			/** Products */
+			products: string[];
+			/** Unmatched */
+			unmatched: string[];
+		};
+		/** CubesRequest */
+		CubesRequest: {
+			/** Input Path */
+			input_path: string;
+			/** Metadata Path */
+			metadata_path: string;
+			/** Products Csv */
+			products_csv?: string | null;
+		};
 		/** Defaults */
 		Defaults: {
 			/** Account */
@@ -630,6 +668,8 @@ export interface components {
 		};
 		/** EstimateRequest */
 		EstimateRequest: {
+			/** Input Path */
+			input_path?: string | null;
 			/**
 			 * Instrument Geometry
 			 * @default legacy
@@ -708,6 +748,31 @@ export interface components {
 		HTTPValidationError: {
 			/** Detail */
 			detail?: components['schemas']['ValidationError'][];
+		};
+		/** InputCube */
+		InputCube: {
+			/** Cell Arcsec */
+			cell_arcsec: number | null;
+			/** Central Freq Ghz */
+			central_freq_ghz: number | null;
+			/** Channel Width Mhz */
+			channel_width_mhz: number | null;
+			/** Label */
+			label: string;
+			/** Member Ous Uid */
+			member_ous_uid: string;
+			/** N Channels */
+			n_channels: number | null;
+			/** N Pix X */
+			n_pix_x: number;
+			/** N Pix Y */
+			n_pix_y: number;
+			/** Path */
+			path: string;
+			/** Row Idx */
+			row_idx: number;
+			/** Source Name */
+			source_name: string;
 		};
 		/**
 		 * JobState
@@ -1799,6 +1864,39 @@ export interface operations {
 				};
 				content: {
 					'application/json': components['schemas']['Profiles'];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	input_cubes_api_v2_simulation_cubes_post: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				'application/json': components['schemas']['CubesRequest'];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['CubeList'];
 				};
 			};
 			/** @description Validation Error */
