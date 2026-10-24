@@ -58,6 +58,7 @@ Thumbs.db
 # Project specific
 *.cfg
 *.npz
+!src/almasim/services/interferometry/data/atm_chajnantor.npz
 *.fits
 wget-log
 frontend/.output/

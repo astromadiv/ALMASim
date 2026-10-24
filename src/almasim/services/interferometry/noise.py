@@ -6,6 +6,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from .atmosphere import system_temperature
+
 K_B = 1.380649e-23
 JY = 1.0e-26
 
@@ -20,6 +22,10 @@ class NoiseModelConfig:
     site: str = "ALMA"
     aperture_efficiency: float = 0.72
     n_polarizations: int = 2
+    # Tsys from CASA's ATM model (atmosphere.py): lines in the signal and image
+    # bands, referred above the atmosphere. Off: the smooth sky below.
+    atmospheric_lines: bool = False
+    sideband: str = "auto"
 
 
 def estimate_receiver_temperature_k(
@@ -73,13 +79,24 @@ def compute_channel_noise(
     n_baselines = max(n_antennas * (n_antennas - 1) / 2.0, 1.0)
 
     trx = estimate_receiver_temperature_k(freqs_hz, config.receiver_model)
-    tsky = estimate_sky_temperature_k(
-        freqs_hz,
-        pwv_mm=config.pwv_mm,
-        elevation_deg=elevation_deg,
-        ground_temperature_k=config.ground_temperature_k,
-    )
-    tsys = np.clip(trx + tsky, 1.0, None)
+    if config.atmospheric_lines:
+        airmass = 1.0 / np.sin(np.deg2rad(max(5.0, min(90.0, float(elevation_deg)))))
+        tsys = system_temperature(
+            freqs_hz,
+            trx,
+            pwv_mm=config.pwv_mm,
+            airmass=airmass,
+            ground_temperature_k=config.ground_temperature_k,
+            sideband=config.sideband,
+        )
+    else:
+        tsky = estimate_sky_temperature_k(
+            freqs_hz,
+            pwv_mm=config.pwv_mm,
+            elevation_deg=elevation_deg,
+            ground_temperature_k=config.ground_temperature_k,
+        )
+        tsys = np.clip(trx + tsky, 1.0, None)
 
     area_m2 = np.pi * (antenna_diameter_m / 2.0) ** 2
     a_eff = max(area_m2 * config.aperture_efficiency, 1e-6)

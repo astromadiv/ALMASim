@@ -9,7 +9,14 @@ from __future__ import annotations
 
 import numpy as np
 
-STREAMS = {"sky": 0, "interferometer": 1, "total_power": 2, "background": 3, "metadata": 4}
+STREAMS = {
+    "sky": 0,
+    "interferometer": 1,
+    "total_power": 2,
+    "background": 3,
+    "metadata": 4,
+    "receiver": 5,
+}
 
 
 def stream_entropy(seed: int | None, stream: str, *keys: int) -> tuple[int, ...] | None:

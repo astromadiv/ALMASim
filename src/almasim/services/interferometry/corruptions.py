@@ -50,6 +50,11 @@ class CorruptionModel:
     fast_slope: float = 5 / 6
     fast_coherence_s: float = 10.0
     outer_scale_km: float = 3.0
+    # The noise across a window follows Tsys: atmospheric lines in the signal
+    # and the image band (atmosphere.system_temperature), and the receiver's
+    # own smooth ripple, as a fraction of Tsys.
+    atmospheric_tsys: bool = False
+    receiver_ripple_rms: float = 0.0
 
     @classmethod
     def from_mapping(cls, values: Mapping[str, Any] | None) -> CorruptionModel | None:
@@ -60,7 +65,11 @@ class CorruptionModel:
         unknown = set(values) - known
         if unknown:
             raise ValueError(f"unknown corruption parameter(s): {', '.join(sorted(unknown))}")
-        return cls(**{k: float(v) for k, v in values.items()})
+        kinds = {f.name: f.type for f in fields(cls)}
+        coerced: dict[str, Any] = {
+            k: _flag(v) if kinds[k] == "bool" else float(v) for k, v in values.items()
+        }
+        return cls(**coerced)
 
     @property
     def correlates_channels(self) -> bool:
@@ -79,12 +88,25 @@ class CorruptionModel:
         )
 
 
+def _flag(value: Any) -> bool:
+    """A switch from JSON, a CLI string or a number."""
+    if isinstance(value, str):
+        if value.strip().lower() in ("1", "true", "yes", "on"):
+            return True
+        if value.strip().lower() in ("0", "false", "no", "off", ""):
+            return False
+        raise ValueError(f"not a switch: {value!r}")
+    return bool(value)
+
+
 # Named models. "alma": what the MADIV-16 windows' calibrated data show
 # (research/noise_realism): native channels Hanning-correlated; on bright
 # sources, after calibration, ~8% antenna amplitude errors per scan, a per-scan
 # phase of ~80 um rms path at 1 km growing as baseline^0.45, and a faster
-# in-scan phase of ~40 um. Faint sources show only the correlated noise.
-PRESETS: dict[str, dict[str, float]] = {
+# in-scan phase of ~40 um. Faint sources show only the correlated noise. Their
+# noise varies across a window as ALMA's Tsys does: the atmosphere's lines and a
+# ~2% receiver ripple (SYSCAL against the measured channel profiles).
+PRESETS: dict[str, dict[str, Any]] = {
     "none": {},
     "alma": {
         "spectral_rho1": 2 / 3,
@@ -96,6 +118,8 @@ PRESETS: dict[str, dict[str, float]] = {
         "fast_path_um_1km": 40.0,
         "fast_slope": 0.3,
         "fast_coherence_s": 10.0,
+        "atmospheric_tsys": True,
+        "receiver_ripple_rms": 0.02,
     },
 }
 

@@ -469,8 +469,9 @@ def simulation_run(
         "--corruptions",
         help=(
             "What the visibilities carry besides white thermal noise: a preset "
-            "('alma': ALMA's channel-correlated noise, antenna gain errors and "
-            "residual atmospheric phase, as measured on real calibrated data; "
+            "('alma': ALMA's channel-correlated noise, varying across the window as "
+            "its Tsys does, antenna gain errors and residual atmospheric phase, as "
+            "measured on real calibrated data; "
             "'none'), a JSON object of CorruptionModel fields, or a JSON file."
         ),
         rich_help_panel="Advanced",

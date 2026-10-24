@@ -172,7 +172,7 @@ $ almasim simulation [OPTIONS]
 * `--backend <sync|local>`: How the channels are imaged: sync, one after another in one process; local, in parallel worker processes on this node (--n-workers).  [default: sync]
 * `--n-workers <int range>`: Worker processes for --backend local; give the job as many CPUs.  [default: 1; x>=1]
 * `--kaggle-token <path>`: Path to a Kaggle credentials file (JSON with username/key, e.g. kaggle.json or access_token) or the directory containing it, used to download morphology images for the galaxy-zoo / hubble-100 source types. Defaults to the standard Kaggle locations if omitted.
-* `--corruptions <str>`: What the visibilities carry besides white thermal noise: a preset ('alma': ALMA's channel-correlated noise, antenna gain errors and residual atmospheric phase, as measured on real calibrated data; 'none'), a JSON object of CorruptionModel fields, or a JSON file.
+* `--corruptions <str>`: What the visibilities carry besides white thermal noise: a preset ('alma': ALMA's channel-correlated noise, varying across the window as its Tsys does, antenna gain errors and residual atmospheric phase, as measured on real calibrated data; 'none'), a JSON object of CorruptionModel fields, or a JSON file.
 * `--help`: Show this message and exit.
 
 # `almasim visibilities`

@@ -9,8 +9,11 @@ import astropy.units as U
 import numpy as np
 
 from .. import interferometry as uin
+from ..interferometry.atmosphere import receiver_ripple
+from ..interferometry.corruptions import CorruptionModel
 from .geometry import CubeGeometry
 from .params import SimulationParams
+from .rng import run_rng
 
 
 @dataclass(frozen=True)
@@ -87,13 +90,15 @@ def plan_observation_runs(
 ) -> tuple[list[InterferometerRun], list[TotalPowerRun]]:
     """The interferometric and total-power runs, one per configuration."""
     observation_plan = geometry.observation_plan
+    corruptions = CorruptionModel.from_mapping(params.corruptions)
     interferometer_runs = []
     total_power_runs = []
-    for config in observation_plan.configs:
+    for index, config in enumerate(observation_plan.configs):
         raw_noise_profile = uin.compute_channel_noise(
             uin.NoiseModelConfig(
                 pwv_mm=params.pwv,
                 ground_temperature_k=params.ground_temperature_k,
+                atmospheric_lines=corruptions is not None and corruptions.atmospheric_tsys,
             ),
             channel_frequencies_hz,
             geometry.channel_width_hz,
@@ -102,6 +107,12 @@ def plan_observation_runs(
             antenna_diameter_m=config.antenna_diameter_m,
             n_antennas=_count_antennas(config.antenna_array),
         )
+        if corruptions is not None and corruptions.receiver_ripple_rms > 0:
+            rng = run_rng(params.seed, "receiver", index)
+            ripple = receiver_ripple(
+                rng, np.size(raw_noise_profile), corruptions.receiver_ripple_rms
+            )
+            raw_noise_profile = np.asarray(raw_noise_profile) * (1.0 + ripple)
         noise_profile = uin.calibrate_noise_profile(
             raw_noise_profile,
             reference_noise=base_noise_reference,
