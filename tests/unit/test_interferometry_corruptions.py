@@ -210,6 +210,46 @@ def test_baseline_errors_do_not_close_and_hold_for_a_scan():
 
 
 @pytest.mark.unit
+def test_baseline_errors_act_on_the_continuum_share_only():
+    """With baseline_weight w, a baseline's own error b acts as 1 + w (b - 1):
+    w = 0 leaves the antenna gains alone, w = 1 applies b whole."""
+    xy = np.random.default_rng(0).uniform(0, 500, (6, 2))
+    model = CorruptionModel(gain_phase_rms_deg=10, baseline_amp_rms=0.2, baseline_phase_rms_deg=20)
+    errors = draw_antenna_corruptions(model, xy, np.arange(4) * 30.0, np.random.default_rng(1))
+    pairs = baseline_antennas(6)
+    whole = errors.baseline_gains(pairs, 1e-3)
+    none = errors.baseline_gains(pairs, 1e-3, baseline_weight=0.0)
+    half = errors.baseline_gains(pairs, 1e-3, baseline_weight=0.5)
+    g = errors.amplitude * np.exp(1j * (errors.phase + 2 * np.pi * errors.path_m / 1e-3))
+    assert np.allclose(none, g[pairs[:, 0]] * np.conj(g[pairs[:, 1]]), atol=1e-5)
+    assert np.allclose(half, (none + whole) / 2, atol=1e-5)
+    assert not np.allclose(whole, none)
+
+
+@pytest.mark.unit
+def test_continuum_fraction_follows_the_lines():
+    """The continuum's share of each channel: 1 away from the lines, lower on them."""
+    from almasim.services.simulation.spectral_setup import SpectralSetup
+
+    spectral = SpectralSetup(
+        continuum=np.full(40, 0.01),
+        line_fluxes=[1.0],
+        line_names=["CO"],
+        line_frequency=None,
+        redshift=0.0,
+        rest_frequency=None,
+        source_channel_index=[20],
+        fwhm_z=[4.0],
+        lum_infrared=None,
+    )
+    fraction = spectral.continuum_fraction(40)
+    assert fraction.shape == (40,)
+    assert np.allclose(fraction[:5], 1.0, atol=1e-6) and np.allclose(fraction[-5:], 1.0, atol=1e-6)
+    assert fraction[20] < 0.1
+    assert spectral.continuum_fraction(39) is None
+
+
+@pytest.mark.unit
 def test_antenna_ripple_has_its_rms_and_frequency_scale():
     """Each antenna's noise variance varies about 1 by the rms asked for, smoothly:
     its autocorrelation falls to half at the scale asked for."""

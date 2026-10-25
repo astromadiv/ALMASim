@@ -31,6 +31,27 @@ class SpectralSetup:
     fwhm_z: Any
     lum_infrared: Any
 
+    def continuum_fraction(self, n_chan: int) -> np.ndarray | None:
+        """Each channel's continuum share of the source's flux, continuum over
+        continuum plus lines (with the lines' profiles as the sky models draw
+        them); None when the run has no continuum spectrum (an external model)."""
+        from ...skymodels.utils import gaussian
+
+        continuum = np.asarray(self.continuum, dtype=float).reshape(-1)
+        if continuum.size != n_chan:
+            return None
+        channels = np.arange(n_chan)
+        lines = np.zeros(n_chan)
+        fluxes: np.ndarray = np.atleast_1d(
+            np.asarray(self.line_fluxes if self.line_fluxes is not None else [], dtype=float)
+        )
+        centres = np.atleast_1d(self.source_channel_index)
+        widths = np.atleast_1d(self.fwhm_z)
+        for flux, centre, width in zip(fluxes, centres, widths, strict=False):
+            lines += gaussian(channels, float(flux), float(centre), float(width))
+        total = continuum + lines
+        return np.divide(continuum, total, out=np.ones(n_chan), where=total > 0).clip(0.0, 1.0)
+
 
 def resolve_spectral_setup(  # noqa: C901
     params: SimulationParams,

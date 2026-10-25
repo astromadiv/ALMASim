@@ -60,7 +60,11 @@ Two more terms, also in `--corruptions alma`, come from the same 100 windows:
   that does not factor into its antennas' gains, so self-calibration cannot
   remove it, and it limits the continuum's dynamic range: about 6% and 2.5 deg
   (the median of the 13 bright windows where it is measurable;
-  `baseline_amp_rms`, `baseline_phase_rms_deg`).
+  `baseline_amp_rms`, `baseline_phase_rms_deg`). It acts on each channel's
+  continuum share of the source only: what does not close in calibrated
+  data is mostly continuum structure the model lacks, which leaves line
+  emission alone. An external sky model, whose continuum is not known
+  apart, takes it on all its emission.
 
 ## Inputs
 

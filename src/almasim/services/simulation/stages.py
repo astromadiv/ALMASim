@@ -12,6 +12,7 @@ import numpy as np
 
 from ... import skymodels as usm
 from .. import interferometry as uin
+from ..external_skymodel import is_external_source_type
 from ..imaging import build_image_products
 from ..instrument.constants import GAUSSIAN_BEAM_AREA
 from ..interferometry.corruptions import CorruptionModel
@@ -53,6 +54,9 @@ class CleanCubeStage:
     external_input_metadata: dict[str, Any] | None
     seed: int | None = None
     corruptions: CorruptionModel | None = None
+    # Each channel's continuum share of the source (SpectralSetup.continuum_fraction):
+    # the per-baseline errors act on it only. None: on all the emission.
+    continuum_fraction: np.ndarray | None = None
 
 
 def generate_clean_cube(
@@ -184,6 +188,11 @@ def generate_clean_cube(
         cell_size_arcsec=geometry.cell_size.to(U.arcsec).value,
         background_cube=sky.background_cube.astype(np.float32),
         external_input_metadata=sky.external_input_metadata,
+        continuum_fraction=(
+            None
+            if is_external_source_type(params.source_type)
+            else spectral.continuum_fraction(geometry.n_channels)
+        ),
     )
 
 
@@ -218,6 +227,7 @@ def simulate_observation(  # noqa: C901
             logger=terminal_logger,
             noise_entropy=stream_entropy(clean_cube_stage.seed, "interferometer", config_index),
             corruptions=clean_cube_stage.corruptions,
+            continuum_fraction=clean_cube_stage.continuum_fraction,
             **run.interferometer_kwargs(),
         )
         if interferometer_progress_callback is not None:

@@ -244,13 +244,21 @@ class AntennaCorruptions:
     # None: nothing.
     baseline: np.ndarray | None = None
 
-    def baseline_gains(self, antnum: np.ndarray, wavelength_m: float) -> np.ndarray:
+    def baseline_gains(
+        self, antnum: np.ndarray, wavelength_m: float, baseline_weight: float = 1.0
+    ) -> np.ndarray:
         """g1 conj(g2) (times the baseline's own error) for each baseline (rows
-        of ``antnum``) and integration."""
+        of ``antnum``) and integration.
+
+        ``baseline_weight``: the share of the visibility the baseline's own error
+        acts on, 1 + w (b - 1); the continuum's share of a channel, since what
+        does not close in calibrated data is mostly continuum structure the
+        model lacks, which leaves line emission alone."""
         g = self.amplitude * np.exp(1j * (self.phase + 2.0 * np.pi * self.path_m / wavelength_m))
         gains = g[antnum[:, 0]] * np.conj(g[antnum[:, 1]])
         if self.baseline is not None:
-            gains = gains * self.baseline[antnum[:, 0], antnum[:, 1]]
+            own = self.baseline[antnum[:, 0], antnum[:, 1]]
+            gains = gains * (1.0 + baseline_weight * (own - 1.0))
         return gains.astype(np.complex64)
 
 
