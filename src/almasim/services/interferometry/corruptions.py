@@ -117,7 +117,11 @@ def _flag(value: Any) -> bool:
 # phase of ~80 um rms path at 1 km growing as baseline^0.45, and a faster
 # in-scan phase of ~40 um. Faint sources show only the correlated noise. Their
 # noise varies across a window as ALMA's Tsys does: the atmosphere's lines and a
-# ~2% receiver ripple (SYSCAL against the measured channel profiles).
+# ~2% receiver ripple (SYSCAL against the measured channel profiles). Each
+# antenna's noise has, besides, its own ~2% ripple over ~120 MHz (the median of
+# the 73 windows wider than 1 GHz; the 27 narrow ones show ~1 MHz structure), and
+# on bright sources each baseline keeps ~6% and ~2.5 deg per scan that do not
+# close (the median of the 13 bright windows where that is measurable).
 PRESETS: dict[str, dict[str, Any]] = {
     "none": {},
     "alma": {
@@ -132,6 +136,10 @@ PRESETS: dict[str, dict[str, Any]] = {
         "fast_coherence_s": 10.0,
         "atmospheric_tsys": True,
         "receiver_ripple_rms": 0.02,
+        "antenna_ripple_rms": 0.02,
+        "antenna_ripple_mhz": 120.0,
+        "baseline_amp_rms": 0.06,
+        "baseline_phase_rms_deg": 2.5,
     },
 }
 

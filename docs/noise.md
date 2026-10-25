@@ -45,6 +45,23 @@ g Tsky_image), with the image band one IF centre on the other side of the LO
 and the sideband whose image gives the lower Tsys. The ripple is drawn from
 the run's seed.
 
+## Per Antenna and Per Baseline
+
+Two more terms, also in `--corruptions alma`, come from the same 100 windows:
+
+- Each antenna's noise has its own smooth ripple across the window, beyond the
+  array's: about 2% of its noise variance, holding over about 120 MHz (the
+  median of the 73 windows wider than 1 GHz; narrow windows show finer, ~1 MHz
+  structure). A baseline's noise variance is the product of its two antennas'.
+  WEIGHT does not follow it, so it shows as antennas whose noise differs from
+  their weights and as heavier tails in the visibility noise
+  (`antenna_ripple_rms`, `antenna_ripple_mhz`).
+- On bright sources, each baseline keeps an amplitude and phase error per scan
+  that does not factor into its antennas' gains, so self-calibration cannot
+  remove it, and it limits the continuum's dynamic range: about 6% and 2.5 deg
+  (the median of the 13 bright windows where it is measurable;
+  `baseline_amp_rms`, `baseline_phase_rms_deg`).
+
 ## Inputs
 
 The key inputs are:
