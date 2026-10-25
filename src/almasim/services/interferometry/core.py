@@ -79,6 +79,7 @@ class Interferometer:
         spectral_window: SpectralWindow | None = None,
         noise_entropy: tuple[int, ...] | None = None,
         corruptions: CorruptionModel | None = None,
+        continuum_fraction: np.ndarray | None = None,
     ):
         """
         Initialize interferometer.
@@ -137,6 +138,7 @@ class Interferometer:
         """
         self.noise_entropy = noise_entropy
         self.corruptions = corruptions
+        self.continuum_fraction = continuum_fraction
         self.idx = idx
         self.skymodel = skymodel
         self.backend = backend
@@ -305,6 +307,9 @@ class Interferometer:
         else:
             entropy = tuple(int(x) for x in np.random.SeedSequence().generate_state(4))
         fields = {"corruptions": model, "corruption_entropy": (*entropy, 2)}
+        fraction = self.continuum_fraction
+        if fraction is not None and np.size(fraction) == self.Nchan:
+            fields["continuum_fraction"] = np.asarray(fraction, dtype=np.float64)
         if model.has_antenna_errors:
             times_s = np.arange(self.nH) * float(self.scan_time)
             antenna_xy_m = np.asarray(self.antPos, dtype=np.float64)[:, :2] * 1e3

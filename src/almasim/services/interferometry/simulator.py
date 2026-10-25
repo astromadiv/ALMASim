@@ -77,6 +77,9 @@ class ChannelImagingConfig:
     # Each antenna's noise variance per channel (corruptions.antenna_ripple),
     # (nant, nchan); None: every antenna alike.
     antenna_noise: np.ndarray | None = None
+    # Each channel's continuum share of the source: the per-baseline errors act on
+    # that part of its visibilities only. None: on all of them.
+    continuum_fraction: np.ndarray | None = None
 
     def channel_rng(self, channel: int) -> np.random.Generator:
         """The generator of ``channel``: the same whichever worker images it."""
@@ -92,8 +95,11 @@ def image_configured_channel(
     corrupted: dict[str, np.ndarray] = {}  # passed only when there are corruptions
     if config.antenna_corruptions is not None:
         wavelength_m = float(wavelength[2]) * 1e3  # the simulator's wavelengths are in km
+        fraction = config.continuum_fraction
         corrupted["gains"] = config.antenna_corruptions.baseline_gains(
-            baseline_antennas(config.Nant), wavelength_m
+            baseline_antennas(config.Nant),
+            wavelength_m,
+            baseline_weight=1.0 if fraction is None else float(fraction[channel]),
         )
     model = config.corruptions
     if model is not None and model.correlates_channels:
