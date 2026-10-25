@@ -6,6 +6,7 @@ import pytest
 from almasim.services.interferometry.corruptions import (
     AntennaCorruptions,
     CorruptionModel,
+    antenna_ripple,
     baseline_antennas,
     correlated_noise,
     draw_antenna_corruptions,
@@ -168,6 +169,76 @@ def test_channel_applies_the_drawn_gains_to_its_rows():
     expected = errors.baseline_gains(baseline_antennas(4), 1.0e-3).reshape(-1)
     valid = rows["valid"]
     assert np.allclose(rows_c["data"][valid], rows["data"][valid] * expected[valid], atol=1e-5)
+
+
+@pytest.mark.unit
+def test_baseline_errors_do_not_close_and_hold_for_a_scan():
+    """Antenna gains cancel in a closure phase; the baselines' own errors do not.
+    They hold for a scan and have the rms asked for."""
+    xy = np.random.default_rng(0).uniform(0, 500, (12, 2))
+    times = np.arange(20) * 30.0
+    antennas = draw_antenna_corruptions(
+        CorruptionModel(gain_phase_rms_deg=30, scan_length_s=300),
+        xy,
+        times,
+        np.random.default_rng(3),
+    )
+    both = draw_antenna_corruptions(
+        CorruptionModel(
+            gain_phase_rms_deg=30,
+            scan_length_s=300,
+            baseline_amp_rms=0.05,
+            baseline_phase_rms_deg=5,
+        ),
+        xy,
+        times,
+        np.random.default_rng(3),
+    )
+    pairs = baseline_antennas(12)
+    index = {(int(i), int(j)): k for k, (i, j) in enumerate(pairs)}
+
+    def closure(gains):
+        return np.angle(gains[index[0, 1]] * gains[index[1, 2]] * np.conj(gains[index[0, 2]]))
+
+    g_ant, g_both = antennas.baseline_gains(pairs, 1e-3), both.baseline_gains(pairs, 1e-3)
+    assert np.allclose(closure(g_ant), 0, atol=1e-5)
+    assert np.std(closure(g_both)) > np.radians(3)
+    own = g_both / g_ant  # the antenna draws come first, so they are the same
+    assert np.allclose(own[:, :10], own[:, :1]) and np.allclose(own[:, 10:], own[:, 10:11])
+    assert np.std(np.log(np.abs(own[:, 0]))) == pytest.approx(0.05, rel=0.3)
+    assert np.degrees(np.std(np.angle(own[:, 0]))) == pytest.approx(5, rel=0.3)
+
+
+@pytest.mark.unit
+def test_antenna_ripple_has_its_rms_and_frequency_scale():
+    """Each antenna's noise variance varies about 1 by the rms asked for, smoothly:
+    its autocorrelation falls to half at the scale asked for."""
+    freq = 230e9 + np.arange(4000) * 0.5e6  # 2 GHz in 0.5 MHz channels
+    g = antenna_ripple(np.random.default_rng(1), 200, freq, 0.02, 100.0)
+    assert g.shape == (200, 4000)
+    assert abs(np.mean(g) - 1) < 0.002
+    assert np.std(g) == pytest.approx(0.02, rel=0.1)
+    x = g - g.mean(axis=1, keepdims=True)
+    lags = np.arange(1, 600)
+    ac = np.array([np.mean(x[:, :-k] * x[:, k:]) for k in lags]) / np.mean(x * x)
+    half_mhz = lags[np.argmax(ac < 0.5)] * 0.5
+    assert half_mhz == pytest.approx(100.0, rel=0.25)
+    assert np.all(antenna_ripple(np.random.default_rng(1), 3, freq, 0.0, 100.0) == 1)
+
+
+@pytest.mark.unit
+def test_channel_scales_each_baselines_noise_by_its_antennas():
+    """With antenna_noise, a baseline's noise is the same draw times sqrt(g_i g_j)."""
+    sky = np.zeros((64, 64))
+    wavelength = [1.0e-6, 1.0e-6, 1.0e-6]
+    g = np.array([[1.0], [1.21], [0.81], [1.0]])  # (nant, nchan)
+    plain = image_configured_channel(_config(), sky, wavelength, 1.0, channel=0)[-1]
+    scaled = image_configured_channel(_config(antenna_noise=g), sky, wavelength, 1.0, channel=0)[-1]
+    pairs = baseline_antennas(4)
+    factor = np.repeat(np.sqrt(g[pairs[:, 0], 0] * g[pairs[:, 1], 0]), 6)
+    valid = plain["valid"]
+    assert np.allclose(scaled["data"][valid], plain["data"][valid] * factor[valid], atol=1e-5)
+    assert not np.allclose(factor, 1)
 
 
 @pytest.mark.unit

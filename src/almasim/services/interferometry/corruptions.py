@@ -55,6 +55,16 @@ class CorruptionModel:
     # own smooth ripple, as a fraction of Tsys.
     atmospheric_tsys: bool = False
     receiver_ripple_rms: float = 0.0
+    # Each antenna's own smooth ripple of its noise across the window, beyond
+    # the array's (receivers and IF chains differ): the fractional rms of its
+    # noise variance, and the frequency scale (MHz) over which it holds.
+    antenna_ripple_rms: float = 0.0
+    antenna_ripple_mhz: float = 100.0
+    # Errors of a baseline that do not factor into its antennas' (closure
+    # errors; self-calibration cannot take them out), per scan: fractional
+    # amplitude and phase (degrees).
+    baseline_amp_rms: float = 0.0
+    baseline_phase_rms_deg: float = 0.0
 
     @classmethod
     def from_mapping(cls, values: Mapping[str, Any] | None) -> CorruptionModel | None:
@@ -84,6 +94,8 @@ class CorruptionModel:
                 self.gain_phase_rms_deg,
                 self.slow_path_um_1km,
                 self.fast_path_um_1km,
+                self.baseline_amp_rms,
+                self.baseline_phase_rms_deg,
             )
         )
 
@@ -105,7 +117,11 @@ def _flag(value: Any) -> bool:
 # phase of ~80 um rms path at 1 km growing as baseline^0.45, and a faster
 # in-scan phase of ~40 um. Faint sources show only the correlated noise. Their
 # noise varies across a window as ALMA's Tsys does: the atmosphere's lines and a
-# ~2% receiver ripple (SYSCAL against the measured channel profiles).
+# ~2% receiver ripple (SYSCAL against the measured channel profiles). Each
+# antenna's noise has, besides, its own ~2% ripple over ~120 MHz (the median of
+# the 73 windows wider than 1 GHz; the 27 narrow ones show ~1 MHz structure), and
+# on bright sources each baseline keeps ~6% and ~2.5 deg per scan that do not
+# close (the median of the 13 bright windows where that is measurable).
 PRESETS: dict[str, dict[str, Any]] = {
     "none": {},
     "alma": {
@@ -120,6 +136,10 @@ PRESETS: dict[str, dict[str, Any]] = {
         "fast_coherence_s": 10.0,
         "atmospheric_tsys": True,
         "receiver_ripple_rms": 0.02,
+        "antenna_ripple_rms": 0.02,
+        "antenna_ripple_mhz": 120.0,
+        "baseline_amp_rms": 0.06,
+        "baseline_phase_rms_deg": 2.5,
     },
 }
 
@@ -220,11 +240,18 @@ class AntennaCorruptions:
     amplitude: np.ndarray  # (nant, ntime)
     phase: np.ndarray  # (nant, ntime)
     path_m: np.ndarray  # (nant, ntime)
+    # Per (antenna1, antenna2, integration): what does not factor by antenna;
+    # None: nothing.
+    baseline: np.ndarray | None = None
 
     def baseline_gains(self, antnum: np.ndarray, wavelength_m: float) -> np.ndarray:
-        """g1 conj(g2) for each baseline (rows of ``antnum``) and integration."""
+        """g1 conj(g2) (times the baseline's own error) for each baseline (rows
+        of ``antnum``) and integration."""
         g = self.amplitude * np.exp(1j * (self.phase + 2.0 * np.pi * self.path_m / wavelength_m))
-        return (g[antnum[:, 0]] * np.conj(g[antnum[:, 1]])).astype(np.complex64)
+        gains = g[antnum[:, 0]] * np.conj(g[antnum[:, 1]])
+        if self.baseline is not None:
+            gains = gains * self.baseline[antnum[:, 0], antnum[:, 1]]
+        return gains.astype(np.complex64)
 
 
 def scan_index(times_s: np.ndarray, scan_length_s: float) -> np.ndarray:
@@ -246,7 +273,7 @@ def draw_antenna_corruptions(
     sampled at the antennas, then the fast screen per integration (each
     blended with the last over ``fast_coherence_s``, less each antenna's mean
     over its scan, and scaled so the median antenna pair's rms path difference
-    follows the model's power law).
+    follows the model's power law), then the baselines' own errors per scan.
     """
     xy = np.asarray(antenna_xy_m, dtype=np.float64)[:, :2]
     times_s = np.asarray(times_s, dtype=np.float64)
@@ -293,7 +320,46 @@ def draw_antenna_corruptions(
             if scale > 0:
                 path += (fast * model.fast_path_um_1km * 1e-6 / scale).T
 
-    return AntennaCorruptions(amplitude=amplitude, phase=phase, path_m=path)
+    # Drawn last, so the antenna errors stay as they were without it.
+    baseline = _baseline_errors(model, nant, scans, rng)
+    return AntennaCorruptions(amplitude=amplitude, phase=phase, path_m=path, baseline=baseline)
+
+
+def _baseline_errors(
+    model: CorruptionModel, nant: int, scans: np.ndarray, rng: np.random.Generator
+) -> np.ndarray | None:
+    """Each baseline's own complex error per scan, (nant, nant, ntime); None when off."""
+    if model.baseline_amp_rms <= 0 and model.baseline_phase_rms_deg <= 0:
+        return None
+    nscan = int(scans.max()) + 1
+    amp = rng.normal(0.0, model.baseline_amp_rms, (nant, nant, nscan))
+    ph = rng.normal(0.0, np.radians(model.baseline_phase_rms_deg), (nant, nant, nscan))
+    return np.exp(amp + 1j * ph)[:, :, scans]
+
+
+def antenna_ripple(
+    rng: np.random.Generator, nant: int, freq_hz: np.ndarray, rms: float, scale_mhz: float
+) -> np.ndarray:
+    """Each antenna's noise variance across the window, as a factor about 1
+    (nant, nchan): white draws smoothed in frequency by a Gaussian whose
+    autocorrelation falls to half at ``scale_mhz``, scaled to ``rms`` per
+    antenna. A baseline's noise variance is then g_i g_j times the array's, so
+    an antenna's mean over its baselines varies by ``rms``."""
+    freq_hz = np.asarray(freq_hz, dtype=np.float64)
+    nchan = freq_hz.size
+    if rms <= 0 or nchan == 0:
+        return np.ones((nant, nchan))
+    step_mhz = float(np.median(np.abs(np.diff(freq_hz)))) / 1e6 if nchan > 1 else scale_mhz
+    # A Gaussian kernel of width s gives an autocorrelation of width s*sqrt(2),
+    # at half maximum sqrt(2 ln 2) * s * sqrt(2) = 2 sqrt(ln 2) s.
+    sigma = scale_mhz / (2.0 * np.sqrt(np.log(2.0))) / max(step_mhz, 1e-12)
+    pad = int(np.ceil(4 * sigma))
+    white = rng.standard_normal((nant, nchan + 2 * pad))
+    x = np.arange(-pad, pad + 1)
+    kernel = np.exp(-0.5 * (x / max(sigma, 1e-6)) ** 2)
+    smooth = np.stack([np.convolve(row, kernel, mode="valid") for row in white])
+    smooth /= np.sqrt(np.sum(kernel**2))  # unit variance, whatever the width
+    return np.clip(1.0 + rms * smooth, 0.05, None)
 
 
 def baseline_antennas(nant: int) -> np.ndarray:

@@ -19,7 +19,7 @@ from ..instrument.constants import ALMA_LATITUDE_DEG, SPEED_OF_LIGHT_M_S
 from ..instrument.spectral_window import SpectralWindow
 from ..products.cube_export import write_interferometry_products
 from .antenna import read_array_layout
-from .corruptions import CorruptionModel, draw_antenna_corruptions
+from .corruptions import CorruptionModel, antenna_ripple, draw_antenna_corruptions
 from .observing import alma_location, clip_to_horizon, hour_angle_coverage, hour_angle_samples
 from .simulator import ChannelImagingConfig, image_channels, picklable_header, stack_channels
 from .utils import get_channel_wavelength
@@ -310,6 +310,14 @@ class Interferometer:
             antenna_xy_m = np.asarray(self.antPos, dtype=np.float64)[:, :2] * 1e3
             fields["antenna_corruptions"] = draw_antenna_corruptions(
                 model, antenna_xy_m, times_s, np.random.default_rng((*entropy, 1))
+            )
+        if model.antenna_ripple_rms > 0:
+            fields["antenna_noise"] = antenna_ripple(
+                np.random.default_rng((*entropy, 3)),
+                self.Nant,
+                self.spectral_window.frequencies_hz(),
+                model.antenna_ripple_rms,
+                model.antenna_ripple_mhz,
             )
         return fields
 

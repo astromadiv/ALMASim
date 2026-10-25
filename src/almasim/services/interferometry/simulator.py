@@ -74,6 +74,9 @@ class ChannelImagingConfig:
     # Keys the white draws correlated noise is built from (set whenever the
     # model correlates channels, seeded or not: every channel task needs them).
     corruption_entropy: tuple[int, ...] | None = None
+    # Each antenna's noise variance per channel (corruptions.antenna_ripple),
+    # (nant, nchan); None: every antenna alike.
+    antenna_noise: np.ndarray | None = None
 
     def channel_rng(self, channel: int) -> np.random.Generator:
         """The generator of ``channel``: the same whichever worker images it."""
@@ -103,6 +106,10 @@ def image_configured_channel(
         corrupted["noise_samples"] = correlated_noise(
             config.corruption_entropy, channel, shape, float(noise), kernel
         )
+    if config.antenna_noise is not None:
+        pairs = baseline_antennas(config.Nant)
+        g = config.antenna_noise[:, channel]
+        corrupted["noise_scale"] = np.sqrt(g[pairs[:, 0]] * g[pairs[:, 1]])
     return image_channel(
         image,
         wavelength,
