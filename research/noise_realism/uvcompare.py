@@ -162,20 +162,27 @@ class Stats:
         out[f"{prefix}_noise_deg"] = [float(np.degrees(np.median(s))) if len(s) > 5 else None for s in sig]
         return out
 
-    def antenna_solve(self, min_den: float = 100.0) -> dict:
+    def antenna_solve(self, min_den: float = 100.0, short: bool = False) -> dict:
         """Per scan, ln A of each bright (baseline, scan) split into antenna terms,
         ln A_ij = ln g_i + conj(ln g_j), by least squares: the rms of the antennas'
         amplitude (ln|g|) and phase, and of what does not close (baseline-based:
         the model not matching the source, or noise). Noise alone gives some of
-        each; compare with the thermal simulation."""
+        each; compare with the thermal simulation.
+
+        ``short``: the same per 30 s within a scan (groups30). What does not close
+        is then split into its mean over the baseline's scan and what varies
+        within the scan (nonclosing30_*): errors that change within a scan show
+        as the latter beyond what the simulation's noise gives."""
         by_scan: dict[int, list] = {}
-        for key, (num, den, _) in self.groups.items():
+        source = self.groups30 if short else self.groups
+        for key, (num, den, _) in source.items():
             if den > min_den:
-                scan = key % 100_000
-                pair = key // 100_000
-                by_scan.setdefault(scan, []).append((pair // 10_000, pair % 10_000, num / den))
-        amp, ph, res_a, res_p = [], [], [], []
-        for rows in by_scan.values():
+                base, tbin = (key // 1_000_000, key % 1_000_000) if short else (key, 0)
+                scan = base % 100_000
+                pair = base // 100_000
+                by_scan.setdefault((scan, tbin), []).append((pair // 10_000, pair % 10_000, num / den))
+        amp, ph, res_a, res_p, owner = [], [], [], [], []
+        for (scan, _), rows in by_scan.items():
             ants = sorted({a for r in rows for a in r[:2]})
             if len(rows) < 2 * len(ants):
                 continue
@@ -193,8 +200,21 @@ class Stats:
             ph.extend(gp - gp.mean())
             res_a.extend(la - design @ ga)
             res_p.extend(np.angle(np.exp(1j * (lp - dphase @ gp))))
+            owner.extend((i, j, scan) for i, j, _ in rows)
         if not amp:
             return {}
+        if short:
+            out = {"nonclosing30_lnamp_rms": float(np.std(res_a)), "nonclosing30_phase_rms_deg": float(np.degrees(np.std(res_p)))}
+            keys = np.array([(i * 10_000 + j) * 100_000 + s for i, j, s in owner])
+            uniq, inv, counts = np.unique(keys, return_inverse=True, return_counts=True)
+            for name, res in (("lnamp", np.array(res_a)), ("phase", np.array(res_p))):
+                mean = np.bincount(inv, res, len(uniq)) / counts
+                many = counts[inv] > 1
+                within = (res - mean[inv])[many] * np.sqrt(counts[inv][many] / (counts[inv][many] - 1))
+                scale = np.degrees(1) if name == "phase" else 1.0
+                out[f"nonclosing30_{name}_scanmean_rms"] = float(np.std(mean[counts > 1]) * scale)
+                out[f"nonclosing30_{name}_within_rms"] = float(np.std(within) * scale)
+            return out
         return {
             "ant_lnamp_rms": float(np.std(amp)),
             "ant_phase_rms_deg": float(np.degrees(np.std(ph))),
@@ -248,6 +268,7 @@ class Stats:
             **self.group_result(),
             **self.group_result(min_den=25.0, groups=self.groups30, prefix="group30"),
             **self.antenna_solve(),
+            **self.antenna_solve(min_den=25.0, short=True),
         }
 
 

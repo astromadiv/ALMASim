@@ -460,9 +460,20 @@ class Simulator:
             b1 = np.stack([self.bandpass[a] for a in a1])
             b2 = np.stack([self.bandpass[a] for a in a2])
             factor *= b1 * np.conj(b2)
+        corrupted = vis[:, :, None] * factor
         if self.baseline_errors is not None:
-            factor *= self.baseline_errors.factors(a1, a2, scan)[:, None, None]
-        data[:, :, self.hands] = (vis[:, :, None] * factor).astype(np.complex64)
+            b = self.baseline_errors.factors(a1, a2, scan, time)[:, None, None]
+            if model.extra.get("baseline_on") == "continuum":
+                # Only the continuum takes them (extra.baseline_on): what does not
+                # close in the real data is mostly continuum structure the model
+                # lacks, which leaves the line emission alone.
+                cont = _predict(
+                    cols["uvw"], self.chan_freq, self.sky[:1], np.zeros(nchan, dtype=int), self.px, self.py, self.nthreads
+                )
+                corrupted += cont[:, :, None] * factor * (b - 1)
+            else:
+                corrupted *= b
+        data[:, :, self.hands] = corrupted.astype(np.complex64)
         if model.thermal:
             weight = cols["weight"]
             sigma = np.sqrt(self.noise["scale"] / np.where(weight > 0, weight, np.inf))

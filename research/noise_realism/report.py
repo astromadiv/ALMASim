@@ -9,9 +9,10 @@ the whole track, the channel kernel and profile, line and continuum models maske
 to the real emission) and iter-f2-bright for the bright ones (the same, plus each
 window's fitted atmosphere and antenna amplitudes), with iter-f3-sim and
 iter-f3-bright in their place for the 19 windows whose channel filter used to fall
-back to white noise, and iter-f4-bright for the 13 bright windows with fitted
-per-(baseline, scan) errors. The visibilities: uvfinal5/ (each antenna's and
-hand's own noise shape across the window), uvfinal9/ for those 13 bright windows.
+back to white noise, and iter-f10-bright for the 13 bright windows with fitted
+per-(baseline, scan) errors, applied to the continuum model only. The
+visibilities: uvfinal5/ (each antenna's and hand's own noise shape across the
+window), uvfinal11/ for those 13 bright windows.
 """
 
 from __future__ import annotations
@@ -59,7 +60,7 @@ def faint_windows() -> set[str]:
 
 # Per class, the iterations of the latest model; a later one replaces an earlier
 # one's windows (iter-f3 reran the windows whose channel filter fell back to white).
-LATEST = {"faint": ("iter-f2-sim", "iter-f3-sim"), "bright": ("iter-f2-bright", "iter-f3-bright", "iter-f4-bright")}
+LATEST = {"faint": ("iter-f2-sim", "iter-f3-sim"), "bright": ("iter-f2-bright", "iter-f3-bright", "iter-f10-bright")}
 
 
 def latest_metrics() -> dict[str, dict[str, dict]]:
@@ -123,9 +124,9 @@ UV_STATS = (
 
 def _uv_results() -> list[dict]:
     """Each window's real visibilities against its latest counterpart: uvfinal5/ (with
-    each antenna's noise shape), uvfinal9/ for the bright windows with per-baseline
+    each antenna's noise shape), uvfinal11/ for the bright windows with per-baseline
     errors; uvfinal/ and uvfinal3/ where those are missing."""
-    files = {f.stem: f for d in ("uvfinal", "uvfinal3", "uvfinal5", "uvfinal9") for f in (NOISE / d).glob("*.json")}
+    files = {f.stem: f for d in ("uvfinal", "uvfinal3", "uvfinal5", "uvfinal11") for f in (NOISE / d).glob("*.json")}
     out = []
     for f in sorted(files.values(), key=lambda p: int(p.stem)):
         r = json.loads(f.read_text())

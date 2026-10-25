@@ -62,6 +62,7 @@ class ErrorModel:
     bandpass_modes: int = 4  # Fourier modes of the ripple
     baseline_amp_rms: float = 0.0  # fractional, per (baseline, scan)
     baseline_phase_rms_deg: float = 0.0
+    baseline_block_s: float = 0.0  # > 0: drawn afresh every so many seconds
     extra: dict = field(default_factory=dict)
 
     @classmethod
@@ -333,10 +334,17 @@ class BaselineErrors:
         self.seed = seed
         self.amp = model.baseline_amp_rms
         self.phase = np.radians(model.baseline_phase_rms_deg)
+        # baseline_block_s > 0: a fresh draw every so many seconds within a scan
+        # instead of one per scan (errors that change within a scan).
+        self.block_s = model.baseline_block_s
 
-    def factors(self, a1: np.ndarray, a2: np.ndarray, scan: np.ndarray) -> np.ndarray:
+    def factors(
+        self, a1: np.ndarray, a2: np.ndarray, scan: np.ndarray, time: np.ndarray | None = None
+    ) -> np.ndarray:
         """b (nrow,) for these rows."""
         key = (a1.astype(np.int64) * 10_000 + a2) * 100_000 + scan.astype(np.int64)
+        if self.block_s > 0 and time is not None:
+            key = key * 100_000 + (np.floor(time / self.block_s).astype(np.int64) % 100_000)
         keys, inverse = np.unique(key, return_inverse=True)
         b = np.empty(len(keys), dtype=np.complex128)
         for k, value in enumerate(keys.tolist()):
