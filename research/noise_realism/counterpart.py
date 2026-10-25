@@ -393,6 +393,12 @@ class Simulator:
             pad = len(self.xy) - g.shape[0]
             if pad > 0:
                 g = np.concatenate([g, np.ones((pad,) + g.shape[1:], dtype=g.dtype)])
+            # Normalised so each channel keeps its measured mean noise: per (channel,
+            # hand), the mean of g_i g_j over baselines times h is 1, and h only
+            # moves the hands apart.
+            n = g.shape[0]
+            pairs = (g.sum(axis=0) ** 2 - (g**2).sum(axis=0)) / (n * (n - 1))
+            h = h / h.mean(axis=1, keepdims=True) / pairs
             self.antenna_shape = (g, h)
         else:
             self.antenna_shape = None
