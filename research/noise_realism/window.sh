@@ -3,6 +3,8 @@
 # One window of one iteration: its counterpart (or, in a control iteration,
 # the real split data), imaged exactly as MADIV-16 imaged the real one, then
 # assessed (clean-quality) and measured.
+# CUBE_ARGS (default "--cube --uv-contsub"; empty: continuum only) and IMAGE_EXTRA
+# (more image-from-ms options) change the imaging, e.g. for a deeper model of the real sky.
 #   sbatch --array=0-19 -o ITER/logs/%a.log window.sh ITER
 set -euo pipefail
 ITER=$1; I=${SLURM_ARRAY_TASK_ID:-$2}
@@ -33,7 +35,7 @@ SELFCAL=$($PY -c "import json,sys; print(json.load(open(sys.argv[1])).get('selfc
 $ALMASIM image image-from-ms "$ITER/params/$NAME.csv" "$ITER/cubes" \
     --wsclean-bin /SKAO_data/spack/opt/spack/linux-zen3/wsclean-3.7.20260424-a26g7w3hqrs4ec5ldmd4fjs4gdkg65rp/bin/wsclean \
     --num-cores "${SLURM_CPUS_PER_TASK:-8}" --task-memory-gb 40 --task-timeout "${TASK_TIMEOUT:-25200}" --backend sync \
-    --cube --uv-contsub ${SELFCAL:+--selfcal "$SELFCAL"} --casa-data-root /SKAO_data/cycle11/.casa-data
+    ${CUBE_ARGS---cube --uv-contsub} ${IMAGE_EXTRA:-} ${SELFCAL:+--selfcal "$SELFCAL"} --casa-data-root /SKAO_data/cycle11/.casa-data
 OUT=$(ls -d "$ITER"/cubes/"$(basename "$DATA" .ms)"*/SPW-0_FIELD-0 | head -1)
 $ALMASIM image clean-quality "$OUT"
 $PY $N/measure.py "$OUT" "$ITER/metrics/$NAME.json" > /dev/null

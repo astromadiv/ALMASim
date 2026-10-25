@@ -29,6 +29,7 @@ from almasim.services.interferometry.predict import predict_visibilities  # noqa
 from errors import (  # noqa: E402
     C,
     AntennaGains,
+    BaselineErrors,
     ErrorModel,
     FastScreen,
     PhaseScreen,
@@ -219,7 +220,11 @@ def _emission_mask(task_dir: Path, sigma: float = 5.0) -> np.ndarray:
 
 
 def _model_planes(
-    task_dir: Path, chan_freq: np.ndarray, line: bool | str = True, continuum: bool | str = True
+    task_dir: Path,
+    chan_freq: np.ndarray,
+    line: bool | str = True,
+    continuum: bool | str = True,
+    continuum_dir: Path | None = None,
 ) -> tuple[np.ndarray, float, float]:
     """The distinct sky planes (nplane, ny, nx) and each MS channel's plane:
     continuum plus the line plane at its frequency.
@@ -229,6 +234,8 @@ def _model_planes(
     model is noise that cleaning took for signal, which the counterpart's own
     noise would add to). ``continuum``: True, the whole continuum model;
     "masked", only where the real image has emission (:func:`_emission_mask`).
+    ``continuum_dir``: take the continuum model (and its emission mask) from
+    another imaging of the real data, e.g. a deeper, multi-scale one.
     """
     from astropy.io import fits
 
@@ -240,9 +247,10 @@ def _model_planes(
             data = data[0]
         return np.nan_to_num(data.reshape((-1,) + data.shape[-2:])), header
 
-    cont, ch = planes(task_dir / "wsclean-model.fits")
+    cont_dir = continuum_dir or task_dir
+    cont, ch = planes(cont_dir / "wsclean-model.fits")
     if continuum == "masked":
-        cont = cont * _emission_mask(task_dir)[None]
+        cont = cont * _emission_mask(cont_dir)[None]
     # Each distinct plane once: the continuum (plane 0), and continuum plus each
     # line plane a channel uses; plane_of maps every MS channel to its plane
     # (one plane per native channel would take hundreds of GB on large windows).
@@ -272,6 +280,16 @@ def _model_planes(
     sky = np.roll(np.stack(distinct)[:, ::-1, :], 1, axis=1).transpose(0, 2, 1)
     deg = np.pi / 180
     return sky, plane_of, abs(ch["CDELT1"]) * deg, abs(ch["CDELT2"]) * deg
+
+
+def _continuum_dir(root: str | None, ms: Path) -> Path | None:
+    """extra.continuum_dir: an iteration's cubes/ holding the window's own imaging."""
+    if not root:
+        return None
+    found = Path(root) / ms.name.removesuffix(".ms") / "SPW-0_FIELD-0"
+    if not (found / "wsclean-model.fits").exists():
+        raise FileNotFoundError(f"no continuum imaging of {ms.name} under {root}")
+    return found
 
 
 def _predict(uvw, chan_freq, sky, plane_of, px, py, nthreads) -> np.ndarray:
@@ -334,6 +352,7 @@ class Simulator:
             self.chan_freq,
             model.extra.get("line_model", True),
             model.extra.get("continuum_model", True),
+            _continuum_dir(model.extra.get("continuum_dir"), ms),
         )
         self.nthreads = int(os.environ.get("SLURM_CPUS_PER_TASK") or os.cpu_count() or 1)
         self.kernel = (
@@ -364,6 +383,25 @@ class Simulator:
             self.fast_screen = FastScreen(self.rng, model, self.xy, pairs[0], pairs[1].astype(int))
         else:
             self.fast_screen = None
+        # extra.antenna_profile: each antenna's and hand's own noise shape across
+        # the window (uvmix.py profile writes it next to noise.json).
+        shape_file = ms / "noise.antenna.npz"
+        if model.extra.get("antenna_profile") and shape_file.exists():
+            with np.load(shape_file) as f:
+                g, h = f["g"], f["h"]
+            # Antennas with no unflagged data have no shape: theirs is flat.
+            pad = len(self.xy) - g.shape[0]
+            if pad > 0:
+                g = np.concatenate([g, np.ones((pad,) + g.shape[1:], dtype=g.dtype)])
+            self.antenna_shape = (g, h)
+        else:
+            self.antenna_shape = None
+        # From a generator of its own, so every other draw stays as it was.
+        self.baseline_errors = (
+            BaselineErrors(int(np.random.default_rng([seed, 7]).integers(2**62)), model)
+            if model.baseline_amp_rms > 0 or model.baseline_phase_rms_deg > 0
+            else None
+        )
 
     def weights(self, t, start: int, n: int) -> np.ndarray:
         weight = t.getcol("WEIGHT", startrow=start, nrow=n)
@@ -416,6 +454,8 @@ class Simulator:
             b1 = np.stack([self.bandpass[a] for a in a1])
             b2 = np.stack([self.bandpass[a] for a in a2])
             factor *= b1 * np.conj(b2)
+        if self.baseline_errors is not None:
+            factor *= self.baseline_errors.factors(a1, a2, scan)[:, None, None]
         data[:, :, self.hands] = (vis[:, :, None] * factor).astype(np.complex64)
         if model.thermal:
             weight = cols["weight"]
@@ -424,6 +464,9 @@ class Simulator:
             profile = self.noise.get("channel_profile", [])
             if model.extra.get("channel_profile") and len(profile) == nchan:
                 noise_cube *= np.sqrt(np.asarray(profile, dtype=np.float32))[None, :, None]
+            if self.antenna_shape is not None:
+                g, h = self.antenna_shape
+                noise_cube[:, :, self.hands] *= np.sqrt(g[a1] * g[a2] * h[None])
             data += noise_cube
         return cols, clean, data
 

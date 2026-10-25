@@ -13,7 +13,11 @@ per-row, per-channel factors or additive terms; ``corrupt`` applies them:
 - atmosphere: a Kolmogorov phase screen blown over the array (frozen
   flow), what phase referencing leaves of it (a high-pass over the
   calibration cycle), phase proportional to frequency;
-- bandpass ``B``: residual smooth ripples across the window, per antenna.
+- bandpass ``B``: residual smooth ripples across the window, per antenna;
+- baseline-based errors ``b_ij``: an amplitude and phase per (baseline, scan)
+  that does not factor into antenna terms, so self-calibration cannot take
+  it out (correlator and closure errors, or source structure the model
+  lacks): V = b_ij g_i g_j* ... .
 
 Every random draw comes from one numpy Generator seeded per window and
 iteration, so a counterpart can be remade exactly.
@@ -56,6 +60,8 @@ class ErrorModel:
     bandpass_amp_rms: float = 0.0  # fractional ripple across the window, per antenna
     bandpass_phase_rms_deg: float = 0.0
     bandpass_modes: int = 4  # Fourier modes of the ripple
+    baseline_amp_rms: float = 0.0  # fractional, per (baseline, scan)
+    baseline_phase_rms_deg: float = 0.0
     extra: dict = field(default_factory=dict)
 
     @classmethod
@@ -316,3 +322,76 @@ def bandpass_factors(rng, model: ErrorModel, antennas, nchan: int, npol: int) ->
             1j * np.radians(model.bandpass_phase_rms_deg) * phase / norm
         )
     return out
+
+
+class BaselineErrors:
+    """b_ij per (baseline, scan): a complex factor common to the two hands,
+    drawn from its own generator, keyed by the baseline and scan, so a chunk
+    gets the same factor wherever its rows fall."""
+
+    def __init__(self, seed: int, model: ErrorModel) -> None:
+        self.seed = seed
+        self.amp = model.baseline_amp_rms
+        self.phase = np.radians(model.baseline_phase_rms_deg)
+
+    def factors(self, a1: np.ndarray, a2: np.ndarray, scan: np.ndarray) -> np.ndarray:
+        """b (nrow,) for these rows."""
+        key = (a1.astype(np.int64) * 10_000 + a2) * 100_000 + scan.astype(np.int64)
+        keys, inverse = np.unique(key, return_inverse=True)
+        b = np.empty(len(keys), dtype=np.complex128)
+        for k, value in enumerate(keys.tolist()):
+            rng = np.random.default_rng([self.seed, value])
+            b[k] = np.exp(rng.normal(0, self.amp) + 1j * rng.normal(0, self.phase))
+        return b[inverse]
+
+
+def antenna_noise_shape(z2: np.ndarray, n: np.ndarray, chans: np.ndarray, smooth: int = 16):
+    """Each antenna's and each hand's own spectral shape of the noise, from the
+    real residuals: ``z2``, ``n`` (nant, nchan, nhand) the sums of |z|^2 and
+    their counts per antenna (rows it is in), with z scaled by WEIGHT; ``chans``
+    the channels free of unmodelled sky.
+
+    v = z2 / 2n factors as A(a, p) C(c, p) L(a, c, p). Returns (g, h): g
+    (nant, nchan, nhand) = A L per antenna (L smoothed over ``smooth``
+    channels, so the per-channel sampling noise stays out), h (nchan, nhand)
+    the hands' profiles over their mean, smoothed alike. A baseline's noise
+    variance is then g_i g_j h times the array-wide profile: an antenna's mean
+    over its baselines is g_i, what ``v`` measures.
+    """
+    from scipy.ndimage import uniform_filter1d
+
+    # Antennas with most of the data in every hand; the others keep g = 1.
+    total = n.sum(axis=1)  # (nant, nhand)
+    seen = total.sum(axis=1) > 0
+    used = seen & (total > 0.5 * np.median(total[seen], axis=0)).all(axis=1)
+    ok = chans & (n[used] > 50).all(axis=(0, 2))
+    if ok.sum() < 2 * smooth:
+        return np.ones(n.shape, dtype=np.float32), np.ones(n.shape[1:], dtype=np.float32)
+    v = np.where(n > 0, z2 / np.maximum(2 * n, 1), np.nan)[:, ok]
+    sub = v[used]
+    ant = np.ones((sub.shape[0], 1, sub.shape[2]))
+    for _ in range(5):
+        chan = (sub / ant).mean(axis=0, keepdims=True)
+        ant = (sub / chan).mean(axis=1, keepdims=True)
+    ant /= ant.mean()
+
+    def fill(x, axis):
+        """x on the good channels (along ``axis``), smoothed and spread to all channels."""
+        shape = list(x.shape)
+        shape[axis] = len(ok)
+        full = np.zeros(shape)
+        weight = np.zeros(shape)
+        index = [slice(None)] * len(shape)
+        index[axis] = ok
+        full[tuple(index)] = x
+        weight[tuple(index)] = 1
+        num = uniform_filter1d(full, smooth, axis=axis, mode="nearest")
+        den = uniform_filter1d(weight, smooth, axis=axis, mode="nearest")
+        return np.where(den > 0, num / np.maximum(den, 1e-9), 0.0)
+
+    left = np.log(sub / (ant * chan))
+    g = np.ones((n.shape[0], len(ok), n.shape[2]))
+    g[used] = ant * np.exp(fill(left, axis=1))
+    hands = np.log(chan[0] / np.exp(np.log(chan[0]).mean(axis=1, keepdims=True)))
+    h = np.exp(fill(hands, axis=0))
+    return g.astype(np.float32), h.astype(np.float32)

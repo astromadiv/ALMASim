@@ -2,6 +2,7 @@
 
     python fit_screen.py UV_DIR BASE_CONFIG.json OUT_CONFIG.json [NOISE_LABEL]
     python fit_screen.py gains UV_DIR CONFIG.json OUT_CONFIG.json LABEL
+    python fit_screen.py baselines UV_DIR CONFIG.json OUT_CONFIG.json LABEL
 
 From uvcompare's per-(baseline, scan) data over model: the phase scatter of
 the real data beyond what thermal noise alone gives (the "thermal-profile"
@@ -115,7 +116,37 @@ def gains_main(uv_dir: Path, config_path: Path, out: Path, label: str) -> None:
     out.write_text(json.dumps(config, indent=1))
 
 
-if __name__ == "__main__" and sys.argv[1] == "gains":
+def fit_baselines(result: dict, label: str) -> dict:
+    """The per-(baseline, scan) amplitude and phase the real data has beyond
+    what the simulation's antenna solve leaves (noise, screens): what does not
+    close, in quadrature."""
+    real, sim = result["real"], result[label]
+    out = {}
+    for key, name in (("nonclosing_lnamp_rms", "baseline_amp_rms"), ("nonclosing_phase_rms_deg", "baseline_phase_rms_deg")):
+        if key in real and key in sim:
+            excess = real[key] ** 2 - sim[key] ** 2
+            if excess > 0:
+                out[name] = round(float(np.sqrt(excess)), 4)
+    return out
+
+
+def baselines_main(uv_dir: Path, config_path: Path, out: Path, label: str, windows: set | None = None) -> None:
+    config = json.loads(config_path.read_text())
+    by_window = config.setdefault("by_window", {})
+    for f in sorted(uv_dir.glob("*.json")):
+        r = json.loads(f.read_text())
+        if windows is not None and r["window"] not in windows:
+            continue
+        fit = fit_baselines(r, label)
+        if fit:
+            by_window.setdefault(r["window"], {}).update(fit)
+        print(f"{r['source'][:24]:24s} {r['ghz']:6.1f} GHz  baseline-based: {fit or 'nothing to fit'}")
+    out.write_text(json.dumps(config, indent=1))
+
+
+if __name__ == "__main__" and sys.argv[1] == "baselines":
+    baselines_main(Path(sys.argv[2]), Path(sys.argv[3]), Path(sys.argv[4]), sys.argv[5])
+elif __name__ == "__main__" and sys.argv[1] == "gains":
     gains_main(Path(sys.argv[2]), Path(sys.argv[3]), Path(sys.argv[4]), sys.argv[5])
 elif __name__ == "__main__":
     uv_dir, base, out = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3])

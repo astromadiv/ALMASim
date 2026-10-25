@@ -29,6 +29,7 @@ imaged counterpart used):
 from __future__ import annotations
 
 import json
+import os
 import sys
 import zlib
 from pathlib import Path
@@ -289,7 +290,10 @@ def window(i: int, configs: list[Path], out: Path) -> None:
         stats = {k: Stats(edges, len(first.chan_freq), nant) for k in ["real", *(n for n, _ in sims)]}
         scale = first.noise["scale"]
         hands = first.hands
-        for start in range(0, t.nrows(), CHUNK):
+        # UV_ROWS: read only every k-th chunk, about this many rows in all (the same
+        # rows for the real data and every simulation).
+        stride = max(1, t.nrows() // int(os.environ.get("UV_ROWS") or t.nrows()))
+        for start in range(0, t.nrows(), CHUNK * stride):
             n = min(CHUNK, t.nrows() - start)
             real = t.getcol("DATA", startrow=start, nrow=n)[:, :, hands]
             flag = t.getcol("FLAG", startrow=start, nrow=n)[:, :, hands]
@@ -308,7 +312,7 @@ def window(i: int, configs: list[Path], out: Path) -> None:
                     _, _, data = sim.chunk(t, start, n, vis=vis)
                 d = data[:, :, hands]
                 stats[label].add((d - m) * norm, good, uvbin, cols["a1"], cols["a2"], cols, d, m, sigma, norm2)
-    result = {"window": win, "source": row.source, "ghz": float(row.ghz), "noise": first.noise}
+    result = {"window": win, "source": row.source, "ghz": float(row.ghz), "noise": first.noise, "stride": stride}
     result.update({k: s.result() for k, s in stats.items()})
     out.write_text(json.dumps(result, indent=1))
 
