@@ -35,6 +35,8 @@ from .noise import (
     compute_channel_noise,
     estimate_receiver_temperature_k,
     estimate_sky_temperature_k,
+    system_equivalent_flux_density,
+    visibility_noise,
 )
 from .total_power import (
     combine_total_power_results,
@@ -56,6 +58,8 @@ __all__ = [
     "estimate_sky_temperature_k",
     "compute_channel_noise",
     "calibrate_noise_profile",
+    "system_equivalent_flux_density",
+    "visibility_noise",
     "combine_interferometric_results",
     "estimate_tp_beam_fwhm_arcsec",
     "simulate_total_power_observation",

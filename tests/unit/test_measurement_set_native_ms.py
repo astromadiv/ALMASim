@@ -113,6 +113,39 @@ def test_subtable_exists(ms, subtable):
 # ---------------------------------------------------------------------------
 
 
+# Run in a process of its own: python-casacore aborts when loaded beside casatools.
+_MSV2_CHECK = """
+import sys
+from casacore.tables import required_ms_desc, table
+ms = sys.argv[1]
+names = ("MAIN", "ANTENNA", "DATA_DESCRIPTION", "FEED", "FIELD", "FLAG_CMD", "HISTORY",
+         "OBSERVATION", "POINTING", "POLARIZATION", "PROCESSOR", "SOURCE", "SPECTRAL_WINDOW",
+         "STATE")
+for name in names:
+    t = table(ms if name == "MAIN" else ms + "::" + name, ack=False)
+    required = [c for c in required_ms_desc(name) if not c.startswith("_")]
+    missing = [c for c in required if c not in t.colnames()]
+    assert not missing, (name, missing)
+"""
+
+
+def test_ms_meets_the_msv2_definition(ms):
+    """The MS has every subtable and column the MSv2 definition requires, linked
+    from the main table by table keywords: casacore's MeasurementSet, and so
+    WSClean and the imaging pipeline, refuse it otherwise. (casatools stores a
+    "Table: <path>" keyword written before its subtable exists as plain text.)"""
+    import importlib.util
+    import subprocess
+    import sys
+
+    if importlib.util.find_spec("casacore") is None:
+        pytest.skip("python-casacore not installed")
+    result = subprocess.run(
+        [sys.executable, "-c", _MSV2_CHECK, str(ms)], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr[-800:]
+
+
 def test_main_nrows(ms):
     tb = casatools.table()
     tb.open(str(ms), nomodify=True)

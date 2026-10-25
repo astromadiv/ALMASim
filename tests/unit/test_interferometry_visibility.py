@@ -8,6 +8,7 @@ import pytest
 from almasim.services.interferometry.visibility import (
     VisibilityTable,
     assemble_visibility_table,
+    build_channel_visibility_rows,
     concatenate_visibility_tables,
 )
 
@@ -267,3 +268,53 @@ def test_concatenate_assumes_12_m_dishes_without_diameters():
     vt2 = _make_visibility_table(nrows=2, nchan=1).as_dict()
     result = concatenate_visibility_tables([vt1, vt2])
     np.testing.assert_array_equal(result["antenna_diameters_m"], np.full(4, 12.0))
+
+
+@pytest.mark.unit
+def test_row_weights_carry_the_gain_amplitude():
+    """Calibrated data were scaled by their gains, and so was their noise: a row's
+    sigma is the channel's noise times |g|, its weight 1 / sigma^2."""
+    nbas, nh = 3, 2
+    gains = np.full((nbas, nh), 2.0 * np.exp(0.3j), dtype=np.complex64)
+    gains[0] = 1.0
+    rows = build_channel_visibility_rows(
+        modelfft=np.zeros((16, 16), dtype=np.complex64),
+        gains=gains,
+        noise_samples=np.zeros((nbas, nh), dtype=np.complex64),
+        u_waves=np.zeros((nbas, nh)),
+        v_waves=np.zeros((nbas, nh)),
+        w_waves=np.zeros((nbas, nh)),
+        antnum=np.array([[0, 1], [0, 2], [1, 2]]),
+        nH=nh,
+        Nphf=8,
+        uv_pixsize=1.0,
+        noise_std=0.5,
+        mean_wavelength_m=1e-3,
+    )
+    np.testing.assert_allclose(rows["sigma"], np.repeat([0.5, 1.0, 1.0], nh), rtol=1e-6)
+    np.testing.assert_allclose(rows["weight"], 1.0 / rows["sigma"] ** 2, rtol=1e-6)
+
+
+@pytest.mark.unit
+def test_row_weight_is_the_inverse_of_the_mean_variance():
+    """Over a row's channels, WEIGHT is 1 / mean(sigma^2), as statwt sets it, and
+    SIGMA its square root: channels with sigma 1 and 3 give 1/5, not (1 + 1/9) / 2."""
+    rows = []
+    for sigma in (1.0, 3.0):
+        r = _make_channel_rows(4)
+        r["sigma"] = np.full(4, sigma, dtype=np.float32)
+        r["weight"] = np.full(4, 1 / sigma**2, dtype=np.float32)
+        rows.append(r)
+    vt = assemble_visibility_table(
+        channel_rows=rows,
+        channel_freq_hz=np.array([100e9, 101e9]),
+        scan_time_s=10.0,
+        observation_date="2024-01-01",
+        antenna_names=["A1", "A2"],
+        antenna_positions_m=np.zeros((2, 3)),
+        source_name="TEST",
+        field_ra_rad=0.0,
+        field_dec_rad=0.0,
+    )
+    np.testing.assert_allclose(vt.weight, 0.2, rtol=1e-6)
+    np.testing.assert_allclose(vt.sigma, np.sqrt(5.0), rtol=1e-6)

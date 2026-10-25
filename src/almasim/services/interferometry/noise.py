@@ -26,6 +26,9 @@ class NoiseModelConfig:
     # bands, referred above the atmosphere. Off: the smooth sky below.
     atmospheric_lines: bool = False
     sideband: str = "auto"
+    # ALMA's quantisation and correlator efficiencies (eta_q eta_c): what a
+    # visibility's noise carries beyond the radiometer equation.
+    correlator_efficiency: float = 0.96 * 0.88
 
 
 def estimate_receiver_temperature_k(
@@ -61,23 +64,16 @@ def estimate_sky_temperature_k(
     return ground_temperature_k * (1.0 - np.exp(-tau))
 
 
-def compute_channel_noise(
+def system_equivalent_flux_density(
     config: NoiseModelConfig,
     freqs_hz: np.ndarray,
-    bandwidth_hz: float,
-    integration_s: float,
     elevation_deg: float,
     *,
     antenna_diameter_m: float,
-    n_antennas: int,
 ) -> np.ndarray:
-    """Compute per-channel thermal noise in Jy using a simplified radiometer model."""
+    """Each channel's SEFD (Jy) of one antenna: 2 k Tsys / A_eff, with Tsys from
+    the receiver and the sky (CASA's ATM model with ``atmospheric_lines``)."""
     freqs_hz = np.asarray(freqs_hz, dtype=float)
-    bandwidth_hz = max(float(bandwidth_hz), 1.0)
-    integration_s = max(float(integration_s), 1e-6)
-    n_antennas = max(int(n_antennas), 2)
-    n_baselines = max(n_antennas * (n_antennas - 1) / 2.0, 1.0)
-
     trx = estimate_receiver_temperature_k(freqs_hz, config.receiver_model)
     if config.atmospheric_lines:
         airmass = 1.0 / np.sin(np.deg2rad(max(5.0, min(90.0, float(elevation_deg)))))
@@ -100,9 +96,56 @@ def compute_channel_noise(
 
     area_m2 = np.pi * (antenna_diameter_m / 2.0) ** 2
     a_eff = max(area_m2 * config.aperture_efficiency, 1e-6)
-    sefd_jy = (2.0 * K_B * tsys / a_eff) / JY
+    return (2.0 * K_B * tsys / a_eff) / JY
+
+
+def compute_channel_noise(
+    config: NoiseModelConfig,
+    freqs_hz: np.ndarray,
+    bandwidth_hz: float,
+    integration_s: float,
+    elevation_deg: float,
+    *,
+    antenna_diameter_m: float,
+    n_antennas: int,
+) -> np.ndarray:
+    """Compute per-channel thermal noise in Jy using a simplified radiometer model."""
+    bandwidth_hz = max(float(bandwidth_hz), 1.0)
+    integration_s = max(float(integration_s), 1e-6)
+    n_antennas = max(int(n_antennas), 2)
+    n_baselines = max(n_antennas * (n_antennas - 1) / 2.0, 1.0)
+    sefd_jy = system_equivalent_flux_density(
+        config, freqs_hz, elevation_deg, antenna_diameter_m=antenna_diameter_m
+    )
     denominator = np.sqrt(config.n_polarizations * n_baselines * bandwidth_hz * integration_s)
     return sefd_jy / np.clip(denominator, 1e-6, None)
+
+
+def visibility_noise(
+    config: NoiseModelConfig,
+    freqs_hz: np.ndarray,
+    channel_width_hz: float,
+    sample_time_s: float,
+    elevation_deg: float,
+    *,
+    antenna_diameter_m: float,
+) -> np.ndarray:
+    """Each channel's noise (Jy) of one visibility, per real and imaginary part:
+    the radiometer equation for a baseline's Stokes I from ``n_polarizations``
+    over ``channel_width_hz`` and ``sample_time_s``,
+    SEFD / (eta sqrt(2 n_pol dnu t)). Imaged with natural weighting, N such
+    visibilities give SEFD / (eta sqrt(n_pol N(N-1) dnu t_total)), ALMA's
+    image sensitivity."""
+    sefd_jy = system_equivalent_flux_density(
+        config, freqs_hz, elevation_deg, antenna_diameter_m=antenna_diameter_m
+    )
+    product = (
+        2.0
+        * config.n_polarizations
+        * max(float(channel_width_hz), 1.0)
+        * max(float(sample_time_s), 1e-6)
+    )
+    return sefd_jy / (max(config.correlator_efficiency, 1e-6) * np.sqrt(product))
 
 
 def calibrate_noise_profile(

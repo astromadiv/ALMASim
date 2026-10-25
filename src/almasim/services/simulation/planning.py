@@ -11,6 +11,7 @@ import numpy as np
 from .. import interferometry as uin
 from ..interferometry.atmosphere import receiver_ripple
 from ..interferometry.corruptions import CorruptionModel
+from ..interferometry.observing import hour_angle_samples
 from .geometry import CubeGeometry
 from .params import SimulationParams
 from .rng import run_rng
@@ -107,6 +108,7 @@ def plan_observation_runs(
             antenna_diameter_m=config.antenna_diameter_m,
             n_antennas=_count_antennas(config.antenna_array),
         )
+        ripple = np.zeros(np.size(raw_noise_profile))
         if corruptions is not None and corruptions.receiver_ripple_rms > 0:
             rng = run_rng(params.seed, "receiver", index)
             ripple = receiver_ripple(
@@ -117,6 +119,21 @@ def plan_observation_runs(
             raw_noise_profile,
             reference_noise=base_noise_reference,
         )
+        if corruptions is not None and corruptions.radiometer_noise and config.array_type != "TP":
+            # Each visibility's own noise, over the integration the simulator samples.
+            _, sample_time_s = hour_angle_samples(config.total_time_s)
+            noise_profile = uin.visibility_noise(
+                uin.NoiseModelConfig(
+                    pwv_mm=params.pwv,
+                    ground_temperature_k=params.ground_temperature_k,
+                    atmospheric_lines=corruptions.atmospheric_tsys,
+                ),
+                channel_frequencies_hz,
+                geometry.channel_width_hz,
+                sample_time_s,
+                observation_plan.elevation_deg,
+                antenna_diameter_m=config.antenna_diameter_m,
+            ) * (1.0 + ripple)
         if config.array_type == "TP":
             total_power_runs.append(
                 TotalPowerRun(

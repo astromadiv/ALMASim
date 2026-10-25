@@ -10,7 +10,12 @@ from almasim.services.interferometry.atmosphere import (
     system_temperature,
 )
 from almasim.services.interferometry.corruptions import PRESETS, CorruptionModel
-from almasim.services.interferometry.noise import NoiseModelConfig, compute_channel_noise
+from almasim.services.interferometry.noise import (
+    NoiseModelConfig,
+    compute_channel_noise,
+    system_equivalent_flux_density,
+    visibility_noise,
+)
 
 
 def _window(centre_ghz, width_ghz=1.875, nchan=128):
@@ -93,3 +98,24 @@ def test_switches_in_the_corruption_model():
         CorruptionModel.from_mapping({"atmospheric_tsys": "maybe"})
     alma = CorruptionModel.from_mapping(PRESETS["alma"])
     assert alma.atmospheric_tsys and alma.receiver_ripple_rms == pytest.approx(0.02)
+    assert alma.radiometer_noise and not CorruptionModel().radiometer_noise
+
+
+def test_visibility_noise_follows_the_radiometer_equation():
+    """One visibility's noise is SEFD / (eta sqrt(2 n_pol dnu t)); N(N-1)/2 baselines
+    over a track, imaged with natural weighting, give ALMA's image sensitivity
+    SEFD / (eta sqrt(n_pol N(N-1) dnu T)). A 12 m baseline at 230 GHz over
+    15.6 MHz and 6 s is of order 0.1 Jy, not a fraction of a mJy."""
+    config = NoiseModelConfig(pwv_mm=1.0)
+    freqs = _window(230.0, nchan=8)
+    dnu, t, n_ant, n_samples = 15.625e6, 6.0, 43, 600
+    sigma = visibility_noise(config, freqs, dnu, t, 60.0, antenna_diameter_m=12.0)
+    sefd = system_equivalent_flux_density(config, freqs, 60.0, antenna_diameter_m=12.0)
+    eta = config.correlator_efficiency
+    np.testing.assert_allclose(sigma, sefd / (eta * np.sqrt(2 * 2 * dnu * t)))
+    n_vis = n_ant * (n_ant - 1) / 2 * n_samples
+    image = sigma / np.sqrt(n_vis)
+    np.testing.assert_allclose(
+        image, sefd / (eta * np.sqrt(2 * n_ant * (n_ant - 1) * dnu * t * n_samples))
+    )
+    assert np.all((sigma > 0.02) & (sigma < 1.0))

@@ -11,11 +11,14 @@ from almasim.services.ms.schema import _arr_desc, _make_tabledesc, _sca_desc, _v
 from almasim.services.ms.subtables import (
     antenna_table,
     data_description_table,
+    empty_table,
+    feed_table,
     field_table,
     history_table,
     main_table,
     observation_table,
     polarization_table,
+    processor_table,
     source_table,
     spectral_window_table,
     state_table,
@@ -508,6 +511,10 @@ def test_every_table_spec_writes_only_declared_columns(tmp_path):
         source_table("S", 0.1, -0.2, time_range),
         state_table(),
         history_table("P", time_range),
+        feed_table(len(vt["antenna_names"]), time_range),
+        processor_table(),
+        empty_table("FLAG_CMD"),
+        empty_table("POINTING"),
     ]
     for spec in specs:
         declared = {column.name for column in spec.columns}

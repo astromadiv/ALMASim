@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -13,11 +14,14 @@ from .subtables import (
     MS_CORR_TYPES,
     antenna_table,
     data_description_table,
+    empty_table,
+    feed_table,
     field_table,
     history_table,
     main_table,
     observation_table,
     polarization_table,
+    processor_table,
     source_table,
     spectral_window_table,
     state_table,
@@ -45,9 +49,15 @@ def export_native_ms(
     nchan = channel_freq_hz.shape[0]
     time_range = np.array([time_mjd_s.min(), time_mjd_s.max()])
 
-    # The main table first: casatools creates the MS root directory with it.
+    # The main table first: casatools creates the MS root directory with it. Its
+    # links to the subtables ("Table: <path>" keywords) are put last, once the
+    # subtables exist: casatools stores a link to a missing table as plain
+    # text, which casacore and the imagers cannot follow.
+    main = main_table(ms_path, vt)
+    links = {k: v for k, v in main.keywords.items() if str(v).startswith("Table: ")}
+    main = replace(main, keywords={k: v for k, v in main.keywords.items() if k not in links})
     for spec in (
-        main_table(ms_path, vt),
+        main,
         antenna_table(
             list(vt["antenna_names"]),
             np.asarray(vt["antenna_positions_m"], dtype=np.float64),
@@ -61,8 +71,18 @@ def export_native_ms(
         source_table(source_name, field_ra_rad, field_dec_rad, time_range),
         state_table(),
         history_table(project_name, time_range),
+        feed_table(len(vt["antenna_names"]), time_range),
+        processor_table(),
+        empty_table("FLAG_CMD"),
+        empty_table("POINTING"),
     ):
         write_table(backend, ms_path, spec)
+    tb = backend.open(ms_path, readonly=False)
+    tb.putkeywords(links)
+    # The names of FLAG_CATEGORY's categories, which WSClean requires: CASA's.
+    tb.putcolkeyword("FLAG_CATEGORY", "CATEGORY", ["FLAG_CMD", "ORIGINAL", "USER"])
+    tb.flush()
+    tb.close()
     return ms_path
 
 
