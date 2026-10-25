@@ -9,6 +9,7 @@ import astropy.units as U
 import numpy as np
 
 from ..external_skymodel import infer_external_cube_geometry, is_external_source_type
+from ..instrument.channels import Channels, channels_from_resolution
 from ..instrument.geometry import (
     cell_arcsec,
     image_size,
@@ -44,10 +45,24 @@ class CubeGeometry:
     cell_size: U.Quantity
     n_pix: int
     n_channels: int
+    # The window's channels as ALMA makes them (instrument.channels): the native
+    # channels each averages and the radiometer's bandwidth. None: as given.
+    channels: Channels | None = None
 
     @property
     def channel_width_hz(self) -> float:
         return self.delta_freq.to(U.Hz).value
+
+    @property
+    def channel_averaging(self) -> int:
+        return self.channels.averaged if self.channels is not None else 1
+
+    @property
+    def noise_bandwidth_hz(self) -> float:
+        """The bandwidth of each channel's radiometer noise."""
+        if self.channels is not None and self.channels.noise_bandwidth_hz is not None:
+            return self.channels.noise_bandwidth_hz
+        return self.channel_width_hz
 
     def channel_frequencies_hz(self) -> np.ndarray:
         """The centre frequency of every channel, symmetric about ``central_freq``."""
@@ -73,6 +88,10 @@ def resolve_cube_geometry(params: SimulationParams, *, strict: bool = True) -> C
     band_range, central_freq, t_channels, delta_freq = freq_supp_extractor(
         params.freq_support, source_freq
     )
+    # The archive gives the window's resolution; its channels are narrower.
+    channels = channels_from_resolution(delta_freq.to(U.Hz).value, band_range.to(U.Hz).value)
+    delta_freq = (channels.width_hz * U.Hz).to(U.GHz)
+    t_channels = int((band_range / delta_freq).decompose().value + 1e-6)
     observation_plan = build_single_pointing_observation_plan(params)
     max_baseline_km = max(
         ual_antenna.get_max_baseline_from_antenna_array(config.antenna_array, params.main_dir)
@@ -135,6 +154,7 @@ def resolve_cube_geometry(params: SimulationParams, *, strict: bool = True) -> C
         cell_size=cell_size,
         n_pix=n_pix,
         n_channels=n_channels,
+        channels=channels,
     )
 
 

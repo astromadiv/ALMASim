@@ -18,12 +18,14 @@ keyed by channel, so each channel task makes its own without the others.
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
-from dataclasses import dataclass, fields
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, fields, replace
 from pathlib import Path
 from typing import Any
 
 import numpy as np
+
+from ..instrument.channels import averaged_correlation
 
 SCREEN_STEP_M = 10.0  # metres per pixel of the turbulent screens
 REFERENCE_SEPARATION_M = 150.0  # where a screen's strength is set (well inside it)
@@ -33,9 +35,13 @@ REFERENCE_SEPARATION_M = 150.0  # where a screen's strength is set (well inside 
 class CorruptionModel:
     """Which corruptions to apply, and how strong. The defaults apply none."""
 
-    # Correlation of the noise of channels one and two apart (0, 0: white).
+    # Correlation of the noise of native channels one and two apart (0, 0: white).
     spectral_rho1: float = 0.0
     spectral_rho2: float = 0.0
+    # Native channels averaged into each channel, which dilutes their
+    # correlation (instrument.channels): 0, the window's own, from the archive's
+    # resolution; N >= 1 sets it.
+    spectral_average: int = 0
     # Length of a scan: the slow phase and the gains hold for one (0: one scan).
     scan_length_s: float = 0.0
     # Antenna gain errors per scan: fractional amplitude and phase (degrees).
@@ -80,10 +86,24 @@ class CorruptionModel:
         if unknown:
             raise ValueError(f"unknown corruption parameter(s): {', '.join(sorted(unknown))}")
         kinds = {f.name: f.type for f in fields(cls)}
+        coerce: dict[str, Callable[[Any], Any]] = {"bool": _flag, "int": int}
         coerced: dict[str, Any] = {
-            k: _flag(v) if kinds[k] == "bool" else float(v) for k, v in values.items()
+            k: coerce.get(str(kinds[k]), float)(v) for k, v in values.items()
         }
         return cls(**coerced)
+
+    def for_window(self, averaged: int) -> CorruptionModel:
+        """This model on a window whose channels each average ``averaged`` native
+        ones, unless the model sets its own."""
+        if self.spectral_average:
+            return self
+        return replace(self, spectral_average=int(averaged))
+
+    def channel_correlation(self) -> tuple[float, float]:
+        """The noise correlation of channels one and two apart."""
+        if self.spectral_average <= 1:
+            return self.spectral_rho1, self.spectral_rho2
+        return averaged_correlation(self.spectral_average, self.spectral_rho1, self.spectral_rho2)
 
     @property
     def correlates_channels(self) -> bool:

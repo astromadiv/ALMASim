@@ -18,7 +18,7 @@ from ..instrument.constants import GAUSSIAN_BEAM_AREA
 from ..interferometry.corruptions import CorruptionModel
 from ..utils import as_progress_emitter
 from .context import RunContext
-from .geometry import resolve_cube_geometry
+from .geometry import CubeGeometry, resolve_cube_geometry
 from .metadata import SimParamsRecord, resolve_snr, sim_params_record, simulation_metadata
 from .params import LogFn, SimulationParams, StopFn
 from .planning import (
@@ -171,7 +171,7 @@ def generate_clean_cube(
 
     return CleanCubeStage(
         seed=params.seed,
-        corruptions=CorruptionModel.from_mapping(params.corruptions),
+        corruptions=_window_corruptions(params, geometry),
         datacube=sky.datacube,
         model_cube=model,
         header=sky.header,
@@ -194,6 +194,12 @@ def generate_clean_cube(
             else spectral.continuum_fraction(geometry.n_channels)
         ),
     )
+
+
+def _window_corruptions(params: SimulationParams, geometry: CubeGeometry) -> CorruptionModel | None:
+    """The run's corruption model on its window's channels."""
+    model = CorruptionModel.from_mapping(params.corruptions)
+    return None if model is None else model.for_window(geometry.channel_averaging)
 
 
 def simulate_observation(  # noqa: C901

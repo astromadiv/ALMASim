@@ -129,7 +129,7 @@ def plan_observation_runs(
                     atmospheric_lines=corruptions.atmospheric_tsys,
                 ),
                 channel_frequencies_hz,
-                geometry.channel_width_hz,
+                geometry.noise_bandwidth_hz,
                 sample_time_s,
                 observation_plan.elevation_deg,
                 antenna_diameter_m=config.antenna_diameter_m,

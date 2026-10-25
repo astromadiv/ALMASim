@@ -324,3 +324,17 @@ def test_simulation_parameters_take_a_preset_json_or_file(tmp_path):
     with pytest.raises(ValueError, match="not a preset"):
         resolve_corruptions("stormy")
     assert CorruptionModel.from_mapping(PRESETS["alma"]).correlates_channels
+
+
+@pytest.mark.unit
+def test_correlation_follows_the_windows_averaging_unless_set():
+    from almasim.services.instrument.channels import averaged_correlation
+
+    model = CorruptionModel(spectral_rho1=2 / 3, spectral_rho2=1 / 6)
+    assert model.channel_correlation() == (2 / 3, 1 / 6)
+    assert model.for_window(4).channel_correlation() == pytest.approx(averaged_correlation(4))
+    fixed = CorruptionModel.from_mapping(
+        {"spectral_rho1": 2 / 3, "spectral_rho2": 1 / 6, "spectral_average": "2"}
+    )
+    assert fixed.spectral_average == 2
+    assert fixed.for_window(16).channel_correlation() == pytest.approx(averaged_correlation(2))
