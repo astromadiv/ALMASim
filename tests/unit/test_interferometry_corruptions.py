@@ -172,6 +172,44 @@ def test_channel_applies_the_drawn_gains_to_its_rows():
 
 
 @pytest.mark.unit
+def test_baseline_errors_do_not_close_and_hold_for_a_scan():
+    """Antenna gains cancel in a closure phase; the baselines' own errors do not.
+    They hold for a scan and have the rms asked for."""
+    xy = np.random.default_rng(0).uniform(0, 500, (12, 2))
+    times = np.arange(20) * 30.0
+    antennas = draw_antenna_corruptions(
+        CorruptionModel(gain_phase_rms_deg=30, scan_length_s=300),
+        xy,
+        times,
+        np.random.default_rng(3),
+    )
+    both = draw_antenna_corruptions(
+        CorruptionModel(
+            gain_phase_rms_deg=30,
+            scan_length_s=300,
+            baseline_amp_rms=0.05,
+            baseline_phase_rms_deg=5,
+        ),
+        xy,
+        times,
+        np.random.default_rng(3),
+    )
+    pairs = baseline_antennas(12)
+    index = {(int(i), int(j)): k for k, (i, j) in enumerate(pairs)}
+
+    def closure(gains):
+        return np.angle(gains[index[0, 1]] * gains[index[1, 2]] * np.conj(gains[index[0, 2]]))
+
+    g_ant, g_both = antennas.baseline_gains(pairs, 1e-3), both.baseline_gains(pairs, 1e-3)
+    assert np.allclose(closure(g_ant), 0, atol=1e-5)
+    assert np.std(closure(g_both)) > np.radians(3)
+    own = g_both / g_ant  # the antenna draws come first, so they are the same
+    assert np.allclose(own[:, :10], own[:, :1]) and np.allclose(own[:, 10:], own[:, 10:11])
+    assert np.std(np.log(np.abs(own[:, 0]))) == pytest.approx(0.05, rel=0.3)
+    assert np.degrees(np.std(np.angle(own[:, 0]))) == pytest.approx(5, rel=0.3)
+
+
+@pytest.mark.unit
 def test_antenna_ripple_has_its_rms_and_frequency_scale():
     """Each antenna's noise variance varies about 1 by the rms asked for, smoothly:
     its autocorrelation falls to half at the scale asked for."""

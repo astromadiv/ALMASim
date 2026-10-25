@@ -60,6 +60,11 @@ class CorruptionModel:
     # noise variance, and the frequency scale (MHz) over which it holds.
     antenna_ripple_rms: float = 0.0
     antenna_ripple_mhz: float = 100.0
+    # Errors of a baseline that do not factor into its antennas' (closure
+    # errors; self-calibration cannot take them out), per scan: fractional
+    # amplitude and phase (degrees).
+    baseline_amp_rms: float = 0.0
+    baseline_phase_rms_deg: float = 0.0
 
     @classmethod
     def from_mapping(cls, values: Mapping[str, Any] | None) -> CorruptionModel | None:
@@ -89,6 +94,8 @@ class CorruptionModel:
                 self.gain_phase_rms_deg,
                 self.slow_path_um_1km,
                 self.fast_path_um_1km,
+                self.baseline_amp_rms,
+                self.baseline_phase_rms_deg,
             )
         )
 
@@ -225,11 +232,18 @@ class AntennaCorruptions:
     amplitude: np.ndarray  # (nant, ntime)
     phase: np.ndarray  # (nant, ntime)
     path_m: np.ndarray  # (nant, ntime)
+    # Per (antenna1, antenna2, integration): what does not factor by antenna;
+    # None: nothing.
+    baseline: np.ndarray | None = None
 
     def baseline_gains(self, antnum: np.ndarray, wavelength_m: float) -> np.ndarray:
-        """g1 conj(g2) for each baseline (rows of ``antnum``) and integration."""
+        """g1 conj(g2) (times the baseline's own error) for each baseline (rows
+        of ``antnum``) and integration."""
         g = self.amplitude * np.exp(1j * (self.phase + 2.0 * np.pi * self.path_m / wavelength_m))
-        return (g[antnum[:, 0]] * np.conj(g[antnum[:, 1]])).astype(np.complex64)
+        gains = g[antnum[:, 0]] * np.conj(g[antnum[:, 1]])
+        if self.baseline is not None:
+            gains = gains * self.baseline[antnum[:, 0], antnum[:, 1]]
+        return gains.astype(np.complex64)
 
 
 def scan_index(times_s: np.ndarray, scan_length_s: float) -> np.ndarray:
@@ -251,7 +265,7 @@ def draw_antenna_corruptions(
     sampled at the antennas, then the fast screen per integration (each
     blended with the last over ``fast_coherence_s``, less each antenna's mean
     over its scan, and scaled so the median antenna pair's rms path difference
-    follows the model's power law).
+    follows the model's power law), then the baselines' own errors per scan.
     """
     xy = np.asarray(antenna_xy_m, dtype=np.float64)[:, :2]
     times_s = np.asarray(times_s, dtype=np.float64)
@@ -298,7 +312,21 @@ def draw_antenna_corruptions(
             if scale > 0:
                 path += (fast * model.fast_path_um_1km * 1e-6 / scale).T
 
-    return AntennaCorruptions(amplitude=amplitude, phase=phase, path_m=path)
+    # Drawn last, so the antenna errors stay as they were without it.
+    baseline = _baseline_errors(model, nant, scans, rng)
+    return AntennaCorruptions(amplitude=amplitude, phase=phase, path_m=path, baseline=baseline)
+
+
+def _baseline_errors(
+    model: CorruptionModel, nant: int, scans: np.ndarray, rng: np.random.Generator
+) -> np.ndarray | None:
+    """Each baseline's own complex error per scan, (nant, nant, ntime); None when off."""
+    if model.baseline_amp_rms <= 0 and model.baseline_phase_rms_deg <= 0:
+        return None
+    nscan = int(scans.max()) + 1
+    amp = rng.normal(0.0, model.baseline_amp_rms, (nant, nant, nscan))
+    ph = rng.normal(0.0, np.radians(model.baseline_phase_rms_deg), (nant, nant, nscan))
+    return np.exp(amp + 1j * ph)[:, :, scans]
 
 
 def antenna_ripple(
