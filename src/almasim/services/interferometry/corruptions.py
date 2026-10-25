@@ -65,6 +65,10 @@ class CorruptionModel:
     # amplitude and phase (degrees).
     baseline_amp_rms: float = 0.0
     baseline_phase_rms_deg: float = 0.0
+    # Each visibility's noise from the radiometer equation (Tsys, channel width,
+    # integration, dish; noise.visibility_noise), the source keeping its flux,
+    # instead of a noise set from the run's target S/N (interferometric runs).
+    radiometer_noise: bool = False
 
     @classmethod
     def from_mapping(cls, values: Mapping[str, Any] | None) -> CorruptionModel | None:
@@ -140,6 +144,7 @@ PRESETS: dict[str, dict[str, Any]] = {
         "antenna_ripple_mhz": 120.0,
         "baseline_amp_rms": 0.06,
         "baseline_phase_rms_deg": 2.5,
+        "radiometer_noise": True,
     },
 }
 

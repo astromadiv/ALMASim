@@ -17,14 +17,88 @@ import numpy as np
 SUBTABLE_NAMES = (
     "ANTENNA",
     "DATA_DESCRIPTION",
+    "FEED",
     "FIELD",
+    "FLAG_CMD",
     "HISTORY",
     "OBSERVATION",
+    "POINTING",
     "POLARIZATION",
+    "PROCESSOR",
     "SOURCE",
     "SPECTRAL_WINDOW",
     "STATE",
 )
+
+
+_EPOCH = {"QuantumUnits": ["s"], "MEASINFO": {"type": "epoch", "Ref": "UTC"}}
+_DIRECTION = {"QuantumUnits": ["rad", "rad"], "MEASINFO": {"type": "direction", "Ref": "J2000"}}
+_POSITION = {"QuantumUnits": ["m", "m", "m"], "MEASINFO": {"type": "position", "Ref": "ITRF"}}
+_FREQUENCY = {
+    "QuantumUnits": ["Hz"],
+    "MEASINFO": {
+        "type": "frequency",
+        "VarRefCol": "MEAS_FREQ_REF",
+        "TabRefTypes": [
+            "REST",
+            "LSRK",
+            "LSRD",
+            "BARY",
+            "GEO",
+            "TOPO",
+            "GALACTO",
+            "LGROUP",
+            "CMB",
+            "Undefined",
+        ],
+        "TabRefCodes": [0, 1, 2, 3, 4, 5, 6, 7, 8, 64],
+    },
+}
+# Units and measure frames of the columns the MSv2 definition gives them (the
+# same wherever a column name appears); casacore's MeasurementSet, and so the
+# imagers, refuse an MS whose measure columns lack them.
+COLUMN_KEYWORDS: dict[str, dict] = {
+    "TIME": _EPOCH,
+    "TIME_CENTROID": _EPOCH,
+    "TIME_RANGE": _EPOCH,
+    "RELEASE_DATE": _EPOCH,
+    "TIME_ORIGIN": _EPOCH,
+    "INTERVAL": {"QuantumUnits": ["s"]},
+    "EXPOSURE": {"QuantumUnits": ["s"]},
+    "UVW": {"QuantumUnits": ["m", "m", "m"], "MEASINFO": {"type": "uvw", "Ref": "J2000"}},
+    "POSITION": _POSITION,
+    "OFFSET": _POSITION,
+    "DISH_DIAMETER": {"QuantumUnits": ["m"]},
+    "BEAM_OFFSET": _DIRECTION,
+    "RECEPTOR_ANGLE": {"QuantumUnits": ["rad"]},
+    "DELAY_DIR": _DIRECTION,
+    "PHASE_DIR": _DIRECTION,
+    "REFERENCE_DIR": _DIRECTION,
+    "DIRECTION": _DIRECTION,
+    "TARGET": _DIRECTION,
+    "PROPER_MOTION": {"QuantumUnits": ["rad/s"]},
+    "CHAN_FREQ": _FREQUENCY,
+    "REF_FREQUENCY": _FREQUENCY,
+    "CHAN_WIDTH": {"QuantumUnits": ["Hz"]},
+    "EFFECTIVE_BW": {"QuantumUnits": ["Hz"]},
+    "RESOLUTION": {"QuantumUnits": ["Hz"]},
+    "TOTAL_BANDWIDTH": {"QuantumUnits": ["Hz"]},
+    "CAL": {"QuantumUnits": ["K"]},
+    "LOAD": {"QuantumUnits": ["K"]},
+}
+
+
+def _keywords(name: str) -> dict:
+    """``name``'s column keywords, lists as arrays (both table backends take those)."""
+
+    def convert(value):
+        if isinstance(value, dict):
+            return {k: convert(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return np.array(value)
+        return value
+
+    return convert(COLUMN_KEYWORDS.get(name, {}))
 
 
 def _vtype(value) -> str:
@@ -46,7 +120,7 @@ def _sca_desc(name: str, value) -> tuple[str, dict]:
         "valueType": _vtype(value),
         "dataManagerType": "StandardStMan",
         "dataManagerGroup": "",
-        "keywords": {},
+        "keywords": _keywords(name),
         "maxlen": 0,
         "option": 0,
         "comment": "",
@@ -58,7 +132,7 @@ def _arr_desc(name: str, value, ndim: int, shape: list | None = None) -> tuple[s
         "valueType": _vtype(value),
         "dataManagerType": "StandardStMan",
         "dataManagerGroup": "",
-        "keywords": {},
+        "keywords": _keywords(name),
         "maxlen": 0,
         "ndim": ndim,
         "option": 0,
@@ -126,6 +200,9 @@ MAIN_COLUMNS = (
     _arr("DATA", np.complex64(0), 2),
     _arr("MODEL_DATA", np.complex64(0), 2),
     _arr("FLAG", False, 2),
+    # Required by the MSv2 definition (WSClean and the ms tool refuse an MS
+    # without it); no flag categories are written, so its cells stay undefined.
+    _arr("FLAG_CATEGORY", False, 3),
     _arr("WEIGHT", np.float32(0), 1),
     _arr("SIGMA", np.float32(0), 1),
 )
@@ -147,6 +224,9 @@ SPECTRAL_WINDOW_COLUMNS = (
     _sca("MEAS_FREQ_REF", 0),
     _sca("FLAG_ROW", False),
     _sca("NAME", ""),
+    _sca("FREQ_GROUP", 0),
+    _sca("FREQ_GROUP_NAME", ""),
+    _sca("IF_CONV_CHAIN", 0),
     _arr("CHAN_FREQ", 0.0, 1),
     _arr("CHAN_WIDTH", 0.0, 1),
     _arr("EFFECTIVE_BW", 0.0, 1),
@@ -182,6 +262,8 @@ OBSERVATION_COLUMNS = (
     _sca("RELEASE_DATE", 0.0),
     _sca("FLAG_ROW", False),
     _arr("TIME_RANGE", 0.0, 1, (2,)),
+    _arr("LOG", "", 1),
+    _arr("SCHEDULE", "", 1),
 )
 SOURCE_COLUMNS = (
     _sca("SOURCE_ID", 0),
@@ -193,6 +275,52 @@ SOURCE_COLUMNS = (
     _sca("CODE", ""),
     _sca("CALIBRATION_GROUP", 0),
     _arr("DIRECTION", 0.0, 1, (2,)),
+    _arr("PROPER_MOTION", 0.0, 1, (2,)),
+)
+# The MSv2 definition's other required subtables (casacore refuses an MS
+# without them): one feed with two linear receptors per antenna, one processor,
+# and FLAG_CMD and POINTING with their columns and no rows.
+FEED_COLUMNS = (
+    _sca("ANTENNA_ID", 0),
+    _sca("FEED_ID", 0),
+    _sca("SPECTRAL_WINDOW_ID", 0),
+    _sca("TIME", 0.0),
+    _sca("INTERVAL", 0.0),
+    _sca("NUM_RECEPTORS", 0),
+    _sca("BEAM_ID", 0),
+    _arr("BEAM_OFFSET", 0.0, 2),
+    _arr("POLARIZATION_TYPE", "", 1),
+    _arr("POL_RESPONSE", np.complex64(0), 2),
+    _arr("POSITION", 0.0, 1, (3,)),
+    _arr("RECEPTOR_ANGLE", 0.0, 1),
+)
+FLAG_CMD_COLUMNS = (
+    _sca("TIME", 0.0),
+    _sca("INTERVAL", 0.0),
+    _sca("TYPE", ""),
+    _sca("REASON", ""),
+    _sca("LEVEL", 0),
+    _sca("SEVERITY", 0),
+    _sca("APPLIED", False),
+    _sca("COMMAND", ""),
+)
+POINTING_COLUMNS = (
+    _sca("ANTENNA_ID", 0),
+    _sca("TIME", 0.0),
+    _sca("INTERVAL", 0.0),
+    _sca("NAME", ""),
+    _sca("NUM_POLY", 0),
+    _sca("TIME_ORIGIN", 0.0),
+    _sca("TRACKING", False),
+    _arr("DIRECTION", 0.0, 2),
+    _arr("TARGET", 0.0, 2),
+)
+PROCESSOR_COLUMNS = (
+    _sca("TYPE", ""),
+    _sca("SUB_TYPE", ""),
+    _sca("TYPE_ID", 0),
+    _sca("MODE_ID", 0),
+    _sca("FLAG_ROW", False),
 )
 STATE_COLUMNS = (
     _sca("SIG", True),

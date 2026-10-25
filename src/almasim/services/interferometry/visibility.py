@@ -110,8 +110,10 @@ def build_channel_visibility_rows(
         model_data[valid] = sampled
         data[valid] = sampled * gains_flat[valid] + noise_flat[valid] * np.abs(gains_flat[valid])
 
-    sigma = np.full(nrows, max(float(noise_std), 1e-12), dtype=np.float32)
-    weight = np.full(nrows, 1.0 / np.square(sigma[0]), dtype=np.float32)
+    # Each row's noise as calibrated data's weights carry it: the channel's noise
+    # times the gain amplitude the data were scaled by (1 without corruptions).
+    sigma = (max(float(noise_std), 1e-12) * np.abs(gains_flat)).astype(np.float32)
+    weight = (1.0 / np.square(np.maximum(sigma, 1e-12))).astype(np.float32)
     uvw_m = np.stack(
         [
             u_flat * mean_wavelength_m,
@@ -180,9 +182,12 @@ def assemble_visibility_table(
     interval_s = np.full(nrows, float(scan_time_s), dtype=np.float64)
     exposure_s = np.full(nrows, float(scan_time_s), dtype=np.float64)
 
-    # Collapse per-channel noise metadata to row-level MS WEIGHT/SIGMA.
-    weight = np.mean(weight_spectrum, axis=2).astype(np.float32)
-    sigma = np.mean(sigma_spectrum, axis=2).astype(np.float32)
+    # Collapse per-channel noise metadata to row-level MS WEIGHT/SIGMA as the
+    # ALMA pipeline's statwt does: the inverse of the row's mean variance over its
+    # channels (a mean of the channels' weights would overweight the quiet ones).
+    variance = np.mean(np.square(sigma_spectrum.astype(np.float64)), axis=2)
+    sigma = np.sqrt(variance).astype(np.float32)
+    weight = (1.0 / np.maximum(variance, 1e-24)).astype(np.float32)
 
     scan_number = None
     if scan_length_s > 0:

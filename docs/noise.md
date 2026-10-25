@@ -45,6 +45,23 @@ g Tsky_image), with the image band one IF centre on the other side of the LO
 and the sideband whose image gives the lower Tsys. The ripple is drawn from
 the run's seed.
 
+## Per Visibility: the Radiometer Equation
+
+By default the noise is calibrated in the image: each channel's noise is set so
+that the source comes out at the run's target S/N. With `radiometer_noise`
+(on in `--corruptions alma`) each visibility instead carries the noise ALMA's
+radiometer equation gives it, from the same Tsys:
+SEFD / (eta sqrt(2 n_pol dnu t)), with the SEFD 2 k Tsys / A_eff of one
+antenna, eta = 0.96 x 0.88 (quantisation and correlator), the channel width
+dnu and the simulator's integration t. The source keeps its modelled flux, so
+its S/N follows from the observation. A 12 m visibility at 230 GHz over
+15.6 MHz and 6 s then has ~0.1-0.2 Jy of noise, and an exported MS images, in
+WSClean or CASA, to the S/N a real observation of that source would reach.
+
+The exported MS's WEIGHT is 1 / mean(sigma^2) over a row's channels, sigma
+scaled by the gain amplitude the data were multiplied by, as the ALMA
+pipeline's statwt sets it.
+
 ## Per Antenna and Per Baseline
 
 Two more terms, also in `--corruptions alma`, come from the same 100 windows:

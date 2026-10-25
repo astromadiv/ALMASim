@@ -157,6 +157,9 @@ def spectral_window_table(channel_freq_hz: np.ndarray, nchan: int) -> TableSpec:
         "MEAS_FREQ_REF": 5,
         "NET_SIDEBAND": 1,
         "FLAG_ROW": False,
+        "FREQ_GROUP": 0,
+        "FREQ_GROUP_NAME": "",
+        "IF_CONV_CHAIN": 0,
     }
     return TableSpec("SPECTRAL_WINDOW", schema.SPECTRAL_WINDOW_COLUMNS, values)
 
@@ -208,8 +211,46 @@ def observation_table(telescope_name: str, project_name: str, time_range: np.nda
         "RELEASE_DATE": float(time_range.max()),
         "FLAG_ROW": False,
         "TIME_RANGE": time_range.astype(np.float64),
+        "LOG": np.array(["ALMASim simulation"]),
+        "SCHEDULE": np.array(["ALMASim"]),
     }
     return TableSpec("OBSERVATION", schema.OBSERVATION_COLUMNS, values)
+
+
+def feed_table(n_antennas: int, time_range: np.ndarray) -> TableSpec:
+    """One feed per antenna, two linear receptors (X and Y) at right angles."""
+    values = {
+        "ANTENNA_ID": np.arange(n_antennas, dtype=np.int32),
+        "FEED_ID": np.zeros(n_antennas, dtype=np.int32),
+        "SPECTRAL_WINDOW_ID": np.full(n_antennas, -1, dtype=np.int32),
+        "TIME": np.full(n_antennas, float(np.mean(time_range))),
+        "INTERVAL": np.full(n_antennas, float(np.ptp(time_range)) + 1.0),
+        "NUM_RECEPTORS": np.full(n_antennas, 2, dtype=np.int32),
+        "BEAM_ID": np.full(n_antennas, -1, dtype=np.int32),
+        "BEAM_OFFSET": np.zeros((n_antennas, 2, 2)),
+        "POLARIZATION_TYPE": np.tile(np.array(["X", "Y"]), (n_antennas, 1)),
+        "POL_RESPONSE": np.tile(np.eye(2, dtype=np.complex64), (n_antennas, 1, 1)),
+        "POSITION": np.zeros((n_antennas, 3)),
+        "RECEPTOR_ANGLE": np.tile(np.array([0.0, np.pi / 2]), (n_antennas, 1)),
+    }
+    return TableSpec("FEED", schema.FEED_COLUMNS, values, nrow=n_antennas, by_column=True)
+
+
+def processor_table() -> TableSpec:
+    values = {
+        "TYPE": "CORRELATOR",
+        "SUB_TYPE": "ALMASim",
+        "TYPE_ID": -1,
+        "MODE_ID": -1,
+        "FLAG_ROW": False,
+    }
+    return TableSpec("PROCESSOR", schema.PROCESSOR_COLUMNS, values)
+
+
+def empty_table(name: str) -> TableSpec:
+    """A required subtable with its columns and no rows (FLAG_CMD, POINTING)."""
+    columns = {"FLAG_CMD": schema.FLAG_CMD_COLUMNS, "POINTING": schema.POINTING_COLUMNS}[name]
+    return TableSpec(name, columns, {}, nrow=0)
 
 
 def source_table(
@@ -225,6 +266,7 @@ def source_table(
         "CODE": "",
         "CALIBRATION_GROUP": 0,
         "DIRECTION": np.array([ra_rad, dec_rad]),
+        "PROPER_MOTION": np.zeros(2),
     }
     return TableSpec("SOURCE", schema.SOURCE_COLUMNS, values)
 
