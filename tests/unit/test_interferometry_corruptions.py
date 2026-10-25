@@ -6,6 +6,7 @@ import pytest
 from almasim.services.interferometry.corruptions import (
     AntennaCorruptions,
     CorruptionModel,
+    antenna_ripple,
     baseline_antennas,
     correlated_noise,
     draw_antenna_corruptions,
@@ -168,6 +169,38 @@ def test_channel_applies_the_drawn_gains_to_its_rows():
     expected = errors.baseline_gains(baseline_antennas(4), 1.0e-3).reshape(-1)
     valid = rows["valid"]
     assert np.allclose(rows_c["data"][valid], rows["data"][valid] * expected[valid], atol=1e-5)
+
+
+@pytest.mark.unit
+def test_antenna_ripple_has_its_rms_and_frequency_scale():
+    """Each antenna's noise variance varies about 1 by the rms asked for, smoothly:
+    its autocorrelation falls to half at the scale asked for."""
+    freq = 230e9 + np.arange(4000) * 0.5e6  # 2 GHz in 0.5 MHz channels
+    g = antenna_ripple(np.random.default_rng(1), 200, freq, 0.02, 100.0)
+    assert g.shape == (200, 4000)
+    assert abs(np.mean(g) - 1) < 0.002
+    assert np.std(g) == pytest.approx(0.02, rel=0.1)
+    x = g - g.mean(axis=1, keepdims=True)
+    lags = np.arange(1, 600)
+    ac = np.array([np.mean(x[:, :-k] * x[:, k:]) for k in lags]) / np.mean(x * x)
+    half_mhz = lags[np.argmax(ac < 0.5)] * 0.5
+    assert half_mhz == pytest.approx(100.0, rel=0.25)
+    assert np.all(antenna_ripple(np.random.default_rng(1), 3, freq, 0.0, 100.0) == 1)
+
+
+@pytest.mark.unit
+def test_channel_scales_each_baselines_noise_by_its_antennas():
+    """With antenna_noise, a baseline's noise is the same draw times sqrt(g_i g_j)."""
+    sky = np.zeros((64, 64))
+    wavelength = [1.0e-6, 1.0e-6, 1.0e-6]
+    g = np.array([[1.0], [1.21], [0.81], [1.0]])  # (nant, nchan)
+    plain = image_configured_channel(_config(), sky, wavelength, 1.0, channel=0)[-1]
+    scaled = image_configured_channel(_config(antenna_noise=g), sky, wavelength, 1.0, channel=0)[-1]
+    pairs = baseline_antennas(4)
+    factor = np.repeat(np.sqrt(g[pairs[:, 0], 0] * g[pairs[:, 1], 0]), 6)
+    valid = plain["valid"]
+    assert np.allclose(scaled["data"][valid], plain["data"][valid] * factor[valid], atol=1e-5)
+    assert not np.allclose(factor, 1)
 
 
 @pytest.mark.unit

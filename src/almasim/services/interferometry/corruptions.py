@@ -55,6 +55,11 @@ class CorruptionModel:
     # own smooth ripple, as a fraction of Tsys.
     atmospheric_tsys: bool = False
     receiver_ripple_rms: float = 0.0
+    # Each antenna's own smooth ripple of its noise across the window, beyond
+    # the array's (receivers and IF chains differ): the fractional rms of its
+    # noise variance, and the frequency scale (MHz) over which it holds.
+    antenna_ripple_rms: float = 0.0
+    antenna_ripple_mhz: float = 100.0
 
     @classmethod
     def from_mapping(cls, values: Mapping[str, Any] | None) -> CorruptionModel | None:
@@ -294,6 +299,31 @@ def draw_antenna_corruptions(
                 path += (fast * model.fast_path_um_1km * 1e-6 / scale).T
 
     return AntennaCorruptions(amplitude=amplitude, phase=phase, path_m=path)
+
+
+def antenna_ripple(
+    rng: np.random.Generator, nant: int, freq_hz: np.ndarray, rms: float, scale_mhz: float
+) -> np.ndarray:
+    """Each antenna's noise variance across the window, as a factor about 1
+    (nant, nchan): white draws smoothed in frequency by a Gaussian whose
+    autocorrelation falls to half at ``scale_mhz``, scaled to ``rms`` per
+    antenna. A baseline's noise variance is then g_i g_j times the array's, so
+    an antenna's mean over its baselines varies by ``rms``."""
+    freq_hz = np.asarray(freq_hz, dtype=np.float64)
+    nchan = freq_hz.size
+    if rms <= 0 or nchan == 0:
+        return np.ones((nant, nchan))
+    step_mhz = float(np.median(np.abs(np.diff(freq_hz)))) / 1e6 if nchan > 1 else scale_mhz
+    # A Gaussian kernel of width s gives an autocorrelation of width s*sqrt(2),
+    # at half maximum sqrt(2 ln 2) * s * sqrt(2) = 2 sqrt(ln 2) s.
+    sigma = scale_mhz / (2.0 * np.sqrt(np.log(2.0))) / max(step_mhz, 1e-12)
+    pad = int(np.ceil(4 * sigma))
+    white = rng.standard_normal((nant, nchan + 2 * pad))
+    x = np.arange(-pad, pad + 1)
+    kernel = np.exp(-0.5 * (x / max(sigma, 1e-6)) ** 2)
+    smooth = np.stack([np.convolve(row, kernel, mode="valid") for row in white])
+    smooth /= np.sqrt(np.sum(kernel**2))  # unit variance, whatever the width
+    return np.clip(1.0 + rms * smooth, 0.05, None)
 
 
 def baseline_antennas(nant: int) -> np.ndarray:

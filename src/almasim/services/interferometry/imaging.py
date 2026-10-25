@@ -240,6 +240,7 @@ def image_channel(
     rng: np.random.Generator | None = None,
     gains: np.ndarray | None = None,
     noise_samples: np.ndarray | None = None,
+    noise_scale: np.ndarray | None = None,
 ) -> tuple:
     """Process a single channel through interferometric simulation.
 
@@ -247,7 +248,8 @@ def image_channel(
     ``gains`` (baselines x integrations): what the calibration left on each
     visibility (all ones when None); ``noise_samples``: this channel's noise,
     when drawn outside (correlated with its neighbours), instead of white
-    noise from ``rng``.
+    noise from ``rng``; ``noise_scale`` (baselines): each baseline's noise
+    over the channel's (antennas whose noise differs), all ones when None.
     """
     rng = rng if rng is not None else np.random.default_rng()
     # Convert header dict back to FITS Header if needed (for pickling compatibility)
@@ -271,6 +273,8 @@ def image_channel(
         Noise[:] = noise_samples
     else:
         Noise = set_noise(noise, Noise, rng)
+    if noise_scale is not None:
+        Noise *= np.asarray(noise_scale, dtype=np.float32)[:, None]
     if gains is not None:
         Gains[:] = gains
     B, u, v = set_baselines(Nbas, antnum, B, u, v, antPos, trlat, trdec, H, wavelength)
