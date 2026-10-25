@@ -227,6 +227,36 @@ def test_baseline_errors_act_on_the_continuum_share_only():
 
 
 @pytest.mark.unit
+def test_interferometer_hands_its_channels_the_corruption_fields():
+    """The fields every channel task gets: the continuum fraction when it covers
+    the cube's channels, the antenna errors and each antenna's noise ripple."""
+    from types import SimpleNamespace
+
+    from almasim.services.interferometry.core import Interferometer
+
+    freqs = 230e9 + np.arange(8) * 1e6
+    sim = SimpleNamespace(
+        corruptions=CorruptionModel(baseline_amp_rms=0.05, antenna_ripple_rms=0.02),
+        noise_entropy=(7, 1),
+        continuum_fraction=np.linspace(1.0, 0.5, 8),
+        Nchan=8,
+        nH=4,
+        scan_time=30.0,
+        antPos=[[0.0, 0.0, 0.0], [0.1, 0.0, 0.0], [0.0, 0.1, 0.0]],
+        Nant=3,
+        spectral_window=SimpleNamespace(frequencies_hz=lambda: freqs),
+    )
+    fields = Interferometer._corruption_fields(sim)
+    assert np.allclose(fields["continuum_fraction"], np.linspace(1.0, 0.5, 8))
+    assert fields["antenna_corruptions"].baseline is not None
+    assert fields["antenna_noise"].shape == (3, 8)
+    sim.continuum_fraction = np.ones(5)  # not this cube's channels: left out
+    assert "continuum_fraction" not in Interferometer._corruption_fields(sim)
+    sim.corruptions = None
+    assert Interferometer._corruption_fields(sim) == {}
+
+
+@pytest.mark.unit
 def test_continuum_fraction_follows_the_lines():
     """The continuum's share of each channel: 1 away from the lines, lower on them."""
     from almasim.services.simulation.spectral_setup import SpectralSetup
