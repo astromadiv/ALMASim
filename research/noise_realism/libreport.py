@@ -1,6 +1,8 @@
-"""The 100 windows in five columns: the real data, the counterpart simulated from
-its clean model, and the library's own simulations on three skies made from
-the real source (libsim.py real_sky: point, Gaussian, Gaussian mixture).
+"""The 100 windows in six columns: the real data, the counterpart simulated from
+its clean model, the library's own simulation of the archive row with its
+source scaled to the real continuum S/N (libsim.py, two passes), and the
+library on three skies made from the real source (libsim.py real_sky: point,
+Gaussian, Gaussian mixture).
 
     python libreport.py OUT_DIR
 
@@ -27,10 +29,11 @@ LIB = NOISE / "libsim"
 # The counterpart's latest model per window, first found (as report.py's LATEST).
 COUNTERPART = ("iter-f10-bright", "iter-f3-bright", "iter-f2-bright", "iter-f3-sim", "iter-f2-sim")
 SKIES = ("point", "gaussian", "mixture")
-COLUMNS = ("real", "counterpart", *SKIES)
+COLUMNS = ("real", "counterpart", "snmatched", *SKIES)
 TITLES = {
     "real": "Real",
     "counterpart": "Counterpart (clean model)",
+    "snmatched": "Library: S/N-matched",
     "point": "Library: point",
     "gaussian": "Library: Gaussian",
     "mixture": "Library: mixture",
@@ -71,6 +74,9 @@ def paths(i: int, window_name: str, task: str) -> dict[str, tuple[Path, Path, Pa
             found["counterpart"] = (NOISE / it / "cubes" / window_name / "SPW-0_FIELD-0" / "wsclean-image.fits",
                                     metrics, None)
             break
+    found["snmatched"] = (LIB / "img-p2" / f"w{i}" / "cubes" / f"w{i}_{i}" / "SPW-0_FIELD-0" / "wsclean-image.fits",
+                          NOISE / "iter-lib" / "metrics" / f"{window_name}.json",
+                          LIB / "uv-p2" / f"{window_name}.json")
     for sky in SKIES:
         found[sky] = (LIB / "img-sky" / sky / f"w{i}" / "cubes" / f"w{i}_{i}" / "SPW-0_FIELD-0" / "wsclean-image.fits",
                       NOISE / f"iter-sky-{sky}" / "metrics" / f"{window_name}.json",
@@ -107,7 +113,7 @@ def figures(rows: list, out: Path) -> None:
 
     for start in range(0, len(rows), 10):
         chunk = rows[start : start + 10]
-        fig, axes = plt.subplots(len(chunk), 5, figsize=(16, 3.3 * len(chunk)), squeeze=False)
+        fig, axes = plt.subplots(len(chunk), len(COLUMNS), figsize=(3.2 * len(COLUMNS), 3.3 * len(chunk)), squeeze=False)
         for r, (i, window_name, task, found, metrics) in enumerate(chunk):
             real_sigma = metrics["real"].get("cont.sigma") or 1.0
             images = {}
@@ -125,7 +131,7 @@ def figures(rows: list, out: Path) -> None:
                 ax.set_xticks([])
                 ax.set_yticks([])
                 if col not in images:
-                    ax.text(0.5, 0.5, "not run yet" if col in SKIES else "n/a", ha="center", va="center",
+                    ax.text(0.5, 0.5, "not run yet" if col not in ("real", "counterpart") else "n/a", ha="center", va="center",
                             transform=ax.transAxes, color="0.5")
                 else:
                     img, cell = images[col]

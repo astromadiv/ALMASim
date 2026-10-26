@@ -5,7 +5,7 @@
 #   2: the model cube scaled to the real continuum S/N (scales.csv), imaged as
 #      MADIV-16 imaged the real windows, then measured as they were.
 set -euo pipefail
-I=$SLURM_ARRAY_TASK_ID; PASS=${PASS:?PASS=1 or 2}
+I=${I:-$SLURM_ARRAY_TASK_ID}; PASS=${PASS:?PASS=1 or 2}
 N=/SKAO_data/cycle11/MADIV-28/noise; D=$N/libsim
 R=$D/runs-p$PASS; G=$D/img-p$PASS
 export CASASITECONFIG=$D/casa-site/config.py MPLCONFIGDIR=$D/.mpl OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=8 \

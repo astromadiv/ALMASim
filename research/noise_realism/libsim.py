@@ -244,7 +244,8 @@ def real_sky(window_name: str, kind: str, n_pix: int, cell: float, freqs_hz: np.
             dd = np.stack([x - c[0], y - c[1]], axis=-1)
             ci = comp / cell**2 + np.eye(2) * 0.25
             g = np.exp(-0.5 * np.einsum("...i,ij,...j->...", dd, np.linalg.inv(ci), dd))
-            template += pi * g / g.sum()
+            if g.sum() > 0:  # a component wholly off this grid adds nothing
+                template += pi * g / g.sum()
         print(f"mixture: {len(pis)} components")
     else:
         raise ValueError(f"sky {kind!r}: one of {SKIES}")
