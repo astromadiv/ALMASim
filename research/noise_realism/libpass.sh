@@ -14,7 +14,7 @@ NAME=$(awk -v i=$I '$1 == i {print $2}' $N/diag/index-names.txt)
 cd /home1/mdelliveneri/ALMASim/research/noise_realism
 TASK=$G/w$I/cubes/w${I}_$I/SPW-0_FIELD-0
 if [ "$PASS" = 1 ] && [ -f $TASK/quality.json ]; then echo "DONE $I pass 1 (already)"; exit 0; fi
-SCALES=; [ "$PASS" = 2 ] && SCALES=$D/scales.csv
+SCALES=; [ "$PASS" = 2 ] && SCALES=${SCALES_CSV:-$D/scales.csv}
 # A run is redone unless it finished (its log line in the run's done file).
 if [ ! -f $R/w$I.done ]; then
   rm -rf $R/w$I

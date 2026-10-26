@@ -11,12 +11,16 @@ counterparts measured (the "alma" preset), to compare with the real data.
                                                real source (SKY: point, gaussian, mixture)
     python libsim.py scales PASS1_IMG OUT.csv  each window's scale: the real continuum S/N
                                                over the first pass's (iter-f0-control)
+    python libsim.py rescale SCALES.csv PASS2_IMG OUT.csv
+                                               the scales corrected where pass 2 missed the
+                                               real S/N by over 20% (those windows: OUT.redo)
 
 The source is scaled to the real window's continuum S/N, so that the images
 compare: a first pass at the library's own flux (continuum imaging only) gives
 the S/N the model reaches, and the second pass multiplies the model cube by
 the real S/N over it. The radiometer noise does not depend on the flux, so the
-S/N scales with it.
+S/N scales with it, unless the first pass's S/N is limited by its calibration
+errors: the windows pass 2 misses are rerun once with the scale corrected.
 
 The run is what `almasim simulation run` does with that row (the redshift of
 its catalogue line, a point source, the row's array and integration time),
@@ -89,6 +93,32 @@ def scales(pass1: Path, out: Path) -> None:
                      "pass1_snr": sim_snr, "scale": real_snr / sim_snr})
     pd.DataFrame(rows).sort_values("window").to_csv(out, index=False)
     print(f"{len(rows)} scales -> {out}")
+
+
+TOLERANCE = 0.2  # pass 2's S/N within this of the real one
+
+
+def rescale(scales_csv: Path, pass2: Path, out: Path) -> None:
+    """Pass 2's continuum S/N against the real one: the windows more than
+    TOLERANCE off get their scale times real over achieved (pass 1 may be
+    limited by its calibration errors, not its noise, so its S/N need not
+    scale with the flux). Writes every window's scale and the windows to redo."""
+    import json
+
+    frame = pd.read_csv(scales_csv)
+    redo = []
+    for k, row in frame.iterrows():
+        quality = pass2 / f"w{row.window}" / "cubes" / f"w{row.window}_{row.window}" / "SPW-0_FIELD-0" / "quality.json"
+        if not quality.exists():
+            continue
+        achieved = json.loads(quality.read_text())["continuum"]["snr"]
+        frame.loc[k, "pass2_snr"] = achieved
+        if achieved and abs(achieved / row.real_snr - 1) > TOLERANCE:
+            frame.loc[k, "scale"] = row.scale * row.real_snr / achieved
+            redo.append(int(row.window))
+    frame.to_csv(out, index=False)
+    out.with_suffix(".redo").write_text("".join(f"{i}\n" for i in redo))
+    print(f"{frame.pass2_snr.notna().sum()} measured, {len(redo)} to redo: {redo} -> {out}")
 
 
 SKIES = ("point", "gaussian", "mixture")
@@ -331,6 +361,8 @@ if __name__ == "__main__":
         rows(Path(sys.argv[2]))
     elif sys.argv[1] == "scales":
         scales(Path(sys.argv[2]), Path(sys.argv[3]))
+    elif sys.argv[1] == "rescale":
+        rescale(Path(sys.argv[2]), Path(sys.argv[3]), Path(sys.argv[4]))
     else:
         scales_arg = sys.argv[5] if len(sys.argv) > 5 and sys.argv[5] != "-" else None
         run(int(sys.argv[2]), Path(sys.argv[3]), Path(sys.argv[4]),
