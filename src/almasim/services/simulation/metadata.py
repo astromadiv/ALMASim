@@ -162,6 +162,7 @@ def simulation_metadata(
         "central_freq_ghz": geometry.central_freq.to(U.GHz).value,
         "band_range_ghz": geometry.band_range.to(U.GHz).value,
         "channel_width_hz": geometry.delta_freq.to(U.Hz).value,
+        "channel_averaging": geometry.channel_averaging,
         "beam_size_arcsec": geometry.beam_size.to(U.arcsec).value,
         "cell_size_arcsec": geometry.cell_size.to(U.arcsec).value,
         "redshift": spectral.redshift,

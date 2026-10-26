@@ -52,8 +52,8 @@ that the source comes out at the run's target S/N. With `radiometer_noise`
 (on in `--corruptions alma`) each visibility instead carries the noise ALMA's
 radiometer equation gives it, from the same Tsys:
 SEFD / (eta sqrt(2 n_pol dnu t)), with the SEFD 2 k Tsys / A_eff of one
-antenna, eta = 0.96 x 0.88 (quantisation and correlator), the channel width
-dnu and the simulator's integration t. The source keeps its modelled flux, so
+antenna, eta = 0.96 x 0.88 (quantisation and correlator), the channel's
+noise bandwidth dnu (see Channels below) and the simulator's integration t. The source keeps its modelled flux, so
 its S/N follows from the observation. A 12 m visibility at 230 GHz over
 15.6 MHz and 6 s then has ~0.1-0.2 Jy of noise, and an exported MS images, in
 WSClean or CASA, to the S/N a real observation of that source would reach.
@@ -61,6 +61,33 @@ WSClean or CASA, to the S/N a real observation of that source would reach.
 The exported MS's WEIGHT is 1 / mean(sigma^2) over a row's channels, sigma
 scaled by the gain amplitude the data were multiplied by, as the ALMA
 pipeline's statwt sets it.
+
+## Channels
+
+The archive's frequency support (`Freq.sup.`) gives each window's spectral
+resolution, not its channel width. ALMA's correlator Hanning-smooths its
+native channels and may average N of them into each one, and every ALMA
+channel width is 15.625 MHz / 2^k. The resolution therefore tells N
+([`instrument/channels.py`](../src/almasim/services/instrument/channels.py)):
+
+| Resolution against ALMA's grid | N | Channel width | rho1 | Noise bandwidth |
+| --- | --- | --- | --- | --- |
+| on it | 1 | resolution / 2 | 0.667 | 2.67 x width |
+| 1.156 x above it | 2 | the grid value | 0.30 | 1.60 x width |
+| just below it | 4, 8, 16, ... | the grid value | 0.115, 0.052, 0.026 | 1.23, 1.10, 1.05 x width |
+
+For N >= 4, N is the width over the window's native channel (its bandwidth
+over 3840). The 10,052 windows of cycle11.csv each fall in one of the three
+classes; on the 100 MADIV-16 windows the rule gives each one's RESOLUTION,
+CHAN_WIDTH, EFFECTIVE_BW and the measured noise correlation of its
+neighbouring channels. A resolution off the grid is taken as the channel
+width.
+
+The cube's channels are the window's (the run's metadata records
+`channel_averaging`). The correlated channel noise (`spectral_rho1` and
+`spectral_rho2`, the native channels' correlation, 2/3 and 1/6 in
+`--corruptions alma`) is diluted over the window's N; `spectral_average`
+sets N instead (0, the default, takes the window's).
 
 ## Per Antenna and Per Baseline
 

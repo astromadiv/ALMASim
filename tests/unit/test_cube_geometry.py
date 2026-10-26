@@ -75,3 +75,12 @@ def test_planner_geometry_uses_the_primary_beam_and_eight_cells_per_beam(tmp_pat
         planner.beam_size.to_value(U.arcsec) / 8
     )
     assert planner.n_pix & (planner.n_pix - 1) == 0
+
+
+def test_channels_are_the_windows_not_its_resolution(tmp_path):
+    """The archive's 1938.48 kHz is the resolution of four averaged 488 kHz channels."""
+    geometry = resolve_cube_geometry(_params(tmp_path))
+    assert geometry.delta_freq.to_value(U.kHz) == pytest.approx(1953.125)
+    assert geometry.channel_averaging == 4
+    assert geometry.noise_bandwidth_hz == pytest.approx(1953.125e3 * 1.231, rel=1e-3)
+    assert geometry.n_channels == int(geometry.band_range / geometry.delta_freq)

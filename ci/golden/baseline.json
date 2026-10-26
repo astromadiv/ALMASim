@@ -4,15 +4,15 @@
     "sha256": "c96c2ab387d9ca3883efe1d7438a748e0a2f69844bde6b401278800f59bc7019"
   },
   "baseline": {
-    "url": "https://github.com/astromadiv/ALMASim/releases/download/golden-baseline-v11/golden-baseline-v11.tar.gz",
-    "sha256": "0f5e1f8baecc13c5c3947fde45b51e7eb6fd0a03aca30b8268d3e67d0131b3ff",
-    "version": "v11",
-    "source": "workflow run 39683632827, commit 6efa4a9a; #460: --row-idx simulates exactly that metadata row (the simulation golden now runs row 0)"
+    "url": "https://github.com/astromadiv/ALMASim/releases/download/golden-baseline-v12/golden-baseline-v12.tar.gz",
+    "sha256": "721cff888fbf4b91c39ecfe5ed885613a15bd9aa511713c8a4648242e87da1ea",
+    "version": "v12",
+    "source": "workflow run 40236526864, commit 1c58be85; MADIV-28: channels from the archive's resolution (#476)"
   },
   "simulation_baseline": {
-    "url": "https://github.com/astromadiv/ALMASim/releases/download/golden-baseline-v11/golden-simulation-v11.tar.gz",
-    "sha256": "4ec021c00fcf6767441fb204a6c138231dfc14556609bedb24f46637f19d03cb",
-    "version": "v11",
-    "source": "workflow run 39683632827, commit 6efa4a9a; #460: --row-idx simulates exactly that metadata row (the simulation golden now runs row 0)"
+    "url": "https://github.com/astromadiv/ALMASim/releases/download/golden-baseline-v12/golden-simulation-v12.tar.gz",
+    "sha256": "00c6313df9f425b9e34847860e270d6a3d40e9af75a608394da49f44f3baed28",
+    "version": "v12",
+    "source": "workflow run 40236526864, commit 1c58be85; MADIV-28: channels from the archive's resolution (#476)"
   }
 }

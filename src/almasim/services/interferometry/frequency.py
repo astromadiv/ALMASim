@@ -41,7 +41,9 @@ def freq_supp_extractor(  # noqa: C901
     Returns
     -------
     tuple
-        (band_range, central_freq, n_channels, freq_delta) in GHz, GHz, int, GHz
+        (band_range, central_freq, n_channels, freq_delta) in GHz, GHz, int, GHz.
+        freq_delta is the window's resolution as the archive gives it, and
+        n_channels the band over it; instrument.channels gives the channels.
 
     Raises
     ------
