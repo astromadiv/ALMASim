@@ -66,9 +66,43 @@ def _as_xx_yy(values: Any, dtype: Any, axis: int) -> np.ndarray:
     return np.repeat(array, len(MS_CORR_TYPES), axis=axis)
 
 
-def main_table(ms_path: str, vt: Mapping[str, Any]) -> TableSpec:
-    """The visibilities, in the MS's (nrows, nchan, ncorr) layout, Stokes I as XX and YY."""
-    data = _as_xx_yy(vt["data"], np.complex64, axis=1)
+def _hands(
+    vt: Mapping[str, Any], rng: np.random.Generator | None
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """DATA, WEIGHT and SIGMA of the two hands from Stokes I.
+
+    XX = I + d and YY = I - d, with d independent noise at each visibility's
+    own level (``sigma_spectrum``, else its row's SIGMA): each hand then
+    carries independent noise of sqrt(2) times Stokes I's, as two real
+    polarisations do, and (XX + YY) / 2 is still I. Each hand's WEIGHT is half
+    Stokes I's, so that the two together weigh what I does; copying I into
+    both hands at I's weight made an imager expect sqrt(2) less noise than the
+    data carry. Without ``rng`` the hands are copies of I, at half its weight.
+    """
+    data = np.asarray(vt["data"], dtype=np.complex64)
+    if data.shape[1] != 1:
+        raise ValueError(f"expected one (Stokes I) correlation, got {data.shape[1]}")
+    hands = np.repeat(data, len(MS_CORR_TYPES), axis=1)
+    if rng is not None:
+        noise = vt.get("sigma_spectrum")
+        noise = np.asarray(
+            noise if noise is not None else np.asarray(vt["sigma"])[:, :, None], dtype=np.float32
+        )
+        shape = data.shape
+        delta = (rng.standard_normal(shape) + 1j * rng.standard_normal(shape)) * noise
+        hands[:, :1] += delta.astype(np.complex64)
+        hands[:, 1:] -= delta.astype(np.complex64)
+    weight = _as_xx_yy(np.asarray(vt["weight"], dtype=np.float32) / 2, np.float32, axis=1)
+    sigma = _as_xx_yy(np.asarray(vt["sigma"], dtype=np.float32) * np.sqrt(2), np.float32, axis=1)
+    return hands, weight, sigma
+
+
+def main_table(
+    ms_path: str, vt: Mapping[str, Any], rng: np.random.Generator | None = None
+) -> TableSpec:
+    """The visibilities, in the MS's (nrows, nchan, ncorr) layout, Stokes I as XX and
+    YY with independent noise (``_hands``)."""
+    data, weight, sigma = _hands(vt, rng)
     flag = _as_xx_yy(vt["flag"], bool, axis=1)
     time_mjd_s = np.asarray(vt["time_mjd_s"], dtype=np.float64)
     nrows = data.shape[0]
@@ -102,8 +136,8 @@ def main_table(ms_path: str, vt: Mapping[str, Any]) -> TableSpec:
         "DATA": data.transpose(0, 2, 1),
         "MODEL_DATA": _as_xx_yy(vt["model_data"], np.complex64, axis=1).transpose(0, 2, 1),
         "FLAG": flag.transpose(0, 2, 1),
-        "WEIGHT": _as_xx_yy(vt["weight"], np.float32, axis=1),  # (nrows, ncorr)
-        "SIGMA": _as_xx_yy(vt["sigma"], np.float32, axis=1),
+        "WEIGHT": weight,  # (nrows, ncorr)
+        "SIGMA": sigma,
     }
     keywords: dict[str, Any] = {"MS_VERSION": 2.0}
     keywords.update(

@@ -13,6 +13,7 @@ from ..ms.io import export_native_ms
 from ..products.cube_export import save_optional_cube, write_ml_dataset_shard
 from .context import RunContext
 from .params import LogFn, SimulationParams
+from .rng import run_rng
 from .stages import CleanCubeStage
 
 
@@ -118,6 +119,7 @@ def export_results(  # noqa: C901
                 visibility_table=visibility_table,
                 project_name=params.project_name,
                 source_name=params.source_name,
+                rng=run_rng(params.seed, "polarization"),
             )
 
     if params.ml_dataset_path:
