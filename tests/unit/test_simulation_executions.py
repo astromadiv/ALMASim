@@ -176,3 +176,32 @@ def test_the_executions_of_one_array_share_its_antennas_not_their_scans():
 def test_tables_without_executions_have_no_observation_ids():
     joint = concatenate_visibility_tables([_table(["A1", "A2"]), _table(["C1", "C2"])])
     assert "observation_id" not in joint
+
+
+@pytest.mark.unit
+def test_an_execution_is_sampled_at_its_given_sample_time():
+    from astropy.io import fits
+
+    from almasim.services.interferometry.core import Interferometer
+
+    block = Interferometer.__new__(Interferometer)
+    block.integration_time, block.header = 2805.0 / 3600.0, fits.Header()
+    block.sample_time_s = 30.24
+    block._get_nH()
+    assert (block.nH, block.scan_time) == (92, 30.24)
+    assert block.header["EPOCH"] == 92
+    block.sample_time_s, block.header = None, fits.Header()
+    block._get_nH()
+    assert (block.nH, block.scan_time) == hour_angle_samples(2805.0)
+
+
+@pytest.mark.unit
+def test_each_execution_has_its_own_time_range_in_the_ms():
+    from almasim.services.ms.io import _execution_ranges
+
+    times = np.array([1.0, 2.0, 10.0, 11.0])
+    np.testing.assert_array_equal(_execution_ranges({}, times), [[1.0, 11.0]])
+    ids = np.array([0, 0, 2, 2])
+    np.testing.assert_array_equal(
+        _execution_ranges({"observation_id": ids}, times), [[1.0, 2.0], [1.0, 11.0], [10.0, 11.0]]
+    )
