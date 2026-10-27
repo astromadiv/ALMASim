@@ -328,6 +328,8 @@ def run(i: int, rows_csv: Path, out_dir: Path, scales_csv: Path | None = None, s
         n_channels=int(row.n_channels),
         seed=1000 + i + (1000 * (1 + SKIES.index(sky)) if sky else 0),
         corruptions="alma",
+        # One execution block of the MOUS (a library with execution blocks, MADIV-28).
+        **({"executions": int(os.environ["EXECUTIONS"])} if os.environ.get("EXECUTIONS") else {}),
         ms_export=True,
         ms_save_mode="msv2",
     )
