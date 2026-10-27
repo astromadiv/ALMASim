@@ -53,6 +53,7 @@ $ almasim metadata [OPTIONS]
 * `--save-csv <path>`: Destination CSV for normalized metadata rows.
 * `--save-products-csv <path>`: Optional destination CSV for the DataLink product rows of the queried member OUS UIDs, ready for `products download --products-csv`.
 * `--product-member-limit <int range>`: How many queried member OUS UIDs to resolve into product rows. Defaults to unlimited.  [x>=1]
+* `--count-executions`: Add n_executions: how many execution blocks observed each row's MOUS (its raw ASDMs in DataLink; one request per MOUS). Int.Time is the MOUS's total, which `simulation run` observes in that many blocks.
 * `-y, --yes`: Skip confirmation prompt and start the query immediately.
 * `--help`: Show this message and exit.
 
@@ -74,6 +75,7 @@ $ almasim products [OPTIONS] COMMAND [ARGS]...
 
 * `resolve`: Extract member_ous_uid values and resolve...
 * `download`: Download ALMA products and optionally...
+* `executions`: Add how many execution blocks observed...
 
 ## `almasim products resolve`
 
@@ -134,6 +136,26 @@ $ almasim products download [OPTIONS]
 * `--continue-on-error / --fail-fast`: Skip UIDs whose processing fails and carry on with the rest, then exit non-zero with a summary (default). --fail-fast aborts on the first failure.  [default: continue-on-error]
 * `--keep-working-copies`: Keep each UID's working directory (raw MS copy plus caltables, about 1.8x the raw MS) after its calibrated output is written. By default it is removed.
 * `-y, --yes`: Skip confirmation prompt and start download immediately.
+* `--help`: Show this message and exit.
+
+## `almasim products executions`
+
+Add how many execution blocks observed each row's MOUS (n_executions).
+
+A row's Int.Time is its MOUS's total time on source; `simulation run`
+observes it in n_executions blocks (without the column: blocks of at most
+3000 s).
+
+**Usage**:
+
+```console
+$ almasim products executions [OPTIONS]
+```
+
+**Options**:
+
+* `--metadata-path <path>`: Metadata CSV (from 'almasim metadata query') to add n_executions to.  [required]
+* `--save-csv <path>`: Destination CSV; defaults to overwriting --metadata-path.
 * `--help`: Show this message and exit.
 
 # `almasim simulation`

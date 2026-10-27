@@ -183,3 +183,17 @@ def filter_products(products: list[DataProduct], product_filter: str = "all") ->
     if product_filter == "all":
         return list(products)
     return [product for product in products if product.product_type == product_filter]
+
+
+def count_executions(products: Iterable[DataProduct]) -> dict[str, int]:
+    """Each member OUS's execution blocks: the distinct raw ASDMs among its products."""
+    from ..archive.qa0 import eb_uid_from_raw_filename
+
+    blocks: dict[str, set[str]] = {}
+    for product in products:
+        eb_uid = (
+            eb_uid_from_raw_filename(product.filename) if product.product_type == "raw" else None
+        )
+        if eb_uid is not None:
+            blocks.setdefault(product.uid, set()).add(eb_uid)
+    return {uid: len(ebs) for uid, ebs in blocks.items()}

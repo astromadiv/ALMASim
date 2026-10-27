@@ -29,13 +29,16 @@ from .profile import Profile
 
 # The commands that need the internet: on Slurm by default, on the server
 # node only where a profile says so (compute nodes without internet).
-NETWORK_COMMANDS = frozenset({"metadata", "products resolve", "products download"})
+NETWORK_COMMANDS = frozenset(
+    {"metadata", "products resolve", "products download", "products executions"}
+)
 
 KNOWN_COMMANDS = frozenset(
     {
         "metadata",
         "products resolve",
         "products download",
+        "products executions",
         "simulation",
         "visibilities extract",
         "visibilities unpack",
