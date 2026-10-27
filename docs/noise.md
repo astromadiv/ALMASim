@@ -9,6 +9,10 @@ the noise models in [`src/almasim/services/noise_model/`](../src/almasim/service
 
 ## Noise Models
 
+[Noise models: a complete guide](noise_models.md) explains every component,
+how it is measured, fitted and simulated, and walks through building and
+releasing a model from real data. This section is the short reference.
+
 What the visibilities carry besides white thermal noise is a noise model:
 a named, versioned JSON file made of components, each with its own switch and
 parameters. Released models ship with ALMASim in

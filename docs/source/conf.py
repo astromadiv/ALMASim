@@ -76,6 +76,9 @@ myst_enable_extensions = [
     "colon_fence",
 ]
 
+# Anchors on headings, as GitHub makes them, so pages can link to their sections.
+myst_heading_anchors = 3
+
 suppress_warnings = [
     "myst.xref_missing",
 ]
