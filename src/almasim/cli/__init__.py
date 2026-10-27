@@ -89,6 +89,7 @@ _GROUPS = (
     ("predict", ".predict", "predict_app", "Model prediction commands."),
     ("image", ".image", "image_app", "Data product batch imaging."),
     ("preview", ".preview", "preview_app", "Previews of products, written as FITS."),
+    ("noise", ".noise", "noise_app", "Noise models: released versions, components, schema."),
     ("jobs", ".jobs", "jobs_app", "List, follow and control submitted runs."),
 )
 

@@ -18,7 +18,7 @@ from ..services import astro
 from ..services.astro.spectral import with_redshifts
 from ..services.compute import create_backend
 from ..services.external_skymodel import EXTERNAL_SOURCE_TYPES, is_external_source_type
-from ..services.interferometry.corruptions import resolve_corruptions
+from ..services.noise_model import NoiseModel, resolve_noise_model
 from ..services.simulation import (
     SimulationParams,
     export_results,
@@ -206,7 +206,7 @@ def _build_simulation_params(
     output_subdir_name: str | None,
     input_path: Path | None,
     kaggle_token: Path | None = None,
-    corruptions: str | None = None,
+    noise_model: NoiseModel | str | None = None,
     executions: int | None = None,
 ) -> SimulationParams:
     if not 0 <= row_idx < len(metadata):
@@ -252,7 +252,7 @@ def _build_simulation_params(
         instrument_geometry=instrument_geometry,
         inject_serendipitous=inject_serendipitous,
         kaggle_token=kaggle_token,
-        corruptions=corruptions,
+        noise_model=noise_model,
         executions=executions,
         # Disable MS export by default; requires casatools or python-casacore.
         ms_export=False,
@@ -288,7 +288,9 @@ class SimulationRunOptions:
     backend: str
     n_workers: int
     kaggle_token: Path | None
-    corruptions: str | None
+    noise_model: NoiseModel | str | None
+    noise_only: str | None
+    noise_without: str | None
     executions: int | None
 
 
@@ -467,17 +469,34 @@ def simulation_run(
         ),
         rich_help_panel="Sky model",
     ),
-    corruptions: str | None = typer.Option(
+    noise_model: str | None = typer.Option(
         None,
+        "--noise-model",
         "--corruptions",
         help=(
-            "What the visibilities carry besides white thermal noise: a preset "
-            "('alma': ALMA's channel-correlated noise, varying across the window as "
-            "its Tsys does, antenna gain errors and residual atmospheric phase, as "
-            "measured on real calibrated data; "
-            "'none'), a JSON object of CorruptionModel fields, or a JSON file."
+            "What the visibilities carry besides white thermal noise: a released noise "
+            "model ('alma', the newest version, or 'alma@1': radiometer noise following "
+            "ALMA's Tsys, correlated channels, antenna noise ripple and, on bright "
+            "sources, the gain, atmospheric phase and baseline errors calibration "
+            "leaves, as measured on real calibrated data; 'none'), a JSON object or a "
+            "JSON file of a noise model. 'almasim noise show' lists the models."
         ),
-        rich_help_panel="Advanced",
+        rich_help_panel="Noise",
+    ),
+    noise_only: str | None = typer.Option(
+        None,
+        "--noise-only",
+        help=(
+            "Apply only these components of the noise model (comma-separated, e.g. "
+            "'radiometer,channel_correlation'); 'almasim noise show' lists them."
+        ),
+        rich_help_panel="Noise",
+    ),
+    noise_without: str | None = typer.Option(
+        None,
+        "--noise-without",
+        help="Apply the noise model without these components (comma-separated).",
+        rich_help_panel="Noise",
     ),
     executions: int | None = typer.Option(
         None,
@@ -557,7 +576,7 @@ def simulation_run(
                     ),
                     input_path=o.input_path,
                     kaggle_token=o.kaggle_token,
-                    corruptions=o.corruptions,
+                    noise_model=o.noise_model,
                     executions=o.executions,
                 )
                 _run_simulation_stages(
@@ -586,10 +605,17 @@ def _validated_simulation_options(o: SimulationRunOptions) -> SimulationRunOptio
     if o.kaggle_token is not None and not o.kaggle_token.expanduser().exists():
         usage_error(f"--kaggle-token not found: {o.kaggle_token}")
     try:
-        resolve_corruptions(o.corruptions)
-    except (ValueError, TypeError) as exc:  # json.JSONDecodeError is a ValueError
-        usage_error(f"--corruptions: {exc}")
-    return o
+        model = resolve_noise_model(o.noise_model)
+        if model is not None:
+            model = model.select(
+                only=[o.noise_only] if o.noise_only is not None else None,
+                without=[o.noise_without] if o.noise_without else None,
+            )
+    except (ValueError, TypeError) as exc:  # json.JSONDecodeError and pydantic's are ValueErrors
+        usage_error(f"--noise-model: {exc}")
+    if model is None and (o.noise_only or o.noise_without):
+        usage_error("--noise-only and --noise-without select components of a --noise-model")
+    return replace(o, noise_model=model)
 
 
 def _run_simulation_stages(

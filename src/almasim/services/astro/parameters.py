@@ -35,6 +35,7 @@ def write_sim_parameters(
     fwhm_x: float | None = None,
     fwhm_y: float | None = None,
     angle: float | None = None,
+    noise_model: str | None = None,
 ) -> None:
     """
     Write simulation parameters to a text file.
@@ -85,6 +86,8 @@ def write_sim_parameters(
         FWHM in x and y directions (for gaussian sources)
     angle : float or None
         Projection angle (for gaussian/extended sources)
+    noise_model : str or None
+        The noise model's label and SHA-256, when the run used one
     """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -130,3 +133,5 @@ def write_sim_parameters(
             f.write(f"TNG Snapshot ID: {snapshot}\n")
         if subhalo is not None:
             f.write(f"TNG Subhalo ID: {subhalo}\n")
+        if noise_model is not None:
+            f.write(f"Noise Model: {noise_model}\n")

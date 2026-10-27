@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "name": "alma",
+  "version": 1,
+  "description": "What ALMA's calibrated data carry besides the sky, as measured on the 100 MADIV-16 windows (research/noise_realism): radiometer noise following Tsys with the atmosphere's lines and a receiver ripple, Hanning-correlated native channels, each antenna's noise ripple, and on bright sources the antenna gains, slow and fast atmospheric phase and baseline errors that calibration leaves.",
+  "provenance": {
+    "method": "hand-set from per-window fits",
+    "data": "MADIV-16, 100 windows of ALMA cycle 11 calibrated data",
+    "windows": 100,
+    "date": "2026-10-25",
+    "notes": "Channel correlation: Hanning's theoretical 2/3 and 1/6. Receiver ripple: SYSCAL Tsys against the measured channel profiles. Antenna ripple: median of the 73 windows wider than 1 GHz. Baseline errors: median of the 13 bright windows where they are measurable (amplitude; phase rounded). Slow phase, gains: early fits on 3 bright windows. Fast phase: no saved fit reproduces it."
+  },
+  "settings": {
+    "scan_length_s": 300.0,
+    "outer_scale_km": 3.0
+  },
+  "components": {
+    "radiometer": {},
+    "atmospheric_tsys": {},
+    "receiver_ripple": {"rms": 0.02},
+    "channel_correlation": {"rho1": 0.6666666666666666, "rho2": 0.16666666666666666},
+    "antenna_ripple": {"rms": 0.02, "scale_mhz": 120.0},
+    "antenna_gains": {"amp_rms": 0.08},
+    "slow_phase": {"path_um_1km": 80.0, "slope": 0.45},
+    "fast_phase": {"path_um_1km": 40.0, "slope": 0.3, "coherence_s": 10.0},
+    "baseline_errors": {"amp_rms": 0.06, "phase_rms_deg": 2.5}
+  }
+}

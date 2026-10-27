@@ -43,6 +43,8 @@ dependencies = [
     "ducc0",
     "typer",
     "pypdf>=6.19.0",
+    # The noise model files' schema (services.noise_model).
+    "pydantic>=2",
 ]
 
 [project.scripts]

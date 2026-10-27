@@ -327,7 +327,9 @@ def state_table() -> TableSpec:
     return TableSpec("STATE", schema.STATE_COLUMNS, values)
 
 
-def history_table(project_name: str, time_range: np.ndarray) -> TableSpec:
+def history_table(
+    project_name: str, time_range: np.ndarray, app_params: Sequence[str] = ()
+) -> TableSpec:
     values = {
         "TIME": float(np.mean(time_range)),
         "OBSERVATION_ID": 0,
@@ -337,6 +339,6 @@ def history_table(project_name: str, time_range: np.ndarray) -> TableSpec:
         "OBJECT_ID": 0,
         "APPLICATION": "ALMASim",
         "CLI_COMMAND": np.array(["export_native_ms"]),
-        "APP_PARAMS": np.array([project_name]),
+        "APP_PARAMS": np.array([project_name, *app_params]),
     }
     return TableSpec("HISTORY", schema.HISTORY_COLUMNS, values)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -37,11 +38,13 @@ def export_native_ms(
     source_name: str,
     telescope_name: str = "ALMA",
     rng: np.random.Generator | None = None,
+    history: Sequence[str] = (),
 ) -> str:
     """Write a CASA MSv2 to *ms_path* using casatools or python-casacore.
 
     ``rng`` draws the two hands' independent noise (``subtables._hands``);
-    without it they are copies of Stokes I.
+    without it they are copies of Stokes I. ``history`` adds to the HISTORY
+    row's APP_PARAMS (e.g. the noise model that made the data).
     """
     backend = _get_backend()
     ms_path = str(Path(ms_path).expanduser().resolve())
@@ -75,7 +78,7 @@ def export_native_ms(
         observation_table(telescope_name, project_name, _execution_ranges(vt, time_mjd_s)),
         source_table(source_name, field_ra_rad, field_dec_rad, time_range),
         state_table(),
-        history_table(project_name, time_range),
+        history_table(project_name, time_range, history),
         feed_table(len(vt["antenna_names"]), time_range),
         processor_table(),
         empty_table("FLAG_CMD"),

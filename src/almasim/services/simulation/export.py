@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import Callable
 from typing import Any
@@ -120,6 +121,11 @@ def export_results(  # noqa: C901
                 project_name=params.project_name,
                 source_name=params.source_name,
                 rng=run_rng(params.seed, "polarization"),
+                history=(
+                    (f"noise_model={json.dumps(params.noise_model.identity())}",)
+                    if params.noise_model is not None
+                    else ()
+                ),
             )
 
     if params.ml_dataset_path:

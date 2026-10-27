@@ -1,0 +1,530 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/astromadiv/ALMASim/blob/main/docs/noise-model.schema.json",
+  "$defs": {
+    "AntennaGains": {
+      "additionalProperties": false,
+      "description": "Antenna gain errors left by calibration, per scan.",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "description": "Apply this component.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "amp_rms": {
+          "default": 0.0,
+          "description": "Fractional amplitude rms.",
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Amp Rms",
+          "type": "number"
+        },
+        "phase_rms_deg": {
+          "default": 0.0,
+          "description": "Phase rms (degrees).",
+          "maximum": 180,
+          "minimum": 0,
+          "title": "Phase Rms Deg",
+          "type": "number"
+        }
+      },
+      "title": "AntennaGains",
+      "type": "object"
+    },
+    "AntennaRipple": {
+      "additionalProperties": false,
+      "description": "Each antenna's own smooth ripple of its noise across the window.",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "description": "Apply this component.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "rms": {
+          "description": "Fractional rms of the noise variance.",
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Rms",
+          "type": "number"
+        },
+        "scale_mhz": {
+          "description": "Frequency scale of the ripple (MHz).",
+          "exclusiveMinimum": 0,
+          "title": "Scale Mhz",
+          "type": "number"
+        }
+      },
+      "required": [
+        "rms",
+        "scale_mhz"
+      ],
+      "title": "AntennaRipple",
+      "type": "object"
+    },
+    "AtmosphericTsys": {
+      "additionalProperties": false,
+      "description": "The noise across the window follows the atmosphere's lines in Tsys,\nin the signal and the image band.",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "description": "Apply this component.",
+          "title": "Enabled",
+          "type": "boolean"
+        }
+      },
+      "title": "AtmosphericTsys",
+      "type": "object"
+    },
+    "BaselineErrors": {
+      "additionalProperties": false,
+      "description": "Errors of a baseline that do not factor into its antennas' (closure\nerrors self-calibration cannot remove), per scan.",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "description": "Apply this component.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "amp_rms": {
+          "default": 0.0,
+          "description": "Fractional amplitude rms.",
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Amp Rms",
+          "type": "number"
+        },
+        "phase_rms_deg": {
+          "default": 0.0,
+          "description": "Phase rms (degrees).",
+          "maximum": 180,
+          "minimum": 0,
+          "title": "Phase Rms Deg",
+          "type": "number"
+        }
+      },
+      "title": "BaselineErrors",
+      "type": "object"
+    },
+    "ChannelCorrelation": {
+      "additionalProperties": false,
+      "description": "Correlated noise of neighbouring channels (ALMA's correlator\nHanning-smooths native channels).",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "description": "Apply this component.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "rho1": {
+          "description": "Correlation of native channels one apart.",
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Rho1",
+          "type": "number"
+        },
+        "rho2": {
+          "description": "Correlation of native channels two apart.",
+          "maximum": 0.25,
+          "minimum": 0,
+          "title": "Rho2",
+          "type": "number"
+        },
+        "average": {
+          "default": 0,
+          "description": "Native channels averaged into each channel, diluting the correlation; 0: the window's own, from the archive's resolution.",
+          "minimum": 0,
+          "title": "Average",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "rho1",
+        "rho2"
+      ],
+      "title": "ChannelCorrelation",
+      "type": "object"
+    },
+    "Components": {
+      "additionalProperties": false,
+      "description": "A noise model's components by name; a component left out is not applied.",
+      "properties": {
+        "radiometer": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Radiometer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "atmospheric_tsys": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AtmosphericTsys"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "receiver_ripple": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReceiverRipple"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "channel_correlation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ChannelCorrelation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "antenna_ripple": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AntennaRipple"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "antenna_gains": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AntennaGains"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "slow_phase": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SlowPhase"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "fast_phase": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FastPhase"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "baseline_errors": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BaselineErrors"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "Components",
+      "type": "object"
+    },
+    "FastPhase": {
+      "additionalProperties": false,
+      "description": "The atmospheric phase within each scan, which decorrelates the scan's average.",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "description": "Apply this component.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "path_um_1km": {
+          "description": "Rms path difference at 1 km (microns).",
+          "minimum": 0,
+          "title": "Path Um 1Km",
+          "type": "number"
+        },
+        "slope": {
+          "default": 0.8333333333333334,
+          "description": "Growth with separation (Kolmogorov 5/6).",
+          "exclusiveMinimum": 0,
+          "maximum": 2,
+          "title": "Slope",
+          "type": "number"
+        },
+        "coherence_s": {
+          "default": 10.0,
+          "description": "Coherence time of the screen (s).",
+          "exclusiveMinimum": 0,
+          "title": "Coherence S",
+          "type": "number"
+        }
+      },
+      "required": [
+        "path_um_1km"
+      ],
+      "title": "FastPhase",
+      "type": "object"
+    },
+    "Provenance": {
+      "additionalProperties": false,
+      "description": "Where a model's values come from.",
+      "properties": {
+        "method": {
+          "description": "How the values were obtained (fit, reduce, hand-set).",
+          "title": "Method",
+          "type": "string"
+        },
+        "data": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The data set the values were measured on.",
+          "title": "Data"
+        },
+        "windows": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How many windows the values come from.",
+          "title": "Windows"
+        },
+        "almasim_commit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The ALMASim commit that produced them.",
+          "title": "Almasim Commit"
+        },
+        "date": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "When (ISO date).",
+          "title": "Date"
+        },
+        "notes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Notes"
+        }
+      },
+      "required": [
+        "method"
+      ],
+      "title": "Provenance",
+      "type": "object"
+    },
+    "Radiometer": {
+      "additionalProperties": false,
+      "description": "Each visibility's thermal noise from the radiometer equation (Tsys,\nchannel noise bandwidth, integration, dish), the source keeping its flux,\ninstead of a noise set from the run's target S/N.",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "description": "Apply this component.",
+          "title": "Enabled",
+          "type": "boolean"
+        }
+      },
+      "title": "Radiometer",
+      "type": "object"
+    },
+    "ReceiverRipple": {
+      "additionalProperties": false,
+      "description": "The receiver's own smooth ripple of Tsys across the window.",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "description": "Apply this component.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "rms": {
+          "description": "Fractional rms of Tsys.",
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Rms",
+          "type": "number"
+        }
+      },
+      "required": [
+        "rms"
+      ],
+      "title": "ReceiverRipple",
+      "type": "object"
+    },
+    "Settings": {
+      "additionalProperties": false,
+      "description": "Values several components share.",
+      "properties": {
+        "scan_length_s": {
+          "default": 0.0,
+          "description": "Scan length: gains and the slow phase hold for one (0: one scan).",
+          "minimum": 0,
+          "title": "Scan Length S",
+          "type": "number"
+        },
+        "outer_scale_km": {
+          "default": 3.0,
+          "description": "Outer scale of the turbulent screens (km).",
+          "exclusiveMinimum": 0,
+          "title": "Outer Scale Km",
+          "type": "number"
+        }
+      },
+      "title": "Settings",
+      "type": "object"
+    },
+    "SlowPhase": {
+      "additionalProperties": false,
+      "description": "The atmospheric phase phase-referencing does not transfer, per scan:\na turbulent screen growing with baseline length.",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "description": "Apply this component.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "path_um_1km": {
+          "description": "Rms path difference at 1 km (microns).",
+          "minimum": 0,
+          "title": "Path Um 1Km",
+          "type": "number"
+        },
+        "slope": {
+          "default": 0.8333333333333334,
+          "description": "Growth with separation (Kolmogorov 5/6).",
+          "exclusiveMinimum": 0,
+          "maximum": 2,
+          "title": "Slope",
+          "type": "number"
+        }
+      },
+      "required": [
+        "path_um_1km"
+      ],
+      "title": "SlowPhase",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A named, versioned noise model.",
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "default": 1,
+      "title": "Schema Version",
+      "type": "integer"
+    },
+    "name": {
+      "pattern": "^[a-z][a-z0-9_-]*$",
+      "title": "Name",
+      "type": "string"
+    },
+    "version": {
+      "minimum": 1,
+      "title": "Version",
+      "type": "integer"
+    },
+    "description": {
+      "default": "",
+      "title": "Description",
+      "type": "string"
+    },
+    "provenance": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Provenance"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "settings": {
+      "$ref": "#/$defs/Settings",
+      "default": {
+        "scan_length_s": 0.0,
+        "outer_scale_km": 3.0
+      }
+    },
+    "components": {
+      "$ref": "#/$defs/Components",
+      "default": {
+        "radiometer": null,
+        "atmospheric_tsys": null,
+        "receiver_ripple": null,
+        "channel_correlation": null,
+        "antenna_ripple": null,
+        "antenna_gains": null,
+        "slow_phase": null,
+        "fast_phase": null,
+        "baseline_errors": null
+      }
+    }
+  },
+  "required": [
+    "name",
+    "version"
+  ],
+  "title": "NoiseModel",
+  "type": "object"
+}

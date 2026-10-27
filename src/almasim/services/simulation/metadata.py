@@ -76,6 +76,7 @@ class SimParamsRecord:
     fwhm_x: Any = None
     fwhm_y: Any = None
     angle: Any = None
+    noise_model: str | None = None
 
     def write(self) -> str:
         """Write the parameter file; its path."""
@@ -123,6 +124,7 @@ def sim_params_record(
         fwhm_x=sky.fwhm_x,
         fwhm_y=sky.fwhm_y,
         angle=sky.angle,
+        noise_model=_noise_model_line(params),
     )
 
 
@@ -182,4 +184,12 @@ def simulation_metadata(
         "background_total_flux_jy": float(np.sum(sky.background_cube)),
         "external_input": _json_safe(sky.external_input_metadata),
         "imaging_algorithm": params.imaging_algorithm,
+        # Recorded only when the run used one, so runs without keep their metadata.
+        **({"noise_model": params.noise_model.identity()} if params.noise_model else {}),
     }
+
+
+def _noise_model_line(params: SimulationParams) -> str | None:
+    """The noise model's label and SHA-256 for the parameter file; None without one."""
+    model = params.noise_model
+    return None if model is None else f"{model.label()} (sha256 {model.sha256()})"
