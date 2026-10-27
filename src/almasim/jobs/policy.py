@@ -54,13 +54,20 @@ KNOWN_COMMANDS = frozenset(
         "preview integrate",
         "preview wiener",
         "noise extract",
+        "noise fit",
         "doctor",
     }
 )
 
 # Commands that fan out to Slurm workers with --backend slurm.
 _FAN_OUT = frozenset(
-    {"visibilities unpack", "visibilities calibrate", "image image-from-ms", "noise extract"}
+    {
+        "visibilities unpack",
+        "visibilities calibrate",
+        "image image-from-ms",
+        "noise extract",
+        "noise fit",
+    }
 )
 # products download fans out only for its post-processing.
 _DOWNLOAD_POSTPROCESSING = ("--extract-tar", "--unpack-ms", "--generate-calibrated-visibilities")

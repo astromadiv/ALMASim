@@ -646,6 +646,7 @@ $ almasim noise [OPTIONS] COMMAND [ARGS]...
 * `components`: The components a noise model can hold, and...
 * `schema`: The JSON Schema of a noise model file.
 * `extract`: Measure real windows' noise: the level...
+* `fit`: Fit real windows' calibration residuals...
 
 ## `almasim noise show`
 
@@ -735,6 +736,48 @@ $ almasim noise extract [OPTIONS] [ms]
 * `--scheduler-host, --slurm-scheduler-host <str>`: Scheduler host advertised to the workers (default: this host).
 * `--scheduler-interface <str>`: Scheduler/worker network interface (e.g. ib0, eth0).
 * `--task-timeout <float range>`: Timeout in seconds for each worker-side command.  [default: 14400.0; x>=1]
+* `--help`: Show this message and exit.
+
+## `almasim noise fit`
+
+Fit real windows' calibration residuals against their clean models: the
+slow and fast atmospheric phase, the antenna gains' and the baselines' own
+errors (fit.json), the values of the noise model's slow_phase, fast_phase,
+antenna_gains and baseline_errors components.
+
+**Usage**:
+
+```console
+$ almasim noise fit [OPTIONS] [ms]
+```
+
+**Arguments**:
+
+* `ms`: A calibrated MeasurementSet (*.ms.split.cal); or give --windows.
+
+**Options**:
+
+* `--out <path>`: The noise extract output (windows/<name>/window.json); fit.json goes beside it.  [required]
+* `--spw <int range>`: The MS's spectral window.  [x>=0]
+* `--field <str>`: Field name or id (default: every field).
+* `--name <str>`: The window's name, as noise extract gave it.
+* `--task-dir <path>`: The window's ALMASim imaging task (its clean models and quality.json).
+* `--windows <path>`: A CSV of windows, as for noise extract, with a task_dir column.
+* `--continuum-model <str>`: The continuum clean model: 'masked' (where the image is above 5 sigma) or 'all'.  [default: masked]
+* `--line-model <str>`: The cube clean model: 'masked' (line channels, inside the line mask), 'all' or 'none'.  [default: masked]
+* `--realizations <int range>`: Draws of the noise-only references.  [default: 3; x>=1]
+* `--seed <int>`: Seed of the references' draws.  [default: 0]
+* `--overwrite`: Fit windows again even when fitted.
+* `--backend, --postprocess-backend <sync|slurm>`: Where the tasks run: sync (this process, one at a time) or slurm (Slurm jobs).  [default: sync]
+* `--slurm-queue <str>`: Slurm queue/partition.  [default: normal]
+* `--slurm-project <str>`: Slurm project/account.
+* `--slurm-walltime <str>`: Slurm walltime per worker job (HH:MM:SS).  [default: 04:00:00]
+* `--slurm-cores <int range>`: Cores per Slurm worker.  [default: 4; x>=1]
+* `--slurm-memory <str>`: Memory per Slurm worker.  [default: 64GB]
+* `--slurm-workers <int range>`: Slurm workers fitting windows at once.  [default: 4; x>=1]
+* `--scheduler-host, --slurm-scheduler-host <str>`: Scheduler host advertised to the workers (default: this host).
+* `--scheduler-interface <str>`: Scheduler/worker network interface (e.g. ib0, eth0).
+* `--task-timeout <float range>`: Timeout in seconds for each worker-side command.  [default: 28800.0; x>=1]
 * `--help`: Show this message and exit.
 
 # `almasim jobs`

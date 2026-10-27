@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import typer
 
@@ -289,3 +290,171 @@ def _extract_tasks(
             task_log=str(task_log) if task_log else None,
         )
     ]
+
+
+@noise_app.command("fit")
+def fit(
+    ms: Path | None = typer.Argument(
+        None, help="A calibrated MeasurementSet (*.ms.split.cal); or give --windows."
+    ),
+    out: Path = typer.Option(
+        ...,
+        "--out",
+        help="The noise extract output (windows/<name>/window.json); fit.json goes beside it.",
+        rich_help_panel="Outputs",
+    ),
+    spw: int | None = typer.Option(
+        None, "--spw", min=0, help="The MS's spectral window.", rich_help_panel="Inputs"
+    ),
+    field: str | None = typer.Option(
+        None, "--field", help="Field name or id (default: every field).", rich_help_panel="Inputs"
+    ),
+    name: str | None = typer.Option(
+        None,
+        "--name",
+        help="The window's name, as noise extract gave it.",
+        rich_help_panel="Inputs",
+    ),
+    task_dir: Path | None = typer.Option(
+        None,
+        "--task-dir",
+        help="The window's ALMASim imaging task (its clean models and quality.json).",
+        rich_help_panel="Inputs",
+    ),
+    windows: Path | None = typer.Option(
+        None,
+        "--windows",
+        help="A CSV of windows, as for noise extract, with a task_dir column.",
+        rich_help_panel="Inputs",
+    ),
+    continuum: str = typer.Option(
+        "masked",
+        "--continuum-model",
+        help="The continuum clean model: 'masked' (where the image is above 5 sigma) or 'all'.",
+        rich_help_panel="Model",
+    ),
+    line: str = typer.Option(
+        "masked",
+        "--line-model",
+        help=(
+            "The cube clean model: 'masked' (line channels, inside the line mask), 'all' or 'none'."
+        ),
+        rich_help_panel="Model",
+    ),
+    realizations: int = typer.Option(
+        3,
+        "--realizations",
+        min=1,
+        help="Draws of the noise-only references.",
+        rich_help_panel="Model",
+    ),
+    seed: int = typer.Option(
+        0, "--seed", help="Seed of the references' draws.", rich_help_panel="Model"
+    ),
+    overwrite: bool = typer.Option(
+        False, "--overwrite", help="Fit windows again even when fitted.", rich_help_panel="Outputs"
+    ),
+    backend: PostprocessBackend = Backend.sync,
+    slurm_queue: SlurmQueue = "normal",
+    slurm_project: SlurmProject = None,
+    slurm_walltime: SlurmWalltime = "04:00:00",
+    slurm_cores: SlurmCores = 4,
+    slurm_memory: SlurmMemory = "64GB",
+    slurm_workers: int = typer.Option(
+        4,
+        "--slurm-workers",
+        min=1,
+        help="Slurm workers fitting windows at once.",
+        rich_help_panel="Cluster",
+    ),
+    scheduler_host: SchedulerHost = None,
+    scheduler_interface: SchedulerInterface = None,
+    task_timeout: TaskTimeout = 8 * 3600.0,
+) -> None:
+    """Fit real windows' calibration residuals against their clean models: the
+    slow and fast atmospheric phase, the antenna gains' and the baselines' own
+    errors (fit.json), the values of the noise model's slow_phase, fast_phase,
+    antenna_gains and baseline_errors components."""
+    from functools import partial
+
+    from ..services.noise.batch import (
+        WindowTask,
+        read_windows,
+        run_in_process,
+        run_on_slurm,
+        run_tasks,
+        window_name,
+    )
+
+    if continuum not in ("masked", "all") or line not in ("masked", "all", "none"):
+        usage_error("--continuum-model takes masked or all; --line-model masked, all or none")
+    if (ms is None) == (windows is None):
+        usage_error("give an MS (with --spw and --task-dir) or --windows, not both")
+    if windows is not None:
+        if any(v is not None for v in (spw, field, name, task_dir)):
+            usage_error(
+                "--spw, --field, --name and --task-dir describe one MS; "
+                "a --windows table has them as columns"
+            )
+        try:
+            tasks = read_windows(windows)
+        except (OSError, ValueError) as exc:
+            usage_error(f"--windows: {exc}")
+    else:
+        if ms is None or spw is None or task_dir is None:
+            usage_error("--spw and --task-dir are needed with an MS")
+        tasks = [
+            WindowTask(
+                ms=str(ms.expanduser().resolve()),
+                spw=spw,
+                name=name or window_name(str(ms), spw, field),
+                field=field,
+                task_dir=str(task_dir.expanduser().resolve()),
+            )
+        ]
+    out = out.expanduser().resolve()
+    options: dict[str, Any] = {
+        "continuum": continuum,
+        "line": line,
+        "realizations": realizations,
+        "seed": seed,
+    }
+    if backend == Backend.slurm and len(tasks) > 1:
+        slurm = SlurmOptions(
+            queue=slurm_queue,
+            project=slurm_project,
+            walltime=slurm_walltime,
+            memory=slurm_memory,
+            n_workers=slurm_workers,
+            scheduler_host=scheduler_host,
+            scheduler_interface=scheduler_interface,
+        )
+        runner = partial(
+            run_on_slurm,
+            out=out,
+            step="fit",
+            backend_kwargs={"node_cores": slurm_cores + 1, **slurm.backend_kwargs()},
+            cores=slurm_cores,
+            timeout=task_timeout,
+            extra_args=[
+                "--continuum-model",
+                continuum,
+                "--line-model",
+                line,
+                "--realizations",
+                str(realizations),
+                "--seed",
+                str(seed),
+                *(["--overwrite"] if overwrite else []),
+            ],
+            echo=typer.echo,
+        )
+    else:
+        runner = partial(run_in_process, out=out, step="fit", echo=typer.echo, **options)
+    failures = run_tasks(tasks, out, runner, step="fit", overwrite=overwrite, echo=typer.echo)
+    typer.echo(
+        f"{len(tasks) - len(failures)} of {len(tasks)} window(s) fitted; "
+        f"failures in {out / 'failures-fit.json'}"
+    )
+    if failures:
+        raise typer.Exit(code=1)
