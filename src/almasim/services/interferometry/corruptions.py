@@ -17,10 +17,8 @@ keyed by channel, so each channel task makes its own without the others.
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, fields, replace
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -135,66 +133,14 @@ def _flag(value: Any) -> bool:
     return bool(value)
 
 
-# Named models. "alma": what the MADIV-16 windows' calibrated data show
-# (research/noise_realism): native channels Hanning-correlated; on bright
-# sources, after calibration, ~8% antenna amplitude errors per scan, a per-scan
-# phase of ~80 um rms path at 1 km growing as baseline^0.45, and a faster
-# in-scan phase of ~40 um. Faint sources show only the correlated noise. Their
-# noise varies across a window as ALMA's Tsys does: the atmosphere's lines and a
-# ~2% receiver ripple (SYSCAL against the measured channel profiles). Each
-# antenna's noise has, besides, its own ~2% ripple over ~120 MHz (the median of
-# the 73 windows wider than 1 GHz; the 27 narrow ones show ~1 MHz structure), and
-# on bright sources each baseline keeps ~6% and ~2.5 deg per scan that do not
-# close (the median of the 13 bright windows where that is measurable).
-PRESETS: dict[str, dict[str, Any]] = {
-    "none": {},
-    "alma": {
-        "spectral_rho1": 2 / 3,
-        "spectral_rho2": 1 / 6,
-        "scan_length_s": 300.0,
-        "gain_amp_rms": 0.08,
-        "slow_path_um_1km": 80.0,
-        "slow_slope": 0.45,
-        "fast_path_um_1km": 40.0,
-        "fast_slope": 0.3,
-        "fast_coherence_s": 10.0,
-        "atmospheric_tsys": True,
-        "receiver_ripple_rms": 0.02,
-        "antenna_ripple_rms": 0.02,
-        "antenna_ripple_mhz": 120.0,
-        "baseline_amp_rms": 0.06,
-        "baseline_phase_rms_deg": 2.5,
-        "radiometer_noise": True,
-    },
-}
+def resolve_corruptions(spec: Any) -> dict[str, Any] | None:
+    """The CorruptionModel fields of the noise model ``spec`` names (a released
+    model such as "alma", a JSON object or file, a NoiseModel; see
+    services.noise_model); None for none."""
+    from ..noise_model import resolve_noise_model
 
-
-def resolve_corruptions(spec: str | Mapping[str, Any] | None) -> dict[str, Any] | None:
-    """A corruption model's fields from a preset name (PRESETS), a JSON object,
-    a path to a JSON file, or a mapping; checked against CorruptionModel.
-    None for none (None, "", "none", {})."""
-    if spec is None:
-        return None
-    if isinstance(spec, Mapping):
-        mapping = dict(spec)
-    else:
-        text = str(spec).strip()
-        if text in PRESETS:
-            mapping = dict(PRESETS[text])
-        elif text.startswith("{"):
-            mapping = json.loads(text)
-        elif text:
-            path = Path(text).expanduser()
-            if not path.is_file():
-                raise ValueError(
-                    f"corruptions {text!r}: not a preset ({', '.join(PRESETS)}), "
-                    "a JSON object or a JSON file"
-                )
-            mapping = json.loads(path.read_text())
-        else:
-            mapping = {}
-    CorruptionModel.from_mapping(mapping)  # unknown or non-numeric fields fail here
-    return mapping or None
+    model = resolve_noise_model(spec)
+    return None if model is None else model.engine_fields()
 
 
 def spectral_kernel(rho1: float, rho2: float) -> np.ndarray:

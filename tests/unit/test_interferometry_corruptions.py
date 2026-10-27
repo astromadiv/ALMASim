@@ -312,18 +312,38 @@ def test_channel_scales_each_baselines_noise_by_its_antennas():
 
 
 @pytest.mark.unit
-def test_simulation_parameters_take_a_preset_json_or_file(tmp_path):
-    from almasim.services.interferometry.corruptions import PRESETS, resolve_corruptions
+def test_simulation_parameters_take_a_model_json_or_file(tmp_path):
+    from almasim.services.interferometry.corruptions import resolve_corruptions
 
-    assert resolve_corruptions("alma") == PRESETS["alma"]
+    # The released alma model sets what the preset set before it was a file.
+    assert CorruptionModel.from_mapping(resolve_corruptions("alma")) == CorruptionModel(
+        spectral_rho1=2 / 3,
+        spectral_rho2=1 / 6,
+        scan_length_s=300.0,
+        gain_amp_rms=0.08,
+        slow_path_um_1km=80.0,
+        slow_slope=0.45,
+        fast_path_um_1km=40.0,
+        fast_slope=0.3,
+        fast_coherence_s=10.0,
+        atmospheric_tsys=True,
+        receiver_ripple_rms=0.02,
+        antenna_ripple_rms=0.02,
+        antenna_ripple_mhz=120.0,
+        baseline_amp_rms=0.06,
+        baseline_phase_rms_deg=2.5,
+        radiometer_noise=True,
+    )
     assert resolve_corruptions("none") is None
-    assert resolve_corruptions('{"gain_amp_rms": 0.05}') == {"gain_amp_rms": 0.05}
+    as_model = CorruptionModel.from_mapping
+    assert as_model(resolve_corruptions('{"gain_amp_rms": 0.05}')) == CorruptionModel(
+        gain_amp_rms=0.05
+    )
     path = tmp_path / "model.json"
     path.write_text('{"slow_path_um_1km": 60}')
-    assert resolve_corruptions(str(path)) == {"slow_path_um_1km": 60}
-    with pytest.raises(ValueError, match="not a preset"):
+    assert as_model(resolve_corruptions(str(path))) == CorruptionModel(slow_path_um_1km=60.0)
+    with pytest.raises(ValueError, match="not a released model"):
         resolve_corruptions("stormy")
-    assert CorruptionModel.from_mapping(PRESETS["alma"]).correlates_channels
 
 
 @pytest.mark.unit

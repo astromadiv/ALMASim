@@ -77,8 +77,10 @@ def test_simulation_run_checks_its_inputs(tmp_path):
         (["--save-mode", "pickle"], "'pickle' is not one of 'memory', 'npz', 'h5', 'fits'"),
         (["--input", tmp_path / "none.fits"], "--input not found"),
         (["--kaggle-token", tmp_path / "kaggle.json"], "--kaggle-token not found"),
-        (["--corruptions", "stormy"], "--corruptions"),
+        (["--noise-model", "stormy"], "not a released model"),
         (["--corruptions", '{"gain_amplitude": 0.1}'], "unknown corruption parameter"),
+        (["--noise-model", "alma", "--noise-without", "wind"], "unknown noise component"),
+        (["--noise-only", "radiometer"], "select components of a --noise-model"),
     ]
     for extra, message in cases:
         result = _invoke("simulation", "run", "--metadata-path", csv, *extra)
@@ -143,4 +145,5 @@ def test_deprecated_flag_warnings_cover_every_old_spelling():
         "--scheduler-host",
         "--slurm-workers",
         "--output-dir",
+        "--noise-model",
     }

@@ -62,7 +62,7 @@ def is_job_id(text: str) -> bool:
 # The CLI's shape (almasim.cli._GROUPS): groups whose subcommand is part of
 # the command's name, and single-command groups whose subcommand word users
 # may type or leave out (`almasim metadata query ...` is `metadata`).
-_MULTI_COMMAND_GROUPS = frozenset({"products", "visibilities", "image", "preview"})
+_MULTI_COMMAND_GROUPS = frozenset({"products", "visibilities", "image", "preview", "noise"})
 _SINGLE_COMMAND_GROUPS = {"metadata": "query", "simulation": "run", "predict": "ms-from-image"}
 
 

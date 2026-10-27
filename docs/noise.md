@@ -4,7 +4,70 @@ This page describes ALMASim’s current noise model.
 
 ## Location
 
-Noise handling lives primarily in [`src/almasim/services/interferometry/noise.py`](../src/almasim/services/interferometry/noise.py).
+Noise handling lives primarily in [`src/almasim/services/interferometry/noise.py`](../src/almasim/services/interferometry/noise.py);
+the noise models in [`src/almasim/services/noise_model/`](../src/almasim/services/noise_model/).
+
+## Noise Models
+
+What the visibilities carry besides white thermal noise is a noise model:
+a named, versioned JSON file made of components, each with its own switch and
+parameters. Released models ship with ALMASim in
+[`services/noise_model/models/`](../src/almasim/services/noise_model/models/);
+a released file is never edited, a change is its next version.
+
+```
+almasim simulation run ... --noise-model alma              # the newest alma
+almasim simulation run ... --noise-model alma@1            # a fixed version
+almasim simulation run ... --noise-model candidate.json    # any model file
+almasim simulation run ... --noise-model alma --noise-without fast_phase,baseline_errors
+almasim simulation run ... --noise-model alma --noise-only radiometer,channel_correlation
+almasim noise show                  # the released models
+almasim noise show alma             # one model, its components on or off
+almasim noise components            # every component and its parameters
+almasim noise schema -o model.schema.json
+```
+
+`--corruptions` is the option's earlier name and still works, as do the flat
+JSON objects of `CorruptionModel` fields it took. A model file validates
+against [`noise-model.schema.json`](noise-model.schema.json) (unknown
+components or parameters, and values out of range, are refused), so a
+candidate model can be used for a run before it is released.
+
+| Component | What it adds | Parameters |
+| --- | --- | --- |
+| `radiometer` | each visibility's noise from the radiometer equation (below) | |
+| `atmospheric_tsys` | the atmosphere's lines in Tsys across the window | |
+| `receiver_ripple` | the receiver's smooth ripple of Tsys | `rms` |
+| `channel_correlation` | correlated noise of neighbouring channels | `rho1`, `rho2`, `average` |
+| `antenna_ripple` | each antenna's own ripple of its noise | `rms`, `scale_mhz` |
+| `antenna_gains` | antenna gain errors per scan | `amp_rms`, `phase_rms_deg` |
+| `slow_phase` | the per-scan atmospheric phase | `path_um_1km`, `slope` |
+| `fast_phase` | the in-scan atmospheric phase | `path_um_1km`, `slope`, `coherence_s` |
+| `baseline_errors` | per-baseline errors that do not close | `amp_rms`, `phase_rms_deg` |
+
+A model's `settings` hold what components share: the scan length and the
+screens' outer scale. A selection keeps the deselected components in the
+model, switched off, so it is part of the model's identity: every product
+of a run with a model records its label (`alma@1 without fast_phase`) and
+the SHA-256 of its JSON, in the metadata (`noise_model`), the
+`sim_params_<idx>.txt` file and the exported MS's HISTORY.
+
+### Adding a component
+
+1. Write its class in
+   [`services/noise_model/components.py`](../src/almasim/services/noise_model/components.py):
+   a `NoiseComponent` with its parameters (bounds and a description each)
+   and `engine_fields`, the `CorruptionModel` fields it sets.
+2. Add it as a field of `Components` there.
+3. Make the simulator apply those fields
+   ([`interferometry/corruptions.py`](../src/almasim/services/interferometry/corruptions.py)
+   and where they are used).
+4. Run `scripts/generate_noise_model_schema.py` and `scripts/generate_cli_reference.py`.
+
+The schema, the validation of model files, `--noise-only` and
+`--noise-without`, and `almasim noise show` and `components` follow from the
+field; a test checks that every component sets only simulator fields, and
+none another component sets.
 
 ## Current Model
 
@@ -35,8 +98,8 @@ Tsys). Its shape comes from three places:
   about 10 dB and a double-sideband one (Bands 9 and 10) not at all;
 - the receiver, whose temperature ripples by about 2% of Tsys across its IF.
 
-`--corruptions alma` (or the `atmospheric_tsys` and `receiver_ripple_rms`
-fields of a corruption model) turns this on. The sky comes from
+`--noise-model alma` (its `atmospheric_tsys` and `receiver_ripple`
+components) turns this on. The sky comes from
 [`atmosphere.py`](../src/almasim/services/interferometry/atmosphere.py), which
 reads a table of CASA's ATM model for the ALMA site
 (`scripts/generate_atmosphere_table.py` writes it; CASA is not needed to use
@@ -48,8 +111,8 @@ the run's seed.
 ## Per Visibility: the Radiometer Equation
 
 By default the noise is calibrated in the image: each channel's noise is set so
-that the source comes out at the run's target S/N. With `radiometer_noise`
-(on in `--corruptions alma`) each visibility instead carries the noise ALMA's
+that the source comes out at the run's target S/N. With the `radiometer`
+component (on in `--noise-model alma`) each visibility instead carries the noise ALMA's
 radiometer equation gives it, from the same Tsys:
 SEFD / (eta sqrt(2 n_pol dnu t)), with the SEFD 2 k Tsys / A_eff of one
 antenna, eta = 0.96 x 0.88 (quantisation and correlator), the channel's
@@ -84,14 +147,14 @@ neighbouring channels. A resolution off the grid is taken as the channel
 width.
 
 The cube's channels are the window's (the run's metadata records
-`channel_averaging`). The correlated channel noise (`spectral_rho1` and
-`spectral_rho2`, the native channels' correlation, 2/3 and 1/6 in
-`--corruptions alma`) is diluted over the window's N; `spectral_average`
-sets N instead (0, the default, takes the window's).
+`channel_averaging`). The correlated channel noise (the `channel_correlation` component's `rho1`
+and `rho2`, the native channels' correlation, 2/3 and 1/6 in
+`--noise-model alma`) is diluted over the window's N; its `average` sets N
+instead (0, the default, takes the window's).
 
 ## Per Antenna and Per Baseline
 
-Two more terms, also in `--corruptions alma`, come from the same 100 windows:
+Two more terms, also in `--noise-model alma`, come from the same 100 windows:
 
 - Each antenna's noise has its own smooth ripple across the window, beyond the
   array's: about 2% of its noise variance, holding over about 120 MHz (the
@@ -99,12 +162,12 @@ Two more terms, also in `--corruptions alma`, come from the same 100 windows:
   structure). A baseline's noise variance is the product of its two antennas'.
   WEIGHT does not follow it, so it shows as antennas whose noise differs from
   their weights and as heavier tails in the visibility noise
-  (`antenna_ripple_rms`, `antenna_ripple_mhz`).
+  (the `antenna_ripple` component).
 - On bright sources, each baseline keeps an amplitude and phase error per scan
   that does not factor into its antennas' gains, so self-calibration cannot
   remove it, and it limits the continuum's dynamic range: about 6% and 2.5 deg
-  (the median of the 13 bright windows where it is measurable;
-  `baseline_amp_rms`, `baseline_phase_rms_deg`). It acts on each channel's
+  (the median of the 13 bright windows where it is measurable; the
+  `baseline_errors` component). It acts on each channel's
   continuum share of the source only: what does not close in calibrated
   data is mostly continuum structure the model lacks, which leaves line
   emission alone. An external sky model, whose continuum is not known

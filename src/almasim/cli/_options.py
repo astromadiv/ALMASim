@@ -18,6 +18,7 @@ DEPRECATED_FLAGS = {
     "--slurm-scheduler-host": "--scheduler-host",
     "--slurm-n-jobs": "--slurm-workers",
     "--output-root": "--output-dir",
+    "--corruptions": "--noise-model",
 }
 
 

@@ -6,9 +6,12 @@ import os
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, fields
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import pandas as pd
+
+if TYPE_CHECKING:
+    from ..noise_model import NoiseModel
 
 LogFn = Callable[[str], None] | None
 StopFn = bool | Callable[[], bool]
@@ -48,14 +51,14 @@ def _coerced(convert: Callable[[Any], Any], **kwargs: Any) -> Any:
     return field(metadata={"coerce": convert}, **kwargs)
 
 
-def _corruption_mapping(value: Any) -> dict[str, Any] | None:
-    """A corruption model's fields from a preset, JSON, JSON file or mapping,
-    checked; None for none (also NaN, a table's empty cell)."""
-    from ..interferometry.corruptions import resolve_corruptions
+def _noise_model(value: Any) -> NoiseModel | None:
+    """The noise model a released name, JSON, JSON file, mapping or model
+    names; None for none (also NaN, a table's empty cell)."""
+    from ..noise_model import resolve_noise_model
 
     if isinstance(value, float) and value != value:
         return None
-    return resolve_corruptions(value)
+    return resolve_noise_model(value)
 
 
 @dataclass
@@ -136,10 +139,14 @@ class SimulationParams:
     # simulation outputs are re-baselined on it.
     instrument_geometry: str = _coerced(str, default="legacy")
     kaggle_token: str | None = _coerced(_optional(_expand_path), default=None)
-    # What the visibilities carry besides white thermal noise: the fields of
-    # interferometry.corruptions.CorruptionModel (a mapping, its JSON, a JSON
-    # file or a preset name such as "alma"); None adds nothing (MADIV-28).
-    corruptions: dict[str, Any] | None = _coerced(_corruption_mapping, default=None)
+    # What the visibilities carry besides white thermal noise: a noise model
+    # (services.noise_model: a released name such as "alma" or "alma@1", a JSON
+    # object or file, or a NoiseModel); None adds nothing (MADIV-28).
+    noise_model: NoiseModel | None = _coerced(_noise_model, default=None)
+    # The CorruptionModel fields the noise model sets, which the simulator
+    # reads; derived from noise_model. Given instead of noise_model, it names
+    # the model as noise_model does (the earlier name of the option).
+    corruptions: dict[str, Any] | None = None
     # The MOUS's execution blocks: how many observe it (the archive's ASDM
     # count; None: Int.Time split into blocks of at most
     # planning.MAX_EXECUTION_TIME_S on source) and how many of them to simulate
@@ -148,10 +155,13 @@ class SimulationParams:
     executions: int | None = _coerced(_optional(int), default=None)
 
     def __post_init__(self) -> None:
+        if self.noise_model is None and self.corruptions is not None:
+            self.noise_model = cast(Any, self.corruptions)
         for spec in fields(self):
             convert = spec.metadata.get("coerce")
             if convert is not None:
                 setattr(self, spec.name, convert(getattr(self, spec.name)))
+        self.corruptions = None if self.noise_model is None else self.noise_model.engine_fields()
 
     @classmethod
     def from_values(cls, **values: Any) -> SimulationParams:
