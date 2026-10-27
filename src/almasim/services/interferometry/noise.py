@@ -10,6 +10,7 @@ from .atmosphere import system_temperature
 
 K_B = 1.380649e-23
 JY = 1.0e-26
+C_M_S = 299_792_458.0
 
 
 @dataclass
@@ -20,7 +21,8 @@ class NoiseModelConfig:
     ground_temperature_k: float = 270.0
     receiver_model: str = "alma"
     site: str = "ALMA"
-    aperture_efficiency: float = 0.72
+    # None: the dish's own at the window's frequency (aperture_efficiency()).
+    aperture_efficiency: float | None = None
     n_polarizations: int = 2
     # Tsys from CASA's ATM model (atmosphere.py): lines in the signal and image
     # bands, referred above the atmosphere. Off: the smooth sky below.
@@ -31,22 +33,47 @@ class NoiseModelConfig:
     correlator_efficiency: float = 0.96 * 0.88
 
 
+# Receiver temperatures (K) by frequency (GHz, upper edge): what ALMA's own Tsys
+# (SYSCAL) on the noise study's 12 m windows implies under this Tsys model
+# (MADIV-28; bands 1, 3, 4, 5, 6 and 7, 8 to 29 windows each); bands 8 to 10
+# (one to three windows) keep the earlier estimates.
+_RECEIVER_TEMPERATURE_K = (
+    (50.0, 32.0),  # band 1
+    (116.0, 39.0),  # bands 2 and 3
+    (163.0, 37.0),  # band 4
+    (211.0, 50.0),  # band 5
+    (275.0, 46.0),  # band 6
+    (373.0, 63.0),  # band 7
+    (500.0, 110.0),  # band 8
+    (np.inf, 160.0),  # bands 9 and 10
+)
+
+
 def estimate_receiver_temperature_k(
     freqs_hz: np.ndarray, receiver_model: str = "alma"
 ) -> np.ndarray:
-    """Estimate receiver temperature with a coarse ALMA band approximation."""
+    """Each frequency's receiver temperature (K), by ALMA band."""
     freqs_ghz = np.asarray(freqs_hz, dtype=float) / 1e9
-    trx = np.full_like(freqs_ghz, 45.0, dtype=float)
-    trx = np.where(freqs_ghz < 116.0, 35.0, trx)
-    trx = np.where((freqs_ghz >= 116.0) & (freqs_ghz < 163.0), 45.0, trx)
-    trx = np.where((freqs_ghz >= 163.0) & (freqs_ghz < 211.0), 55.0, trx)
-    trx = np.where((freqs_ghz >= 211.0) & (freqs_ghz < 275.0), 65.0, trx)
-    trx = np.where((freqs_ghz >= 275.0) & (freqs_ghz < 373.0), 85.0, trx)
-    trx = np.where((freqs_ghz >= 373.0) & (freqs_ghz < 500.0), 110.0, trx)
-    trx = np.where(freqs_ghz >= 500.0, 160.0, trx)
+    edges = np.array([edge for edge, _ in _RECEIVER_TEMPERATURE_K])
+    values = np.array([trx for _, trx in _RECEIVER_TEMPERATURE_K])
+    trx = values[np.searchsorted(edges, freqs_ghz, side="right").clip(max=len(values) - 1)]
     if receiver_model.lower() != "alma":
         trx = trx * 1.1
     return trx
+
+
+# Aperture efficiency against frequency (Ruze): eta0 exp(-(4 pi eps / lambda)^2),
+# the dish's surface rms eps costing more as the wavelength shrinks. Fitted to
+# the efficiency ALMA's noise and Tsys imply on the noise study's 100 windows
+# (MADIV-28): 12 m dishes 0.76 and 27 um, 7 m dishes 0.72 and 24 um.
+_RUZE = {12.0: (0.76, 27e-6), 7.0: (0.72, 24e-6)}
+
+
+def aperture_efficiency(frequency_hz: float, antenna_diameter_m: float) -> float:
+    """A dish's aperture efficiency at ``frequency_hz`` (the 12 m dishes' for any
+    diameter other than 7 m)."""
+    eta0, rms_m = _RUZE.get(round(float(antenna_diameter_m), 1), _RUZE[12.0])
+    return float(eta0 * np.exp(-((4 * np.pi * rms_m * float(frequency_hz) / C_M_S) ** 2)))
 
 
 def estimate_sky_temperature_k(
@@ -95,7 +122,13 @@ def system_equivalent_flux_density(
         tsys = np.clip(trx + tsky, 1.0, None)
 
     area_m2 = np.pi * (antenna_diameter_m / 2.0) ** 2
-    a_eff = max(area_m2 * config.aperture_efficiency, 1e-6)
+    efficiency = (
+        config.aperture_efficiency
+        if config.aperture_efficiency is not None
+        # One efficiency for the window: it changes by well under 1% across one.
+        else aperture_efficiency(float(np.mean(freqs_hz)), antenna_diameter_m)
+    )
+    a_eff = max(area_m2 * efficiency, 1e-6)
     return (2.0 * K_B * tsys / a_eff) / JY
 
 
