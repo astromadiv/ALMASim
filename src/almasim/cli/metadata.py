@@ -106,6 +106,7 @@ class MetadataQueryOptions:
     save_csv: Path | None
     save_products_csv: Path | None
     product_member_limit: int | None
+    count_executions: bool
     yes: bool
 
 
@@ -325,6 +326,16 @@ def metadata_query(
         ),
         rich_help_panel="Output",
     ),
+    count_executions: bool = typer.Option(
+        False,
+        "--count-executions",
+        help=(
+            "Add n_executions: how many execution blocks observed each row's MOUS "
+            "(its raw ASDMs in DataLink; one request per MOUS). Int.Time is the "
+            "MOUS's total, which `simulation run` observes in that many blocks."
+        ),
+        rich_help_panel="Output",
+    ),
     yes: bool = typer.Option(
         False,
         "--yes",
@@ -432,6 +443,8 @@ def _save_and_report_metadata(o: MetadataQueryOptions, metadata: Any) -> None:
     output_csv = (
         (o.save_csv or default_output_path("metadata_query_results.csv")).expanduser().resolve()
     )
+    if o.count_executions:
+        metadata = _with_execution_counts(metadata)
     save_dataframe_csv(metadata, output_csv)
     typer.echo(f"Saved metadata CSV: {output_csv}")
     typer.echo(f"Metadata rows: {len(metadata)}")
@@ -463,3 +476,17 @@ def _save_and_report_metadata(o: MetadataQueryOptions, metadata: Any) -> None:
         member_limit=None,
         save_products_csv_path=o.save_products_csv,
     )
+
+
+def _with_execution_counts(metadata: Any) -> Any:
+    """``metadata`` with each row's MOUS's execution blocks (n_executions)."""
+    from ..services.metadata.executions import COLUMN, add_execution_counts
+
+    if "member_ous_uid" not in metadata.columns:
+        fail("Metadata does not include member_ous_uid values")
+    typer.echo(f"Counting execution blocks of {metadata['member_ous_uid'].nunique()} MOUS(s)...")
+    counted = add_execution_counts(metadata)
+    missing = int(counted[COLUMN].isna().sum())
+    if missing:
+        typer.echo(f"No raw ASDMs found for {missing} row(s): n_executions left empty.", err=True)
+    return counted

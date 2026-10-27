@@ -1024,3 +1024,33 @@ def products_calibrate(
     for calibrated_ms in calibrated_outputs:
         typer.echo(f"  {calibrated_ms}")
     _exit_if_failures("Calibrate", stage_failures)
+
+
+@products_app.command("executions")
+def products_executions(
+    metadata_path: Path = typer.Option(
+        ...,
+        "--metadata-path",
+        help="Metadata CSV (from 'almasim metadata query') to add n_executions to.",
+    ),
+    save_csv: Path | None = typer.Option(
+        None,
+        "--save-csv",
+        help="Destination CSV; defaults to overwriting --metadata-path.",
+    ),
+) -> None:
+    """Add how many execution blocks observed each row's MOUS (n_executions).
+
+    A row's Int.Time is its MOUS's total time on source; `simulation run`
+    observes it in n_executions blocks (without the column: blocks of at most
+    3000 s).
+    """
+    import pandas as pd
+
+    from ..services.metadata.storage import save_dataframe_csv
+    from .metadata import _with_execution_counts
+
+    metadata = _with_execution_counts(pd.read_csv(metadata_path))
+    output_csv = (save_csv or metadata_path).expanduser().resolve()
+    save_dataframe_csv(metadata, output_csv)
+    typer.echo(f"Saved metadata CSV: {output_csv}")
