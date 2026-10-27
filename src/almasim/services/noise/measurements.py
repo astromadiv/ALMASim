@@ -25,6 +25,9 @@ class WindowInput(_Record):
     field: str | None = Field(default=None, description="Field name or id; None: every field.")
     syscal_ms: str | None = Field(default=None, description="Where SYSCAL was read (default: ms).")
     line_channels: int = Field(default=0, ge=0, description="Channels left out as line emission.")
+    pwv_mm: float | None = Field(
+        default=None, ge=0, description="The observation's precipitable water vapour (mm)."
+    )
 
 
 class Exposure(_Record):

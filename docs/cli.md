@@ -647,6 +647,7 @@ $ almasim noise [OPTIONS] COMMAND [ARGS]...
 * `schema`: The JSON Schema of a noise model file.
 * `extract`: Measure real windows' noise: the level...
 * `fit`: Fit real windows' calibration residuals...
+* `aggregate`: Reduce the windows' measurements into a...
 
 ## `almasim noise show`
 
@@ -723,6 +724,7 @@ $ almasim noise extract [OPTIONS] [ms]
 * `--syscal-ms <path>`: Where to read SYSCAL's Tsys (default: the MS).
 * `--line-channels <str>`: Channels of line emission to leave out ('a~b;c').
 * `--task-log <path>`: An ALMASim imaging task's log; its 'lines in channels' are left out.
+* `--pwv <float range>`: The observation's precipitable water vapour (mm; the archive's PWV), for noise aggregate's receiver temperatures.  [x>=0]
 * `--windows <path>`: A CSV of windows (columns ms, spw; optional field, name, syscal_ms, line_channels, task_log), measured one per task.
 * `--max-visibilities <int range>`: Rows are sampled evenly over the observation up to about this many visibilities.  [default: 40000000; x>=1000]
 * `--overwrite`: Measure windows again even when measured.
@@ -778,6 +780,27 @@ $ almasim noise fit [OPTIONS] [ms]
 * `--scheduler-host, --slurm-scheduler-host <str>`: Scheduler host advertised to the workers (default: this host).
 * `--scheduler-interface <str>`: Scheduler/worker network interface (e.g. ib0, eth0).
 * `--task-timeout <float range>`: Timeout in seconds for each worker-side command.  [default: 28800.0; x>=1]
+* `--help`: Show this message and exit.
+
+## `almasim noise aggregate`
+
+Reduce the windows' measurements into a candidate noise model: each value
+they measure is their median, with its window count and spread recorded.
+
+**Usage**:
+
+```console
+$ almasim noise aggregate [OPTIONS]
+```
+
+**Options**:
+
+* `--out <path>`: The noise extract and fit output (windows/<name>/window.json, fit.json).  [required]
+* `--from <str>`: The model whose values the windows' replace ('alma', 'alma@1' or a file).  [default: alma]
+* `--output <path>`: Where the candidate goes (default: <out>/candidate.json).
+* `--name <str>`: The candidate's name (default: <base>-candidate).
+* `--version <int range>`: The candidate's version (default: the base's + 1).  [x>=1]
+* `--min-windows <int range>`: Windows a value needs; fewer keep the base's.  [default: 3; x>=1]
 * `--help`: Show this message and exit.
 
 # `almasim jobs`

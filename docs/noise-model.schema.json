@@ -397,6 +397,22 @@
           ],
           "default": null,
           "title": "Notes"
+        },
+        "values": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/ValueStats"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Each reduced value's statistics, by its component.parameter.",
+          "title": "Values"
         }
       },
       "required": [
@@ -591,6 +607,40 @@
         "path_um_1km"
       ],
       "title": "SlowPhase",
+      "type": "object"
+    },
+    "ValueStats": {
+      "additionalProperties": false,
+      "description": "How one value was reduced from the windows.",
+      "properties": {
+        "n": {
+          "description": "Windows it comes from.",
+          "minimum": 0,
+          "title": "N",
+          "type": "integer"
+        },
+        "median": {
+          "title": "Median",
+          "type": "number"
+        },
+        "q16": {
+          "description": "16th percentile over the windows.",
+          "title": "Q16",
+          "type": "number"
+        },
+        "q84": {
+          "description": "84th percentile over the windows.",
+          "title": "Q84",
+          "type": "number"
+        }
+      },
+      "required": [
+        "n",
+        "median",
+        "q16",
+        "q84"
+      ],
+      "title": "ValueStats",
       "type": "object"
     }
   },
