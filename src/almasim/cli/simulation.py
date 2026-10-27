@@ -207,6 +207,7 @@ def _build_simulation_params(
     input_path: Path | None,
     kaggle_token: Path | None = None,
     corruptions: str | None = None,
+    executions: int | None = None,
 ) -> SimulationParams:
     if not 0 <= row_idx < len(metadata):
         usage_error(f"--row-idx {row_idx} is out of range for {len(metadata)} metadata rows")
@@ -252,6 +253,7 @@ def _build_simulation_params(
         inject_serendipitous=inject_serendipitous,
         kaggle_token=kaggle_token,
         corruptions=corruptions,
+        executions=executions,
         # Disable MS export by default; requires casatools or python-casacore.
         ms_export=False,
         ms_save_mode="none",
@@ -287,6 +289,7 @@ class SimulationRunOptions:
     n_workers: int
     kaggle_token: Path | None
     corruptions: str | None
+    executions: int | None
 
 
 @simulation_app.command("run")
@@ -476,6 +479,18 @@ def simulation_run(
         ),
         rich_help_panel="Advanced",
     ),
+    executions: int | None = typer.Option(
+        None,
+        "--executions",
+        min=1,
+        help=(
+            "How many of the MOUS's execution blocks to simulate (default: all). A "
+            "row's Int.Time is the MOUS's total time on source; it is observed in "
+            "blocks (the row's n_executions, else blocks of at most 3000 s), each a "
+            "track near transit on its own day. 1 gives a single execution block."
+        ),
+        rich_help_panel="Observation",
+    ),
 ) -> None:
     """Run staged ALMASim simulation from a pre-queried metadata CSV."""
     options = _validated_simulation_options(SimulationRunOptions(**locals()))
@@ -543,6 +558,7 @@ def simulation_run(
                     input_path=o.input_path,
                     kaggle_token=o.kaggle_token,
                     corruptions=o.corruptions,
+                    executions=o.executions,
                 )
                 _run_simulation_stages(
                     o, params, compute_backend, label=f"Simulation {run_number}/{total_runs}"

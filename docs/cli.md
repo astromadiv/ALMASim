@@ -173,6 +173,7 @@ $ almasim simulation [OPTIONS]
 * `--n-workers <int range>`: Worker processes for --backend local; give the job as many CPUs.  [default: 1; x>=1]
 * `--kaggle-token <path>`: Path to a Kaggle credentials file (JSON with username/key, e.g. kaggle.json or access_token) or the directory containing it, used to download morphology images for the galaxy-zoo / hubble-100 source types. Defaults to the standard Kaggle locations if omitted.
 * `--corruptions <str>`: What the visibilities carry besides white thermal noise: a preset ('alma': ALMA's channel-correlated noise, varying across the window as its Tsys does, antenna gain errors and residual atmospheric phase, as measured on real calibrated data; 'none'), a JSON object of CorruptionModel fields, or a JSON file.
+* `--executions <int range>`: How many of the MOUS's execution blocks to simulate (default: all). A row's Int.Time is the MOUS's total time on source; it is observed in blocks (the row's n_executions, else blocks of at most 3000 s), each a track near transit on its own day. 1 gives a single execution block.  [x>=1]
 * `--help`: Show this message and exit.
 
 # `almasim visibilities`

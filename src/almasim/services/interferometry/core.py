@@ -80,6 +80,8 @@ class Interferometer:
         noise_entropy: tuple[int, ...] | None = None,
         corruptions: CorruptionModel | None = None,
         continuum_fraction: np.ndarray | None = None,
+        sample_time_s: float | None = None,
+        execution: int | None = None,
     ):
         """
         Initialize interferometer.
@@ -135,6 +137,11 @@ class Interferometer:
         corruptions : CorruptionModel, optional
             What the calibrated visibilities carry besides white noise
             (correlated channels, antenna gains, atmospheric phase); none when None
+        sample_time_s : float, optional
+            Seconds per hour-angle sample; by default from the integration time
+            (``observing.hour_angle_samples``)
+        execution : int, optional
+            The execution block this run is (its rows' OBSERVATION_ID); 0 when None
         """
         self.noise_entropy = noise_entropy
         self.corruptions = corruptions
@@ -155,6 +162,8 @@ class Interferometer:
         self.snr = snr
         self.integration_time = integration_time
         self.observation_date = observation_date
+        self.sample_time_s = sample_time_s
+        self.execution = execution
         # Each configuration gets its own copy: _get_nH appends EPOCH, which every
         # configuration used to add to one shared header (MADIV-28 T1.14).
         self.header = header.copy() if hasattr(header, "copy") else header
@@ -258,8 +267,15 @@ class Interferometer:
         )
 
     def _get_nH(self) -> None:
-        """Number of hour-angle samples (one per scan) and the scan time in seconds."""
-        self.nH, self.scan_time = hour_angle_samples(float(self.integration_time) * 3600.0)
+        """Number of hour-angle samples (one per scan) and the scan time in seconds:
+        the run's own sample time when it has one (an execution block sampled as
+        all the MOUS's blocks are)."""
+        duration_s = float(self.integration_time) * 3600.0
+        if self.sample_time_s:
+            self.scan_time = float(self.sample_time_s)
+            self.nH = max(1, int(duration_s / self.scan_time))
+        else:
+            self.nH, self.scan_time = hour_angle_samples(duration_s)
         self.header.append(("EPOCH", self.nH))
 
     def _read_antennas(self) -> None:
@@ -376,6 +392,7 @@ class Interferometer:
             array_type=self.array_type,
             antenna_diameters_m=np.full(len(self.antNames), self.antenna_diameter_m),
             scan_length_s=self.corruptions.scan_length_s if self.corruptions is not None else 0.0,
+            observation_id=self.execution,
         ).as_dict()
 
         # Save the results only when explicitly requested.

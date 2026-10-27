@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, fields
+from datetime import date, timedelta
 from typing import Any
 
 import astropy.units as U
@@ -44,6 +46,11 @@ class InterferometerRun:
     array_type: str | None
     imaging_algorithm: str
     spectral_window: Any
+    # Seconds per hour-angle sample, the same for each of a MOUS's execution
+    # blocks; None: from the integration time.
+    sample_time_s: float | None = None
+    # Which execution block of the MOUS this run is (0, 1, ...).
+    execution: int | None = None
 
     def interferometer_kwargs(self) -> dict[str, Any]:
         """The run as ``Interferometer`` keyword arguments."""
@@ -60,6 +67,29 @@ class TotalPowerRun:
     antenna_diameter_m: float
     integration_time_s: float
     noise: Any
+
+
+# The longest an execution block observes its source: ALMA runs a scheduling
+# block for about an hour, and the longest time on source among the 100
+# MADIV-16 windows was 2,964 s.
+MAX_EXECUTION_TIME_S = 3000.0
+
+
+def execution_count(total_time_s: float, n_executions: int | None = None) -> int:
+    """How many execution blocks observe a MOUS of ``total_time_s`` on source: the
+    archive's count when known, else enough blocks of at most MAX_EXECUTION_TIME_S."""
+    if n_executions is not None and n_executions >= 1:
+        return int(n_executions)
+    return max(1, math.ceil(float(total_time_s) / MAX_EXECUTION_TIME_S))
+
+
+def execution_date(obs_date: str, execution: int) -> str:
+    """The date execution block ``execution`` observes on: one a day from ``obs_date``."""
+    try:
+        start = date.fromisoformat(str(obs_date)[:10])
+    except ValueError:
+        return str(obs_date)
+    return (start + timedelta(days=int(execution))).isoformat()
 
 
 def _count_antennas(antenna_array: str) -> int:
@@ -89,11 +119,12 @@ def plan_observation_runs(
     output_dir_abs: str,
     persist_outputs: bool,
 ) -> tuple[list[InterferometerRun], list[TotalPowerRun]]:
-    """The interferometric and total-power runs, one per configuration."""
+    """The interferometric runs, one per execution block of each configuration, and
+    the total-power runs, one per configuration."""
     observation_plan = geometry.observation_plan
     corruptions = CorruptionModel.from_mapping(params.corruptions)
-    interferometer_runs = []
-    total_power_runs = []
+    interferometer_runs: list[InterferometerRun] = []
+    total_power_runs: list[TotalPowerRun] = []
     for index, config in enumerate(observation_plan.configs):
         raw_noise_profile = uin.compute_channel_noise(
             uin.NoiseModelConfig(
@@ -119,9 +150,19 @@ def plan_observation_runs(
             raw_noise_profile,
             reference_noise=base_noise_reference,
         )
+        # A MOUS is observed in execution blocks, each a track of its own near
+        # transit on its own day, sampled alike; the samples of the blocks
+        # simulated stay within one track's budget (observing.hour_angle_samples).
+        n_executions = execution_count(config.total_time_s, params.n_executions)
+        simulated = (
+            n_executions
+            if params.executions is None
+            else min(max(int(params.executions), 1), n_executions)
+        )
+        execution_time_s = config.total_time_s / n_executions
+        _, sample_time_s = hour_angle_samples(execution_time_s * simulated)
         if corruptions is not None and corruptions.radiometer_noise and config.array_type != "TP":
             # Each visibility's own noise, over the integration the simulator samples.
-            _, sample_time_s = hour_angle_samples(config.total_time_s)
             noise_profile = uin.visibility_noise(
                 uin.NoiseModelConfig(
                     pwv_mm=params.pwv,
@@ -146,7 +187,7 @@ def plan_observation_runs(
                 )
             )
         else:
-            interferometer_runs.append(
+            interferometer_runs.extend(
                 InterferometerRun(
                     idx=params.idx,
                     skymodel=model_cube,
@@ -160,8 +201,8 @@ def plan_observation_runs(
                     antenna_array=config.antenna_array,
                     noise=noise_profile,
                     snr=effective_snr,
-                    integration_time=config.total_time_s / 3600.0,
-                    observation_date=params.obs_date,
+                    integration_time=execution_time_s / 3600.0,
+                    observation_date=execution_date(params.obs_date, execution),
                     header=header,
                     save_mode=params.save_mode,
                     persist=persist_outputs,
@@ -170,6 +211,9 @@ def plan_observation_runs(
                     array_type=config.array_type,
                     imaging_algorithm=params.imaging_algorithm,
                     spectral_window=geometry.spectral_window(),
+                    sample_time_s=sample_time_s,
+                    execution=execution,
                 )
+                for execution in range(simulated)
             )
     return interferometer_runs, total_power_runs
