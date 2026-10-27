@@ -142,7 +142,7 @@ from almasim.services.simulation import SimulationParams
 
 alma = released_model("alma", 1)
 quiet = alma.select(without=["fast_phase", "baseline_errors"])
-print(quiet.label(), quiet.sha256()[:12])        # alma@1 without fast_phase,baseline_errors
+print(quiet.label(), quiet.sha256()[:12])  # alma@1 without fast_phase,baseline_errors
 params = SimulationParams.from_metadata_row(row, ..., noise_model=quiet)
 
 candidate = resolve_noise_model("noise/candidate.json")
