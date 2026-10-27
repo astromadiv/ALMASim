@@ -7,11 +7,15 @@ the natural-weighting continuum noise 1/sqrt(sum of unflagged weights). The imag
 noise over the latter is the imaging factor.
 
     python libexposure.py OUT.csv
+
+LIB_RUNS and LIB_ITER (default runs-p2, iter-lib) pick the library set, WINDOWS
+(space-separated indices) a subset.
 """
 
 from __future__ import annotations
 
 import json
+import os
 import sys
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
@@ -22,6 +26,8 @@ import pandas as pd
 NOISE = Path("/SKAO_data/cycle11/MADIV-28/noise")
 LIB = NOISE / "libsim"
 CHUNK = 20_000
+LIB_RUNS = os.environ.get("LIB_RUNS", "runs-p2")
+LIB_ITER = os.environ.get("LIB_ITER", "iter-lib")
 
 
 def measure(ms: Path) -> dict:
@@ -70,13 +76,13 @@ def window(args: tuple[int, str]) -> dict:
     i, name = args
     row = {"window": i, "name": name}
     for key, ms in (("real", NOISE / "base" / f"{name}.ms"),
-                    ("lib", LIB / "runs-p2" / f"w{i}" / f"w{i}_{i}.ms")):
+                    ("lib", LIB / LIB_RUNS / f"w{i}" / f"w{i}_{i}.ms")):
         try:
             row.update({f"{key}:{k}": v for k, v in measure(ms).items()})
         except Exception as exc:  # noqa: BLE001 - one bad MS must not stop the table
             print(f"{i} {key}: {exc}", flush=True)
     for key, path in (("real", NOISE / "iter-f0-control" / "metrics" / f"{name}.json"),
-                      ("lib", NOISE / "iter-lib" / "metrics" / f"{name}.json")):
+                      ("lib", NOISE / LIB_ITER / "metrics" / f"{name}.json")):
         if path.exists():
             m = json.loads(path.read_text())
             row[f"{key}:cont_sigma"] = m.get("cont.sigma")
@@ -87,7 +93,8 @@ def window(args: tuple[int, str]) -> dict:
 
 def main(out: Path) -> None:
     names = [line.split() for line in open(NOISE / "diag" / "index-names.txt")]
-    jobs = [(int(i), n) for i, n in names]
+    keep = set(os.environ.get("WINDOWS", "").split())
+    jobs = [(int(i), n) for i, n in names if not keep or i in keep]
     with ProcessPoolExecutor(8) as pool:
         rows = list(pool.map(window, jobs))
     meta = pd.read_csv(LIB / "rows.csv", usecols=["window", "Int.Time", "antenna_arrays"])
