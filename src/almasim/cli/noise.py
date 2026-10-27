@@ -10,6 +10,7 @@ measures real windows' noise, one window or a table of them, on Slurm.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -553,3 +554,267 @@ def aggregate(
         )
     if provenance is not None and provenance.notes:
         typer.echo(f"  kept: {provenance.notes}")
+
+
+@noise_app.command("validate")
+def validate(
+    model: str = typer.Option(
+        ...,
+        "--model",
+        help="The model to validate: a candidate file or a released name.",
+        rich_help_panel="Inputs",
+    ),
+    windows: Path = typer.Option(
+        ...,
+        "--windows",
+        help="The windows table noise extract measured (name, ms, spw; task_dir: their imaging).",
+        rich_help_panel="Inputs",
+    ),
+    metadata: Path = typer.Option(
+        ...,
+        "--metadata",
+        help="Each window's archive row (as metadata query writes them) with a name column.",
+        rich_help_panel="Inputs",
+    ),
+    measured: Path = typer.Option(
+        ...,
+        "--measured",
+        help="noise extract's output for the real windows.",
+        rich_help_panel="Inputs",
+    ),
+    out: Path = typer.Option(
+        ...,
+        "--out",
+        help="Where the validation goes (validation/<model sha>/).",
+        rich_help_panel="Outputs",
+    ),
+    name: str | None = typer.Option(
+        None, "--name", help="Validate only this window of the table.", rich_help_panel="Inputs"
+    ),
+    seed: int = typer.Option(
+        0,
+        "--seed",
+        help="The simulations' seed (per window, plus its name's).",
+        rich_help_panel="Simulation",
+    ),
+    keep_ms: bool = typer.Option(
+        False, "--keep-ms", help="Keep the simulated MSs.", rich_help_panel="Outputs"
+    ),
+    wsclean_bin: str | None = typer.Option(None, "--wsclean-bin", rich_help_panel="Imaging"),
+    casa_data_root: str | None = typer.Option(None, "--casa-data-root", rich_help_panel="Imaging"),
+    num_cores: int = typer.Option(8, "--num-cores", min=1, rich_help_panel="Imaging"),
+    task_memory_gb: float = typer.Option(
+        40.0, "--task-memory-gb", min=1.0, rich_help_panel="Imaging"
+    ),
+    imaging_timeout: float = typer.Option(
+        10800.0, "--imaging-timeout", min=60, rich_help_panel="Imaging"
+    ),
+    criteria: Path | None = typer.Option(
+        None,
+        "--criteria",
+        help="A JSON file of comparison criteria (noise compare's).",
+        rich_help_panel="Inputs",
+    ),
+    overwrite: bool = typer.Option(
+        False, "--overwrite", help="Validate windows again.", rich_help_panel="Outputs"
+    ),
+    judge: bool = typer.Option(
+        True,
+        "--judge/--no-judge",
+        help="Compare the validated windows at the end.",
+        rich_help_panel="Outputs",
+    ),
+    backend: PostprocessBackend = Backend.sync,
+    slurm_queue: SlurmQueue = "normal",
+    slurm_project: SlurmProject = None,
+    slurm_walltime: SlurmWalltime = "08:00:00",
+    slurm_memory: SlurmMemory = "64GB",
+    slurm_workers: int = typer.Option(
+        4,
+        "--slurm-workers",
+        min=1,
+        help="Slurm workers validating windows at once.",
+        rich_help_panel="Cluster",
+    ),
+    scheduler_host: SchedulerHost = None,
+    scheduler_interface: SchedulerInterface = None,
+    task_timeout: TaskTimeout = 12 * 3600.0,
+) -> None:
+    """Simulate the real windows with a noise model, measure and image them as
+    the real ones were, and compare (validation/<model sha>/comparison.json)."""
+    from functools import partial
+
+    from ..services.noise import validate as v
+    from ..services.noise.batch import read_windows, run_tasks
+
+    noise_model, tasks, rows, rules = _validate_inputs(model, windows, metadata, criteria, name)
+    out, measured = out.expanduser().resolve(), measured.expanduser().resolve()
+    imaging = v.Imaging(
+        wsclean_bin=wsclean_bin,
+        casa_data_root=casa_data_root,
+        num_cores=num_cores,
+        task_memory_gb=task_memory_gb,
+        task_timeout=imaging_timeout,
+    )
+    run_here = partial(
+        v.run_in_process,
+        rows=rows,
+        model=noise_model,
+        measured=measured,
+        out=out,
+        imaging=imaging,
+        seed=seed,
+        keep_ms=keep_ms,
+        echo=typer.echo,
+    )
+
+    def window_command(task: Any) -> list[str]:
+        args = [
+            "validate",
+            "--model",
+            model,
+            "--windows",
+            str(windows),
+            "--metadata",
+            str(metadata),
+            "--measured",
+            str(measured),
+            "--out",
+            str(out),
+            "--name",
+            task.name,
+            "--seed",
+            str(seed),
+            "--num-cores",
+            str(num_cores),
+            "--task-memory-gb",
+            str(task_memory_gb),
+            "--imaging-timeout",
+            str(imaging_timeout),
+            "--no-judge",
+        ]
+        for flag, value in (("--wsclean-bin", wsclean_bin), ("--casa-data-root", casa_data_root)):
+            if value:
+                args += [flag, value]
+        return args + (["--keep-ms"] if keep_ms else []) + (["--overwrite"] if overwrite else [])
+
+    runner: Callable[[list], dict[str, str | None]] = run_here
+    if backend == Backend.slurm and len(tasks) > 1:
+        from ..services.noise.batch import run_on_slurm
+
+        slurm = SlurmOptions(
+            queue=slurm_queue,
+            project=slurm_project,
+            walltime=slurm_walltime,
+            memory=slurm_memory,
+            n_workers=slurm_workers,
+            scheduler_host=scheduler_host,
+            scheduler_interface=scheduler_interface,
+        )
+        runner = partial(
+            run_on_slurm,
+            out=out,
+            step="validate",
+            command=window_command,
+            backend_kwargs={"node_cores": num_cores + 1, **slurm.backend_kwargs()},
+            cores=num_cores,
+            timeout=task_timeout,
+            extra_args=[],
+            echo=typer.echo,
+        )
+    todo = [t for t in tasks if overwrite or not v.done(t, out, noise_model)]
+    failures = run_tasks(todo, out, runner, step="validate", overwrite=True, echo=typer.echo)
+    if judge:
+        _print_comparison(v.judge(read_windows(windows), out, noise_model, measured, rules))
+    if failures:
+        raise typer.Exit(code=1)
+
+
+def _validate_inputs(
+    model: str, windows: Path, metadata: Path, criteria: Path | None, name: str | None
+) -> tuple[Any, list, dict, Any]:
+    """noise validate's model, windows, archive rows and criteria, checked."""
+    from ..services.noise import validate as v
+    from ..services.noise.batch import read_windows
+    from ..services.noise.compare import Criteria
+    from ..services.noise_model import resolve_noise_model
+
+    try:
+        noise_model = resolve_noise_model(model)
+        tasks = read_windows(windows)
+        rows = v.metadata_rows(metadata)
+        rules = Criteria.model_validate_json(criteria.read_text()) if criteria else None
+    except (OSError, ValueError) as exc:
+        usage_error(str(exc))
+    if noise_model is None:
+        usage_error("--model: a model, not none")
+    if name is not None:
+        tasks = [t for t in tasks if t.name == name]
+        if not tasks:
+            usage_error(f"--name: no window {name!r} in {windows}")
+    missing = [t.name for t in tasks if t.name not in rows]
+    if missing:
+        usage_error(f"--metadata: no row for {', '.join(missing[:5])}")
+    return noise_model, tasks, rows, rules
+
+
+@noise_app.command("compare")
+def compare_windows(
+    model: str = typer.Option(
+        ..., "--model", help="The model validated.", rich_help_panel="Inputs"
+    ),
+    windows: Path = typer.Option(
+        ..., "--windows", help="The windows table.", rich_help_panel="Inputs"
+    ),
+    measured: Path = typer.Option(
+        ...,
+        "--measured",
+        help="noise extract's output for the real windows.",
+        rich_help_panel="Inputs",
+    ),
+    out: Path = typer.Option(
+        ..., "--out", help="noise validate's output.", rich_help_panel="Inputs"
+    ),
+    criteria: Path | None = typer.Option(
+        None, "--criteria", help="A JSON file of comparison criteria.", rich_help_panel="Inputs"
+    ),
+) -> None:
+    """Compare the windows noise validate simulated with the real ones
+    (comparison.json): per metric the median ratio or difference, its range,
+    Wilcoxon p, and whether the model passes the criteria."""
+    from ..services.noise import validate as v
+    from ..services.noise.batch import read_windows
+    from ..services.noise.compare import Criteria
+    from ..services.noise_model import resolve_noise_model
+
+    try:
+        noise_model = resolve_noise_model(model)
+        tasks = read_windows(windows)
+        rules = Criteria.model_validate_json(criteria.read_text()) if criteria else None
+    except (OSError, ValueError) as exc:
+        usage_error(str(exc))
+    if noise_model is None:
+        usage_error("--model: a model, not none")
+    comparison = v.judge(
+        tasks, out.expanduser().resolve(), noise_model, measured.expanduser().resolve(), rules
+    )
+    if comparison.windows == 0:
+        usage_error(
+            f"no validated windows of {noise_model.label()} under {out}; run noise validate first"
+        )
+    _print_comparison(comparison)
+    if not comparison.passed:
+        raise typer.Exit(code=1)
+
+
+def _print_comparison(comparison) -> None:
+    typer.echo(f"{comparison.model.get('label')}: {comparison.windows} window(s) compared")
+    for metric, s in comparison.metrics.items():
+        within = f", {s.within_10pct} within 10%" if s.within_10pct is not None else ""
+        p = f", p {s.p:.2g}" if s.p is not None else ""
+        typer.echo(
+            f"  {metric:28s} {s.kind:10s} {s.median:+.4g} ({s.q16:+.3g}..{s.q84:+.3g}){p}{within}"
+        )
+    for check in comparison.checks:
+        typer.echo(f"  [{'pass' if check.passed else 'FAIL'}] {check.name}: {check.value}")
+    typer.echo("PASSED" if comparison.passed else "NOT PASSED")

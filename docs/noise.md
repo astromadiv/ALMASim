@@ -154,6 +154,39 @@ almasim simulation run ... --noise-model noise/candidate.json   # try it
 A value fewer than `--min-windows` (3) measure keeps the base's, with a
 note in `provenance.notes`.
 
+### Validating a model against real windows
+
+`almasim noise validate` simulates each real window with a model (a
+candidate file or a released name) and measures it as the real one was:
+ALMASim simulates the window from its archive row (a point source, the
+window's frequency and channels, one execution block, the model), exports
+the MS, measures it with `noise extract` and images it with `image
+compute-parameters`, `image image-from-ms --cube --uv-contsub` and `image
+clean-quality`. The image statistics (the residuals' level, kurtosis, tails,
+correlation area, the cube's channel spread and neighbour correlation) of
+the simulated and real images, and the two windows' visibility measurements,
+go under `validation/<model sha256[:12]>/`, so different models never mix:
+
+```
+almasim noise validate --model noise/candidate.json --windows windows.csv \
+    --metadata rows.csv --measured noise/ --out noise/ --backend slurm \
+    --wsclean-bin /path/to/wsclean --casa-data-root /path/to/casa-data
+almasim noise compare --model noise/candidate.json --windows windows.csv \
+    --measured noise/ --out noise/
+```
+
+`--metadata` holds each window's archive row (as `metadata query` writes
+them) with a `name` column; the windows table's `task_dir` is the real
+window's imaging. `noise compare` (which `validate` runs at the end) writes
+`comparison.json`: per metric, the median of the per-window ratio (scales)
+or difference (shapes), its 16-84% range, a paired Wilcoxon p and how many
+windows fall within 10%, and the criteria's verdict. By default a model
+passes when the median continuum, cube and visibility noise are within 5% of
+the real, the simulated visibilities' variance is within 1% of what their
+WEIGHT claims, none of those noise levels differs at p below 0.01, and no
+band and array group's median continuum noise is off by more than 10%;
+`--criteria` takes a JSON file of other values.
+
 ## Current Model
 
 ALMASim uses a PWV-aware channel noise model that depends on:
