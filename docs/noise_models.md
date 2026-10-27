@@ -847,6 +847,36 @@ The default criteria:
 | those three noise levels | none differs at p below 0.01 |
 | each band and array group | its median continuum noise ratio is within 10% of 1 (groups of 3 or more windows) |
 
+This is `alma@1` validated on four real windows (band 3 and band 6 12 m, a
+band 6 7 m one), 16 minutes in all:
+
+```
+alma@1: 4 window(s) compared
+  cont.sigma                   ratio      +0.9965 (+0.912..+1.16), 2 within 10%
+  cube.sigma_median            ratio      +1.026 (+0.892..+1.14), 1 within 10%
+  visibility.unit_jy           ratio      +1.074 (+1.01..+1.28), 3 within 10%
+  cont.corr_area_beams         ratio      +1.033 (+0.959..+1.13), 3 within 10%
+  cube.kurtosis                difference +0.03 (-0.00686..+0.0794)
+  cube.adjacent_corr           difference -0.01894 (-0.0558..-0.0162)
+  antenna_shape.excess_rms     difference -0.02256 (-0.0284..-0.0185)
+  ...
+  [pass] cont.sigma median within 5%: 0.9965
+  [pass] cube.sigma_median median within 5%: 1.026
+  [FAIL] visibility.unit_jy median within 5%: 1.074
+  [pass] simulated variance x WEIGHT within 1%: 0.9999
+NOT PASSED
+```
+
+Read it as: the simulated images are as noisy as the real ones (continuum
+1.00, cube 1.03 in the median), the simulated visibilities carry exactly the
+noise their WEIGHT says (0.9999), but one simulated visibility is 7% noisier
+than a real one, mostly because of the 7 m window (1.47; the 12 m ones are
+0.96 to 1.08), so `alma@1` does not pass. With four windows no Wilcoxon p is
+computed (it needs six); a real validation uses tens. The shapes show where
+to look next: the simulated antennas' own noise ripple is weaker than the
+real one (`antenna_shape.excess_rms` 0.023 lower), which a candidate built
+by `noise aggregate` from these windows would raise.
+
 Write other criteria to a JSON file and pass `--criteria file.json`, for
 example `{"noise_tolerance": 0.1, "checked": []}`. `noise compare` alone
 re-judges what `noise validate` produced.
