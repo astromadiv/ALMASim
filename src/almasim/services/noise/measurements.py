@@ -108,3 +108,45 @@ class WindowNoise(_Record):
     notes: list[str] = Field(
         default_factory=list, description="What could not be measured, and why."
     )
+
+
+class PhaseFit(_Record):
+    """A phase screen fitted as sigma(b) = sigma_1km (b / 1 km)^slope."""
+
+    bins: int = Field(description="Baseline bins the fit used.")
+    slope: float
+    phase_1km_deg: float
+    path_um_1km: float = Field(description="The rms path difference at 1 km (microns).")
+
+
+class FitBin(_Record):
+    """One baseline-length bin of the bright (baseline, scan) groups."""
+
+    baseline_m: float
+    groups: int
+    phase_rms_deg: float | None
+    thermal_phase_rms_deg: float | None
+    lnamp_mean: float | None
+    thermal_lnamp_mean: float | None
+
+
+class WindowFit(_Record):
+    """What ``noise fit`` finds in one window's calibration residuals: the
+    values of the slow_phase, fast_phase, antenna_gains and baseline_errors
+    components that make a simulation of it match (None: not measurable)."""
+
+    schema_version: Literal[1] = 1
+    name: str
+    bright_groups: int = Field(description="(baseline, scan) groups with S/N above 10.")
+    realizations: int
+    kappa: float = Field(description="1 + 2 rho1 + 2 rho2: the channel-summed noise's excess.")
+    bins: list[FitBin]
+    slow_phase: PhaseFit | None = None
+    fast_phase: PhaseFit | None = None
+    gain_amp_rms: float | None = None
+    baseline_amp_rms: float | None = None
+    baseline_phase_rms_deg: float | None = None
+    antenna_solve: dict[str, float] | None = Field(
+        default=None, description="The real data's per-scan antenna solve."
+    )
+    notes: list[str] = Field(default_factory=list)

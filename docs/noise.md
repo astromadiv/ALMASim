@@ -104,6 +104,30 @@ windows are skipped on a rerun; failures go to `failures.json`. With
 `--backend slurm` each window is its own task on a Slurm worker. It needs
 python-casacore (the `ms-casacore` extra).
 
+### Fitting calibration residuals
+
+`almasim noise fit` fits what calibration leaves on a bright window, the
+values of the `slow_phase`, `fast_phase`, `antenna_gains` and
+`baseline_errors` components, after `noise extract` has measured it:
+
+```
+almasim noise fit uid___A002_X1.ms.split.cal --spw 31 --field 2 \
+    --task-dir cubes/uid___A002_X1.ms.split/SPW-31_FIELD-2 --out noise/
+almasim noise fit --windows windows.csv --out noise/ --backend slurm
+```
+
+It predicts the window's clean model (`--task-dir`, an ALMASim imaging task:
+the continuum model where the image is above 5 sigma, the cube model in the
+line channels and line mask) and compares the data with it per (baseline,
+scan) where the model is bright (S/N above 10). The per-scan phase scatter
+beyond the noise's gives the slow phase screen, the loss of amplitude the
+in-scan screen, the per-scan antenna amplitudes the gains, and what does
+not close the baselines' own errors. Each is fitted against a reference
+holding what was found before it, built by the simulator's own engine, so a
+fitted value is what the simulator needs to reproduce the data: the screens'
+strength and slope come from simulating them, not from a formula. A window
+too faint for that is left unfitted, with a note in `fit.json`.
+
 ## Current Model
 
 ALMASim uses a PWV-aware channel noise model that depends on:
