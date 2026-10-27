@@ -1,5 +1,7 @@
 """Visibility corruptions besides white thermal noise (MADIV-28)."""
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
@@ -338,3 +340,41 @@ def test_correlation_follows_the_windows_averaging_unless_set():
     )
     assert fixed.spectral_average == 2
     assert fixed.for_window(16).channel_correlation() == pytest.approx(averaged_correlation(2))
+
+
+@pytest.mark.unit
+def test_each_antenna_error_has_its_own_stream():
+    """Switching one term off, or changing its strength, leaves the others'
+    draws as they were: the terms are separable."""
+    xy = np.random.default_rng(0).uniform(0, 800, (8, 2))
+    times = np.arange(30) * 20.0
+    full = CorruptionModel(
+        scan_length_s=200,
+        gain_amp_rms=0.08,
+        gain_phase_rms_deg=10,
+        slow_path_um_1km=80,
+        fast_path_um_1km=40,
+        baseline_amp_rms=0.06,
+        baseline_phase_rms_deg=2.5,
+    )
+
+    def draw(**changes):
+        return draw_antenna_corruptions(
+            replace(full, **changes), xy, times, np.random.default_rng(5)
+        )
+
+    everything = draw()
+    no_gains = draw(gain_amp_rms=0.0, gain_phase_rms_deg=0.0)
+    assert np.array_equal(no_gains.path_m, everything.path_m)
+    assert np.array_equal(no_gains.baseline, everything.baseline)
+    assert np.all(no_gains.amplitude == 1) and not np.array_equal(
+        no_gains.amplitude, everything.amplitude
+    )
+    no_slow = draw(slow_path_um_1km=0.0)
+    assert np.array_equal(no_slow.amplitude, everything.amplitude)
+    assert np.array_equal(no_slow.baseline, everything.baseline)
+    only_fast = draw(slow_path_um_1km=0.0, gain_amp_rms=0.0, gain_phase_rms_deg=0.0)
+    assert np.allclose(only_fast.path_m, no_slow.path_m)
+    stronger_fast = draw(fast_path_um_1km=80.0)
+    assert np.array_equal(stronger_fast.phase, everything.phase)
+    assert np.array_equal(stronger_fast.baseline, everything.baseline)
