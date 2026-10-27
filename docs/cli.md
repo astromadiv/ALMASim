@@ -648,6 +648,8 @@ $ almasim noise [OPTIONS] COMMAND [ARGS]...
 * `extract`: Measure real windows' noise: the level...
 * `fit`: Fit real windows' calibration residuals...
 * `aggregate`: Reduce the windows' measurements into a...
+* `validate`: Simulate the real windows with a noise...
+* `compare`: Compare the windows noise validate...
 
 ## `almasim noise show`
 
@@ -801,6 +803,67 @@ $ almasim noise aggregate [OPTIONS]
 * `--name <str>`: The candidate's name (default: <base>-candidate).
 * `--version <int range>`: The candidate's version (default: the base's + 1).  [x>=1]
 * `--min-windows <int range>`: Windows a value needs; fewer keep the base's.  [default: 3; x>=1]
+* `--help`: Show this message and exit.
+
+## `almasim noise validate`
+
+Simulate the real windows with a noise model, measure and image them as
+the real ones were, and compare (validation/<model sha>/comparison.json).
+
+**Usage**:
+
+```console
+$ almasim noise validate [OPTIONS]
+```
+
+**Options**:
+
+* `--model <str>`: The model to validate: a candidate file or a released name.  [required]
+* `--windows <path>`: The windows table noise extract measured (name, ms, spw; task_dir: their imaging).  [required]
+* `--metadata <path>`: Each window's archive row (as metadata query writes them) with a name column.  [required]
+* `--measured <path>`: noise extract's output for the real windows.  [required]
+* `--out <path>`: Where the validation goes (validation/<model sha>/).  [required]
+* `--name <str>`: Validate only this window of the table.
+* `--seed <int>`: The simulations' seed (per window, plus its name's).  [default: 0]
+* `--keep-ms`: Keep the simulated MSs.
+* `--wsclean-bin <str>`
+* `--casa-data-root <str>`
+* `--num-cores <int range>`: [default: 8; x>=1]
+* `--task-memory-gb <float range>`: [default: 40.0; x>=1.0]
+* `--imaging-timeout <float range>`: [default: 10800.0; x>=60]
+* `--criteria <path>`: A JSON file of comparison criteria (noise compare's).
+* `--overwrite`: Validate windows again.
+* `--judge / --no-judge`: Compare the validated windows at the end.  [default: judge]
+* `--backend, --postprocess-backend <sync|slurm>`: Where the tasks run: sync (this process, one at a time) or slurm (Slurm jobs).  [default: sync]
+* `--slurm-queue <str>`: Slurm queue/partition.  [default: normal]
+* `--slurm-project <str>`: Slurm project/account.
+* `--slurm-walltime <str>`: Slurm walltime per worker job (HH:MM:SS).  [default: 08:00:00]
+* `--slurm-memory <str>`: Memory per Slurm worker.  [default: 64GB]
+* `--slurm-workers <int range>`: Slurm workers validating windows at once.  [default: 4; x>=1]
+* `--scheduler-host, --slurm-scheduler-host <str>`: Scheduler host advertised to the workers (default: this host).
+* `--scheduler-interface <str>`: Scheduler/worker network interface (e.g. ib0, eth0).
+* `--task-timeout <float range>`: Timeout in seconds for each worker-side command.  [default: 43200.0; x>=1]
+* `--help`: Show this message and exit.
+
+## `almasim noise compare`
+
+Compare the windows noise validate simulated with the real ones
+(comparison.json): per metric the median ratio or difference, its range,
+Wilcoxon p, and whether the model passes the criteria.
+
+**Usage**:
+
+```console
+$ almasim noise compare [OPTIONS]
+```
+
+**Options**:
+
+* `--model <str>`: The model validated.  [required]
+* `--windows <path>`: The windows table.  [required]
+* `--measured <path>`: noise extract's output for the real windows.  [required]
+* `--out <path>`: noise validate's output.  [required]
+* `--criteria <path>`: A JSON file of comparison criteria.
 * `--help`: Show this message and exit.
 
 # `almasim jobs`

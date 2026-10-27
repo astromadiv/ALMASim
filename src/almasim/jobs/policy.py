@@ -55,6 +55,9 @@ KNOWN_COMMANDS = frozenset(
         "preview wiener",
         "noise extract",
         "noise fit",
+        "noise aggregate",
+        "noise validate",
+        "noise compare",
         "doctor",
     }
 )
@@ -67,17 +70,24 @@ _FAN_OUT = frozenset(
         "image image-from-ms",
         "noise extract",
         "noise fit",
+        "noise validate",
     }
 )
 # products download fans out only for its post-processing.
 _DOWNLOAD_POSTPROCESSING = ("--extract-tar", "--unpack-ms", "--generate-calibrated-visibilities")
 _CASA_DATA = frozenset(
-    {"products download", "visibilities unpack", "visibilities calibrate", "image image-from-ms"}
+    {
+        "products download",
+        "visibilities unpack",
+        "visibilities calibrate",
+        "image image-from-ms",
+        "noise validate",
+    }
 )
 _SKIP_CASA_UPDATE = frozenset(
     {"products download", "visibilities unpack", "visibilities calibrate"}
 )
-_WSCLEAN = frozenset({"image image-from-ms", "clean"})
+_WSCLEAN = frozenset({"image image-from-ms", "clean", "noise validate"})
 _CONFIRMS = frozenset({"metadata", "products download"})
 
 

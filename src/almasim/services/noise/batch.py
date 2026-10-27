@@ -237,9 +237,12 @@ def run_on_slurm(
     extra_args: list[str],
     step: str = "extract",
     echo: Callable[[str], Any] = print,
+    command: Callable[[WindowTask], list[str]] | None = None,
 ) -> dict[str, str | None]:
     """Run each window as its own ``almasim noise <step>`` on a Slurm worker:
-    a window's memory and any crash of its readers stay in its task."""
+    a window's memory and any crash of its readers stay in its task.
+    ``command``: a window's arguments after ``almasim noise`` (default: the
+    step and the window's arguments, ``--out`` and ``extra_args``)."""
     from ...jobs.wrapper import ALMASIM_COMMAND
     from ..compute import create_backend
 
@@ -256,11 +259,11 @@ def run_on_slurm(
                     command=[
                         *ALMASIM_COMMAND,
                         "noise",
-                        step,
-                        *task.arguments(step),
-                        "--out",
-                        str(out),
-                        *extra_args,
+                        *(
+                            command(task)
+                            if command is not None
+                            else [step, *task.arguments(step), "--out", str(out), *extra_args]
+                        ),
                     ],
                     cores=cores,
                     timeout=timeout,
