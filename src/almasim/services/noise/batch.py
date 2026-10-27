@@ -3,11 +3,12 @@
 A windows table (CSV) lists one window per row: ``ms`` and ``spw`` (needed),
 ``field``, ``name``, ``syscal_ms``, ``line_channels`` ("a~b;c") and
 ``task_log`` (an ALMASim imaging task's log, whose "lines in channels" gives
-them), and for ``noise fit`` ``task_dir`` (the imaging task holding the
-window's clean model). Each window writes ``<out>/windows/<name>/window.json``
-(and ``antenna.npz``) when extracted, ``fit.json`` when fitted; a window
-whose file exists for the same input is skipped, so a run that stopped
-resumes where it was.
+them), ``pwv`` (the observation's water vapour, mm, which noise aggregate
+needs for the receiver temperatures), and for ``noise fit`` ``task_dir``
+(the imaging task holding the window's clean model). Each window writes
+``<out>/windows/<name>/window.json`` (and ``antenna.npz``) when extracted,
+``fit.json`` when fitted; a window whose file exists for the same input is
+skipped, so a run that stopped resumes where it was.
 """
 
 from __future__ import annotations
@@ -44,6 +45,7 @@ class WindowTask:
     line_channels: str | None = None
     task_log: str | None = None
     task_dir: str | None = None
+    pwv: str | None = None
 
     def directory(self, out: Path) -> Path:
         return out / "windows" / self.name
@@ -86,6 +88,7 @@ class WindowTask:
                 ("--syscal-ms", self.syscal_ms),
                 ("--line-channels", self.line_channels),
                 ("--task-log", self.task_log),
+                ("--pwv", self.pwv),
             ]
         else:
             options += [("--task-dir", self.task_dir)]
@@ -124,6 +127,7 @@ def read_windows(path: Path) -> list[WindowTask]:
                 line_channels=row.get("line_channels") or None,
                 task_log=row.get("task_log") or None,
                 task_dir=row.get("task_dir") or None,
+                pwv=row.get("pwv") or None,
             )
         )
     names = [t.name for t in tasks]
@@ -151,6 +155,7 @@ def measure_task(task: WindowTask, out: Path, *, max_visibilities: int = 40_000_
         syscal_ms=task.syscal_ms,
         line_channels=lines,
         max_visibilities=max_visibilities,
+        pwv_mm=float(task.pwv) if task.pwv else None,
     )
     directory = task.directory(out)
     directory.mkdir(parents=True, exist_ok=True)

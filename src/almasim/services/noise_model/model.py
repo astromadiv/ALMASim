@@ -31,6 +31,17 @@ from .components import (
 )
 
 
+class ValueStats(BaseModel):
+    """How one value was reduced from the windows."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    n: int = Field(ge=0, description="Windows it comes from.")
+    median: float
+    q16: float = Field(description="16th percentile over the windows.")
+    q84: float = Field(description="84th percentile over the windows.")
+
+
 class Provenance(BaseModel):
     """Where a model's values come from."""
 
@@ -46,6 +57,9 @@ class Provenance(BaseModel):
     )
     date: str | None = Field(default=None, description="When (ISO date).")
     notes: str | None = None
+    values: dict[str, ValueStats] | None = Field(
+        default=None, description="Each reduced value's statistics, by its component.parameter."
+    )
 
 
 class Settings(BaseModel):

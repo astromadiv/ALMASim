@@ -128,6 +128,32 @@ fitted value is what the simulator needs to reproduce the data: the screens'
 strength and slope come from simulating them, not from a formula. A window
 too faint for that is left unfitted, with a note in `fit.json`.
 
+### From measurements to a candidate model
+
+`almasim noise aggregate` reduces the windows' measurements into a candidate
+model: a released model (`--from`, default `alma`) with every value the
+windows measure replaced by their median, and how many windows each comes
+from and their 16-84% spread recorded in `provenance.values`:
+
+```
+almasim noise extract --windows windows.csv --out noise/        # pwv column for Trx
+almasim noise fit --windows windows.csv --out noise/            # task_dir column
+almasim noise aggregate --out noise/                            # noise/candidate.json
+almasim simulation run ... --noise-model noise/candidate.json   # try it
+```
+
+| Value | From |
+| --- | --- |
+| `channel_correlation` rho1, rho2 | windows with Hanning-correlated native channels (rho1 above 0.5) |
+| `receiver_ripple` rms | the smooth part (Legendre modes 1-4) of the noise profile over SYSCAL's Tsys², halved |
+| `antenna_ripple` rms, scale | each antenna's noise shape, windows wider than 1 GHz |
+| `radiometer` receiver temperatures | per band, the Trx that gives SYSCAL's median Tsys under the simulator's Tsys model (12 m windows, their PWV and elevation) |
+| `radiometer` aperture | per dish size, Ruze's law fitted to the efficiency the noise and Tsys imply |
+| `slow_phase`, `fast_phase`, `antenna_gains`, `baseline_errors` | `noise fit` |
+
+A value fewer than `--min-windows` (3) measure keeps the base's, with a
+note in `provenance.notes`.
+
 ## Current Model
 
 ALMASim uses a PWV-aware channel noise model that depends on:

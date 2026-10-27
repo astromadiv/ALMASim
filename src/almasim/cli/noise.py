@@ -173,6 +173,14 @@ def extract(
         help="An ALMASim imaging task's log; its 'lines in channels' are left out.",
         rich_help_panel="Inputs",
     ),
+    pwv: float | None = typer.Option(
+        None,
+        "--pwv",
+        min=0,
+        help="The observation's precipitable water vapour (mm; the archive's PWV), "
+        "for noise aggregate's receiver temperatures.",
+        rich_help_panel="Inputs",
+    ),
     windows: Path | None = typer.Option(
         None,
         "--windows",
@@ -217,7 +225,7 @@ def extract(
 
     from ..services.noise.batch import run_in_process, run_on_slurm, run_tasks
 
-    tasks = _extract_tasks(ms, windows, spw, field, name, syscal_ms, line_channels, task_log)
+    tasks = _extract_tasks(ms, windows, spw, field, name, syscal_ms, line_channels, task_log, pwv)
     out = out.expanduser().resolve()
     if backend == Backend.slurm and len(tasks) > 1:
         options = SlurmOptions(
@@ -261,6 +269,7 @@ def _extract_tasks(
     syscal_ms: Path | None,
     line_channels: str | None,
     task_log: Path | None,
+    pwv: float | None = None,
 ) -> list:
     """The windows ``noise extract`` measures: one MS's, or a table's."""
     from ..services.noise.batch import WindowTask, read_windows, window_name
@@ -268,7 +277,7 @@ def _extract_tasks(
     if (ms is None) == (windows is None):
         usage_error("give an MS (with --spw) or --windows, not both")
     if windows is not None:
-        if any(v is not None for v in (spw, field, name, syscal_ms, line_channels, task_log)):
+        if any(v is not None for v in (spw, field, name, syscal_ms, line_channels, task_log, pwv)):
             usage_error(
                 "--spw, --field, --name, --syscal-ms, --line-channels and --task-log "
                 "describe one MS; a --windows table has them as columns"
@@ -288,6 +297,7 @@ def _extract_tasks(
             syscal_ms=str(syscal_ms.expanduser().resolve()) if syscal_ms else None,
             line_channels=line_channels,
             task_log=str(task_log) if task_log else None,
+            pwv=None if pwv is None else str(pwv),
         )
     ]
 
@@ -458,3 +468,88 @@ def fit(
     )
     if failures:
         raise typer.Exit(code=1)
+
+
+@noise_app.command("aggregate")
+def aggregate(
+    out: Path = typer.Option(
+        ...,
+        "--out",
+        help="The noise extract and fit output (windows/<name>/window.json, fit.json).",
+        rich_help_panel="Inputs",
+    ),
+    base: str = typer.Option(
+        "alma",
+        "--from",
+        help="The model whose values the windows' replace ('alma', 'alma@1' or a file).",
+        rich_help_panel="Inputs",
+    ),
+    output: Path | None = typer.Option(
+        None,
+        "--output",
+        help="Where the candidate goes (default: <out>/candidate.json).",
+        rich_help_panel="Outputs",
+    ),
+    name: str | None = typer.Option(
+        None,
+        "--name",
+        help="The candidate's name (default: <base>-candidate).",
+        rich_help_panel="Outputs",
+    ),
+    version: int | None = typer.Option(
+        None,
+        "--version",
+        min=1,
+        help="The candidate's version (default: the base's + 1).",
+        rich_help_panel="Outputs",
+    ),
+    min_windows: int = typer.Option(
+        3,
+        "--min-windows",
+        min=1,
+        help="Windows a value needs; fewer keep the base's.",
+        rich_help_panel="Inputs",
+    ),
+) -> None:
+    """Reduce the windows' measurements into a candidate noise model: each value
+    they measure is their median, with its window count and spread recorded."""
+    from ..services.noise.aggregate import Measured
+    from ..services.noise.aggregate import aggregate as reduce_windows
+    from ..services.noise.batch import FIT_FILE, WINDOW_FILE
+    from ..services.noise.measurements import WindowFit, WindowNoise
+    from ..services.noise_model import resolve_noise_model
+
+    out = out.expanduser().resolve()
+    try:
+        model = resolve_noise_model(base)
+    except (ValueError, TypeError) as exc:
+        usage_error(f"--from: {exc}")
+    if model is None:
+        usage_error("--from: a model, not none")
+    measured = []
+    for path in sorted((out / "windows").glob(f"*/{WINDOW_FILE}")):
+        fit_path = path.with_name(FIT_FILE)
+        measured.append(
+            Measured(
+                window=WindowNoise.model_validate_json(path.read_text()),
+                fit=WindowFit.model_validate_json(fit_path.read_text())
+                if fit_path.is_file()
+                else None,
+            )
+        )
+    if not measured:
+        usage_error(f"--out: no windows/*/{WINDOW_FILE} under {out}; run noise extract first")
+    candidate = reduce_windows(
+        measured, model, name=name, version=version, data=str(out), min_windows=min_windows
+    )
+    target = (output or out / "candidate.json").expanduser()
+    target.write_text(candidate.model_dump_json(indent=2) + "\n")
+    fitted = sum(m.fit is not None for m in measured)
+    typer.echo(f"{len(measured)} window(s), {fitted} fitted -> {candidate.label()} in {target}")
+    provenance = candidate.provenance
+    for key, stats in sorted(((provenance.values if provenance else None) or {}).items()):
+        typer.echo(
+            f"  {key}: {stats.median:.4g} ({stats.q16:.4g}-{stats.q84:.4g}, {stats.n} windows)"
+        )
+    if provenance is not None and provenance.notes:
+        typer.echo(f"  kept: {provenance.notes}")

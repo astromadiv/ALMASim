@@ -77,6 +77,7 @@ def extract_window(
     line_channels: np.ndarray | None = None,
     max_visibilities: int = 40_000_000,
     chunk_values: int = 20_000_000,
+    pwv_mm: float | None = None,
 ) -> tuple[WindowNoise, dict[str, np.ndarray]]:
     """Measure one window. Returns the measurements and the arrays to keep
     beside them (``antenna_g`` (nant, nchan, nhand) and ``antenna_h``: each
@@ -153,6 +154,7 @@ def extract_window(
             field=None if field_selection is None else str(field_selection),
             syscal_ms=None if syscal_ms is None else str(syscal_ms),
             line_channels=int(lines.sum()),
+            pwv_mm=pwv_mm,
         ),
         exposure=exposure,
         thermal=thermal,
