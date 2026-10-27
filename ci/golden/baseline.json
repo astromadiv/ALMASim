@@ -10,9 +10,9 @@
     "source": "workflow run 40236526864, commit 1c58be85; MADIV-28: channels from the archive's resolution (#476)"
   },
   "simulation_baseline": {
-    "url": "https://github.com/astromadiv/ALMASim/releases/download/golden-baseline-v12/golden-simulation-v12.tar.gz",
-    "sha256": "00c6313df9f425b9e34847860e270d6a3d40e9af75a608394da49f44f3baed28",
-    "version": "v12",
-    "source": "workflow run 40236526864, commit 1c58be85; MADIV-28: channels from the archive's resolution (#476)"
+    "url": "https://github.com/astromadiv/ALMASim/releases/download/golden-baseline-v13/golden-simulation-v13.tar.gz",
+    "sha256": "18e30ed4f4772da7a6573daaac03bed0b199cfcfb3ffd7dd1bd022f48964b83a",
+    "version": "v13",
+    "source": "workflow run 40519179795, commit 4fa01bbb; MADIV-28: receiver temperatures and aperture efficiency calibrated on ALMA's own Tsys (#481)"
   }
 }
