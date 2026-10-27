@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
@@ -11,6 +14,33 @@ from .atmosphere import system_temperature
 K_B = 1.380649e-23
 JY = 1.0e-26
 C_M_S = 299_792_458.0
+
+
+# ALMA's radiometer as ALMASim models it (data/alma_radiometer.json): the
+# receiver temperatures (K) by frequency (GHz, upper edge), each dish's Ruze
+# aperture efficiency, and the quantisation and correlator efficiencies. A
+# noise model's radiometer component may set its own (services.noise_model).
+_INSTRUMENT = json.loads((Path(__file__).parent / "data" / "alma_radiometer.json").read_text())
+ReceiverTable = tuple[tuple[float, float], ...]
+RuzeTable = Mapping[float, tuple[float, float]]
+_RECEIVER_TEMPERATURE_K: ReceiverTable = tuple(
+    (np.inf if row["upper_ghz"] is None else float(row["upper_ghz"]), float(row["trx_k"]))
+    for row in _INSTRUMENT["receiver_temperature_k"]
+)
+# Aperture efficiency against frequency (Ruze): eta0 exp(-(4 pi eps / lambda)^2),
+# the dish's surface rms eps costing more as the wavelength shrinks.
+_RUZE: RuzeTable = {
+    float(row["diameter_m"]): (float(row["eta0"]), float(row["surface_rms_m"]))
+    for row in _INSTRUMENT["aperture"]
+}
+_CORRELATOR_EFFICIENCY = float(_INSTRUMENT["quantisation_efficiency"]) * float(
+    _INSTRUMENT["correlator_efficiency"]
+)
+
+
+def instrument_radiometer() -> dict:
+    """ALMA's radiometer as ALMASim models it (data/alma_radiometer.json)."""
+    return json.loads(json.dumps(_INSTRUMENT))
 
 
 @dataclass
@@ -30,49 +60,36 @@ class NoiseModelConfig:
     sideband: str = "auto"
     # ALMA's quantisation and correlator efficiencies (eta_q eta_c): what a
     # visibility's noise carries beyond the radiometer equation.
-    correlator_efficiency: float = 0.96 * 0.88
-
-
-# Receiver temperatures (K) by frequency (GHz, upper edge): what ALMA's own Tsys
-# (SYSCAL) on the noise study's 12 m windows implies under this Tsys model
-# (MADIV-28; bands 1, 3, 4, 5, 6 and 7, 8 to 29 windows each); bands 8 to 10
-# (one to three windows) keep the earlier estimates.
-_RECEIVER_TEMPERATURE_K = (
-    (50.0, 32.0),  # band 1
-    (116.0, 39.0),  # bands 2 and 3
-    (163.0, 37.0),  # band 4
-    (211.0, 50.0),  # band 5
-    (275.0, 46.0),  # band 6
-    (373.0, 63.0),  # band 7
-    (500.0, 110.0),  # band 8
-    (np.inf, 160.0),  # bands 9 and 10
-)
+    correlator_efficiency: float = _CORRELATOR_EFFICIENCY
+    # The receiver temperatures by frequency and the dishes' Ruze parameters;
+    # None: ALMA's (data/alma_radiometer.json).
+    receiver_temperatures: ReceiverTable | None = None
+    ruze: RuzeTable | None = None
 
 
 def estimate_receiver_temperature_k(
-    freqs_hz: np.ndarray, receiver_model: str = "alma"
+    freqs_hz: np.ndarray, receiver_model: str = "alma", table: ReceiverTable | None = None
 ) -> np.ndarray:
-    """Each frequency's receiver temperature (K), by ALMA band."""
+    """Each frequency's receiver temperature (K), by ALMA band (``table``:
+    (upper edge in GHz, K) pairs, ALMA's when None)."""
+    table = _RECEIVER_TEMPERATURE_K if table is None else table
     freqs_ghz = np.asarray(freqs_hz, dtype=float) / 1e9
-    edges = np.array([edge for edge, _ in _RECEIVER_TEMPERATURE_K])
-    values = np.array([trx for _, trx in _RECEIVER_TEMPERATURE_K])
+    edges = np.array([edge for edge, _ in table])
+    values = np.array([trx for _, trx in table])
     trx = values[np.searchsorted(edges, freqs_ghz, side="right").clip(max=len(values) - 1)]
     if receiver_model.lower() != "alma":
         trx = trx * 1.1
     return trx
 
 
-# Aperture efficiency against frequency (Ruze): eta0 exp(-(4 pi eps / lambda)^2),
-# the dish's surface rms eps costing more as the wavelength shrinks. Fitted to
-# the efficiency ALMA's noise and Tsys imply on the noise study's 100 windows
-# (MADIV-28): 12 m dishes 0.76 and 27 um, 7 m dishes 0.72 and 24 um.
-_RUZE = {12.0: (0.76, 27e-6), 7.0: (0.72, 24e-6)}
-
-
-def aperture_efficiency(frequency_hz: float, antenna_diameter_m: float) -> float:
-    """A dish's aperture efficiency at ``frequency_hz`` (the 12 m dishes' for any
-    diameter other than 7 m)."""
-    eta0, rms_m = _RUZE.get(round(float(antenna_diameter_m), 1), _RUZE[12.0])
+def aperture_efficiency(
+    frequency_hz: float, antenna_diameter_m: float, ruze: RuzeTable | None = None
+) -> float:
+    """A dish's aperture efficiency at ``frequency_hz`` (``ruze``: (eta0,
+    surface rms in m) by diameter, ALMA's when None; the 12 m dishes' for a
+    diameter it lacks)."""
+    ruze = _RUZE if ruze is None else ruze
+    eta0, rms_m = ruze.get(round(float(antenna_diameter_m), 1), ruze.get(12.0, _RUZE[12.0]))
     return float(eta0 * np.exp(-((4 * np.pi * rms_m * float(frequency_hz) / C_M_S) ** 2)))
 
 
@@ -101,7 +118,9 @@ def system_equivalent_flux_density(
     """Each channel's SEFD (Jy) of one antenna: 2 k Tsys / A_eff, with Tsys from
     the receiver and the sky (CASA's ATM model with ``atmospheric_lines``)."""
     freqs_hz = np.asarray(freqs_hz, dtype=float)
-    trx = estimate_receiver_temperature_k(freqs_hz, config.receiver_model)
+    trx = estimate_receiver_temperature_k(
+        freqs_hz, config.receiver_model, config.receiver_temperatures
+    )
     if config.atmospheric_lines:
         airmass = 1.0 / np.sin(np.deg2rad(max(5.0, min(90.0, float(elevation_deg)))))
         tsys = system_temperature(
@@ -126,7 +145,7 @@ def system_equivalent_flux_density(
         config.aperture_efficiency
         if config.aperture_efficiency is not None
         # One efficiency for the window: it changes by well under 1% across one.
-        else aperture_efficiency(float(np.mean(freqs_hz)), antenna_diameter_m)
+        else aperture_efficiency(float(np.mean(freqs_hz)), antenna_diameter_m, config.ruze)
     )
     a_eff = max(area_m2 * efficiency, 1e-6)
     return (2.0 * K_B * tsys / a_eff) / JY

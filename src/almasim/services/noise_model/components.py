@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class NoiseComponent(BaseModel):
@@ -33,13 +33,72 @@ class NoiseComponent(BaseModel):
         raise NotImplementedError
 
 
+class ReceiverTemperature(BaseModel):
+    """The receiver temperature of the frequencies up to an edge."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    upper_ghz: float | None = Field(gt=0, description="Upper edge (GHz); null: no edge.")
+    trx_k: float = Field(gt=0, description="Receiver temperature (K).")
+    bands: str = Field(default="", description="The ALMA bands it covers.")
+
+
+class Aperture(BaseModel):
+    """A dish's aperture efficiency against frequency (Ruze)."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    diameter_m: float = Field(gt=0, description="Dish diameter (m).")
+    eta0: float = Field(gt=0, le=1, description="Efficiency at long wavelengths.")
+    surface_rms_m: float = Field(ge=0, lt=1e-3, description="Surface rms (m).")
+
+
 class Radiometer(NoiseComponent):
     """Each visibility's thermal noise from the radiometer equation (Tsys,
     channel noise bandwidth, integration, dish), the source keeping its flux,
-    instead of a noise set from the run's target S/N."""
+    instead of a noise set from the run's target S/N. Its receiver
+    temperatures, apertures and efficiencies, when set, replace ALMA's
+    (interferometry/data/alma_radiometer.json) wherever the run computes Tsys."""
+
+    receiver_temperature_k: tuple[ReceiverTemperature, ...] | None = Field(
+        default=None, description="Receiver temperatures by frequency, edges rising."
+    )
+    aperture: tuple[Aperture, ...] | None = Field(
+        default=None, description="Each dish size's Ruze parameters."
+    )
+    quantisation_efficiency: float | None = Field(default=None, gt=0, le=1)
+    correlator_efficiency: float | None = Field(default=None, gt=0, le=1)
+
+    @model_validator(mode="after")
+    def _edges_rise(self) -> Radiometer:
+        rows = self.receiver_temperature_k
+        if rows is not None:
+            edges = [r.upper_ghz if r.upper_ghz is not None else float("inf") for r in rows]
+            if not rows or edges != sorted(edges) or len(set(edges)) != len(edges):
+                raise ValueError("receiver_temperature_k: edges must rise, at most one null last")
+        return self
 
     def engine_fields(self) -> dict[str, Any]:
         return {"radiometer_noise": True}
+
+    def noise_config(self) -> dict[str, Any]:
+        """What it sets on the thermal noise model (interferometry.noise.NoiseModelConfig)."""
+        from ..interferometry import noise
+
+        values: dict[str, Any] = {}
+        if self.receiver_temperature_k is not None:
+            values["receiver_temperatures"] = tuple(
+                (float("inf") if r.upper_ghz is None else r.upper_ghz, r.trx_k)
+                for r in self.receiver_temperature_k
+            )
+        if self.aperture is not None:
+            values["ruze"] = {a.diameter_m: (a.eta0, a.surface_rms_m) for a in self.aperture}
+        if self.quantisation_efficiency is not None or self.correlator_efficiency is not None:
+            instrument = noise.instrument_radiometer()
+            values["correlator_efficiency"] = (
+                self.quantisation_efficiency or instrument["quantisation_efficiency"]
+            ) * (self.correlator_efficiency or instrument["correlator_efficiency"])
+        return values
 
 
 class AtmosphericTsys(NoiseComponent):

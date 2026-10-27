@@ -92,6 +92,14 @@ class NoiseModel(BaseModel):
             return None
         return {**self.settings.model_dump(), **values}
 
+    def noise_config(self) -> dict[str, Any]:
+        """What the model sets on the thermal noise model (NoiseModelConfig):
+        its radiometer's tables, when the radiometer is applied."""
+        radiometer = self.components.radiometer
+        if radiometer is None or not radiometer.enabled:
+            return {}
+        return radiometer.noise_config()
+
     def select(
         self, only: Iterable[str] | None = None, without: Iterable[str] | None = None
     ) -> NoiseModel:

@@ -147,6 +147,9 @@ def plan_observation_runs(
     the total-power runs, one per configuration."""
     observation_plan = geometry.observation_plan
     corruptions = CorruptionModel.from_mapping(params.corruptions)
+    # The noise model's own receiver temperatures and efficiencies, if it sets them.
+    model = getattr(params, "noise_model", None)
+    radiometer = model.noise_config() if model is not None else {}
     interferometer_runs: list[InterferometerRun] = []
     total_power_runs: list[TotalPowerRun] = []
     for index, config in enumerate(observation_plan.configs):
@@ -154,6 +157,7 @@ def plan_observation_runs(
             uin.NoiseModelConfig(
                 pwv_mm=params.pwv,
                 ground_temperature_k=params.ground_temperature_k,
+                **radiometer,
                 atmospheric_lines=corruptions is not None and corruptions.atmospheric_tsys,
             ),
             channel_frequencies_hz,
@@ -191,6 +195,7 @@ def plan_observation_runs(
                 uin.NoiseModelConfig(
                     pwv_mm=params.pwv,
                     ground_temperature_k=params.ground_temperature_k,
+                    **radiometer,
                     atmospheric_lines=corruptions.atmospheric_tsys,
                 ),
                 channel_frequencies_hz,

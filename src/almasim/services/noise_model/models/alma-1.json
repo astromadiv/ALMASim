@@ -8,14 +8,31 @@
     "data": "MADIV-16, 100 windows of ALMA cycle 11 calibrated data",
     "windows": 100,
     "date": "2026-10-25",
-    "notes": "Channel correlation: Hanning's theoretical 2/3 and 1/6. Receiver ripple: SYSCAL Tsys against the measured channel profiles. Antenna ripple: median of the 73 windows wider than 1 GHz. Baseline errors: median of the 13 bright windows where they are measurable (amplitude; phase rounded). Slow phase, gains: early fits on 3 bright windows. Fast phase: no saved fit reproduces it."
+    "notes": "Radiometer: receiver temperatures from ALMA's SYSCAL Tsys on the 12 m windows (bands 1, 3-7; bands 8-10 earlier estimates), Ruze efficiency fitted to the efficiency the windows' noise and Tsys imply, as of #481. Channel correlation: Hanning's theoretical 2/3 and 1/6. Receiver ripple: SYSCAL Tsys against the measured channel profiles. Antenna ripple: median of the 73 windows wider than 1 GHz. Baseline errors: median of the 13 bright windows where they are measurable (amplitude; phase rounded). Slow phase, gains: early fits on 3 bright windows. Fast phase: no saved fit reproduces it."
   },
   "settings": {
     "scan_length_s": 300.0,
     "outer_scale_km": 3.0
   },
   "components": {
-    "radiometer": {},
+    "radiometer": {
+      "receiver_temperature_k": [
+        {"upper_ghz": 50.0, "trx_k": 32.0, "bands": "1"},
+        {"upper_ghz": 116.0, "trx_k": 39.0, "bands": "2, 3"},
+        {"upper_ghz": 163.0, "trx_k": 37.0, "bands": "4"},
+        {"upper_ghz": 211.0, "trx_k": 50.0, "bands": "5"},
+        {"upper_ghz": 275.0, "trx_k": 46.0, "bands": "6"},
+        {"upper_ghz": 373.0, "trx_k": 63.0, "bands": "7"},
+        {"upper_ghz": 500.0, "trx_k": 110.0, "bands": "8"},
+        {"upper_ghz": null, "trx_k": 160.0, "bands": "9, 10"}
+      ],
+      "aperture": [
+        {"diameter_m": 12.0, "eta0": 0.76, "surface_rms_m": 2.7e-05},
+        {"diameter_m": 7.0, "eta0": 0.72, "surface_rms_m": 2.4e-05}
+      ],
+      "quantisation_efficiency": 0.96,
+      "correlator_efficiency": 0.88
+    },
     "atmospheric_tsys": {},
     "receiver_ripple": {"rms": 0.02},
     "channel_correlation": {"rho1": 0.6666666666666666, "rho2": 0.16666666666666666},

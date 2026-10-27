@@ -187,3 +187,55 @@ def test_noise_commands_show_models_components_and_schema(tmp_path):
     out = tmp_path / "schema.json"
     assert runner.invoke(noise_app, ["schema", "-o", str(out)]).exit_code == 0
     assert json.loads(out.read_text()) == noise_model_schema()
+
+
+@pytest.mark.unit
+def test_alma_states_the_instrument_radiometer():
+    """alma@1 sets ALMA's radiometer as ALMASim models it, value for value."""
+    from almasim.services.interferometry import noise
+
+    config = released_model("alma", 1).noise_config()
+    assert config["receiver_temperatures"] == noise._RECEIVER_TEMPERATURE_K
+    assert config["ruze"] == dict(noise._RUZE)
+    assert (
+        config["correlator_efficiency"] == noise.NoiseModelConfig(pwv_mm=1.0).correlator_efficiency
+    )
+    assert released_model("alma").select(without=["radiometer"]).noise_config() == {}
+
+
+@pytest.mark.unit
+def test_a_candidate_radiometer_changes_tsys_where_it_differs():
+    import numpy as np
+
+    from almasim.services.interferometry.noise import (
+        NoiseModelConfig,
+        system_equivalent_flux_density,
+    )
+
+    alma = released_model("alma")
+    rows = [r.model_dump() for r in alma.components.radiometer.receiver_temperature_k]
+    rows[4]["trx_k"] = 92.0  # band 6 twice as hot
+    candidate = NoiseModel.model_validate(
+        {
+            **json.loads(alma.model_dump_json()),
+            "name": "alma-hot-b6",
+            "components": {"radiometer": {"receiver_temperature_k": rows}},
+        }
+    )
+
+    def sefd(model, ghz):
+        config = NoiseModelConfig(pwv_mm=1.0, **model.noise_config())
+        return system_equivalent_flux_density(
+            config, np.array([ghz * 1e9]), 60.0, antenna_diameter_m=12.0
+        )[0]
+
+    assert sefd(candidate, 230.0) > 1.3 * sefd(alma, 230.0)
+    assert sefd(candidate, 100.0) == sefd(alma, 100.0)
+    rows[0]["upper_ghz"] = 400.0
+    with pytest.raises(ValidationError, match="edges must rise"):
+        NoiseModel.model_validate(
+            {
+                **json.loads(candidate.model_dump_json()),
+                "components": {"radiometer": {"receiver_temperature_k": rows}},
+            }
+        )
