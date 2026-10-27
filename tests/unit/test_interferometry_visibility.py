@@ -266,6 +266,7 @@ def test_concatenate_keeps_each_configurations_antennas():
 def test_concatenate_assumes_12_m_dishes_without_diameters():
     vt1 = _make_visibility_table(nrows=2, nchan=1).as_dict()
     vt2 = _make_visibility_table(nrows=2, nchan=1).as_dict()
+    vt2["antenna_names"] = ["C1", "C2"]
     result = concatenate_visibility_tables([vt1, vt2])
     np.testing.assert_array_equal(result["antenna_diameters_m"], np.full(4, 12.0))
 

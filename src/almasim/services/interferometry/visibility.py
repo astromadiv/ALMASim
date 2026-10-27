@@ -39,6 +39,8 @@ class VisibilityTable:
     # Each row's scan (1, 2, ...) when the track is split into scans
     # (corruptions.CorruptionModel.scan_length_s); one scan when None.
     scan_number: np.ndarray | None = None
+    # Each row's execution block (the MS's OBSERVATION_ID); 0 for all when None.
+    observation_id: np.ndarray | None = None
 
     def as_dict(self) -> dict[str, Any]:
         """Convert to a plain dict for serialization."""
@@ -65,6 +67,7 @@ class VisibilityTable:
             "config_name": self.config_name,
             "array_type": self.array_type,
             **({"scan_number": self.scan_number} if self.scan_number is not None else {}),
+            **({"observation_id": self.observation_id} if self.observation_id is not None else {}),
         }
 
 
@@ -151,10 +154,12 @@ def assemble_visibility_table(
     array_type: str | None = None,
     antenna_diameters_m: np.ndarray | None = None,
     scan_length_s: float = 0.0,
+    observation_id: int | None = None,
 ) -> VisibilityTable:
     """Assemble channel-wise row samples into an MS-like visibility table.
 
-    ``scan_length_s`` > 0 numbers the rows' scans, blocks of that length.
+    ``scan_length_s`` > 0 numbers the rows' scans, blocks of that length;
+    ``observation_id`` marks every row as that execution block's.
     """
     if not channel_rows:
         raise ValueError("channel_rows must not be empty")
@@ -194,6 +199,9 @@ def assemble_visibility_table(
         scan_number = (time_offsets_s // float(scan_length_s)).astype(np.int32) + 1
     return VisibilityTable(
         scan_number=scan_number,
+        observation_id=(
+            None if observation_id is None else np.full(nrows, int(observation_id), np.int32)
+        ),
         uvw_m=np.asarray(reference["uvw_m"], dtype=np.float64),
         antenna1=np.asarray(reference["antenna1"], dtype=np.int32),
         antenna2=np.asarray(reference["antenna2"], dtype=np.int32),
@@ -254,14 +262,22 @@ def concatenate_visibility_tables(tables: list[Mapping[str, Any]]) -> dict[str, 
         return dict(tables[0])
 
     first = tables[0]
-    # Each table's antennas follow the previous tables' in one ANTENNA list,
+    # Each array's antennas follow the previous arrays' in one ANTENNA list,
     # its ANTENNA1/ANTENNA2 shifted to match: a 7 m configuration's rows used
-    # to point at the 12 m antennas of the first table.
-    offsets = np.cumsum([0] + [len(t["antenna_names"]) for t in tables[:-1]])
+    # to point at the 12 m antennas of the first table. The execution blocks of
+    # one array share its antennas.
+    offsets: list[int] = []
+    arrays: list[tuple[tuple, Mapping[str, Any]]] = []
+    for table in tables:
+        key = _array_key(table)
+        if key not in [k for k, _ in arrays]:
+            arrays.append((key, table))
+        offsets.append(_antenna_offset([t for _, t in arrays], key))
     shifted = {
         key: [np.asarray(t[key]) + offset for t, offset in zip(tables, offsets, strict=True)]
         for key in ("antenna1", "antenna2")
     }
+    arrays_tables = [t for _, t in arrays]
     return {
         **{
             key: np.concatenate(
@@ -270,11 +286,11 @@ def concatenate_visibility_tables(tables: list[Mapping[str, Any]]) -> dict[str, 
             for key in _ROW_COLUMNS
         },
         "channel_freq_hz": np.asarray(first["channel_freq_hz"]),
-        "antenna_names": [name for t in tables for name in t["antenna_names"]],
+        "antenna_names": [name for t in arrays_tables for name in t["antenna_names"]],
         "antenna_positions_m": np.concatenate(
-            [np.asarray(t["antenna_positions_m"]).reshape(-1, 3) for t in tables], axis=0
+            [np.asarray(t["antenna_positions_m"]).reshape(-1, 3) for t in arrays_tables], axis=0
         ),
-        "antenna_diameters_m": np.concatenate([_diameters(t) for t in tables]),
+        "antenna_diameters_m": np.concatenate([_diameters(t) for t in arrays_tables]),
         "source_name": first["source_name"],
         "field_ra_rad": float(first["field_ra_rad"]),
         "field_dec_rad": float(first["field_dec_rad"]),
@@ -282,17 +298,53 @@ def concatenate_visibility_tables(tables: list[Mapping[str, Any]]) -> dict[str, 
         "config_name": first.get("config_name"),
         "array_type": first.get("array_type"),
         **_scan_numbers(tables),
+        **_observation_ids(tables),
     }
 
 
+def _array_key(table: Mapping[str, Any]) -> tuple:
+    """What identifies a table's array: its type and antennas."""
+    return (table.get("array_type"), tuple(table["antenna_names"]))
+
+
+def _antenna_offset(arrays: list[Mapping[str, Any]], key: tuple) -> int:
+    """Where the array ``key``'s antennas start in the joint ANTENNA list."""
+    offset = 0
+    for table in arrays:
+        if _array_key(table) == key:
+            return offset
+        offset += len(table["antenna_names"])
+    raise KeyError(key)
+
+
 def _scan_numbers(tables: list[Mapping[str, Any]]) -> dict[str, np.ndarray]:
-    """The concatenated scan numbers, if any table has them (one scan for those without)."""
+    """The concatenated scan numbers, if any table has them (one scan for those
+    without), each table's after the previous tables': scans do not repeat."""
     if all(t.get("scan_number") is None for t in tables):
         return {}
-    columns = [
-        np.asarray(t["scan_number"])
-        if t.get("scan_number") is not None
-        else np.ones(len(t["antenna1"]), np.int32)
-        for t in tables
-    ]
+    columns, last = [], 0
+    for t in tables:
+        scans = (
+            np.asarray(t["scan_number"])
+            if t.get("scan_number") is not None
+            else np.ones(len(t["antenna1"]), np.int32)
+        )
+        columns.append(scans + last)
+        last += int(scans.max(initial=0))
     return {"scan_number": np.concatenate(columns).astype(np.int32)}
+
+
+def _observation_ids(tables: list[Mapping[str, Any]]) -> dict[str, np.ndarray]:
+    """The concatenated execution blocks, if any table has them (0 for those without)."""
+    if all(t.get("observation_id") is None for t in tables):
+        return {}
+    return {
+        "observation_id": np.concatenate(
+            [
+                np.asarray(t["observation_id"])
+                if t.get("observation_id") is not None
+                else np.zeros(len(t["antenna1"]), np.int32)
+                for t in tables
+            ]
+        ).astype(np.int32)
+    }

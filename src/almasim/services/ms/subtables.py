@@ -84,7 +84,11 @@ def main_table(ms_path: str, vt: Mapping[str, Any]) -> TableSpec:
         "DATA_DESC_ID": np.zeros(nrows, dtype=np.int32),
         "FIELD_ID": np.zeros(nrows, dtype=np.int32),
         "ARRAY_ID": np.zeros(nrows, dtype=np.int32),
-        "OBSERVATION_ID": np.zeros(nrows, dtype=np.int32),
+        "OBSERVATION_ID": (
+            np.asarray(vt["observation_id"], dtype=np.int32)
+            if vt.get("observation_id") is not None
+            else np.zeros(nrows, dtype=np.int32)
+        ),
         "PROCESSOR_ID": np.full(nrows, -1, dtype=np.int32),
         "SCAN_NUMBER": (
             np.asarray(vt["scan_number"], dtype=np.int32)
@@ -202,19 +206,23 @@ def field_table(
     return TableSpec("FIELD", schema.FIELD_COLUMNS, values)
 
 
-def observation_table(telescope_name: str, project_name: str, time_range: np.ndarray) -> TableSpec:
+def observation_table(telescope_name: str, project_name: str, time_ranges: np.ndarray) -> TableSpec:
+    """One row per execution block, ``time_ranges`` its (start, end) each
+    (one (2,) range: one execution)."""
+    ranges = np.asarray(time_ranges, dtype=np.float64).reshape(-1, 2)
+    n = len(ranges)
     values = {
-        "TELESCOPE_NAME": telescope_name,
-        "OBSERVER": "ALMASim",
-        "PROJECT": project_name,
-        "SCHEDULE_TYPE": "ALMASim",
-        "RELEASE_DATE": float(time_range.max()),
-        "FLAG_ROW": False,
-        "TIME_RANGE": time_range.astype(np.float64),
-        "LOG": np.array(["ALMASim simulation"]),
-        "SCHEDULE": np.array(["ALMASim"]),
+        "TELESCOPE_NAME": [telescope_name] * n,
+        "OBSERVER": ["ALMASim"] * n,
+        "PROJECT": [project_name] * n,
+        "SCHEDULE_TYPE": ["ALMASim"] * n,
+        "RELEASE_DATE": ranges[:, 1].copy(),
+        "FLAG_ROW": np.zeros(n, dtype=bool),
+        "TIME_RANGE": ranges,
+        "LOG": np.array([["ALMASim simulation"]] * n),
+        "SCHEDULE": np.array([["ALMASim"]] * n),
     }
-    return TableSpec("OBSERVATION", schema.OBSERVATION_COLUMNS, values)
+    return TableSpec("OBSERVATION", schema.OBSERVATION_COLUMNS, values, nrow=n, by_column=True)
 
 
 def feed_table(n_antennas: int, time_range: np.ndarray) -> TableSpec:

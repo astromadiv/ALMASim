@@ -67,7 +67,7 @@ def export_native_ms(
         polarization_table(),
         data_description_table(),
         field_table(source_name, field_ra_rad, field_dec_rad, time_range),
-        observation_table(telescope_name, project_name, time_range),
+        observation_table(telescope_name, project_name, _execution_ranges(vt, time_mjd_s)),
         source_table(source_name, field_ra_rad, field_dec_rad, time_range),
         state_table(),
         history_table(project_name, time_range),
@@ -84,6 +84,19 @@ def export_native_ms(
     tb.flush()
     tb.close()
     return ms_path
+
+
+def _execution_ranges(vt: dict[str, Any], time_mjd_s: np.ndarray) -> np.ndarray:
+    """Each execution block's (start, end) time, in OBSERVATION_ID order."""
+    ids = vt.get("observation_id")
+    if ids is None:
+        return np.array([[time_mjd_s.min(), time_mjd_s.max()]])
+    ids = np.asarray(ids)
+    ranges = []
+    for i in range(int(ids.max()) + 1):
+        times = time_mjd_s[ids == i] if np.any(ids == i) else time_mjd_s
+        ranges.append([times.min(), times.max()])
+    return np.array(ranges)
 
 
 def read_native_ms(ms_path: str | Path) -> dict[str, Any]:

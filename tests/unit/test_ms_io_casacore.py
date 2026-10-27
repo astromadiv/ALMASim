@@ -129,3 +129,22 @@ def test_backend_import_errors_fall_back_quietly_but_other_failures_are_logged(c
         with caplog.at_level("WARNING", logger=backends.__name__):
             assert isinstance(backends._get_backend(), backends._CasacoreBackend)
     assert caplog.text == ""
+
+
+def test_each_execution_block_is_an_observation(tmp_path):
+    """Rows of two execution blocks: OBSERVATION_ID per row, one OBSERVATION row each."""
+    vt = _visibility_table()
+    vt["time_mjd_s"] = np.array([5e9, 5e9, 5e9, 5e9 + 86400, 5e9 + 86400, 5e9 + 86400])
+    vt["observation_id"] = np.array([0, 0, 0, 1, 1, 1], dtype=np.int32)
+    with patch.object(ms_io, "_get_backend", return_value=backends._CasacoreBackend()):
+        path = ms_io.export_native_ms(
+            ms_path=tmp_path / "eb.ms", visibility_table=vt, project_name="P", source_name="S"
+        )
+    with tables.table(path, ack=False) as ms:
+        np.testing.assert_array_equal(ms.getcol("OBSERVATION_ID"), vt["observation_id"])
+    with tables.table(f"{path}/OBSERVATION", ack=False) as obs:
+        assert obs.nrows() == 2
+        np.testing.assert_array_equal(
+            obs.getcol("TIME_RANGE"), [[5e9, 5e9], [5e9 + 86400, 5e9 + 86400]]
+        )
+        assert list(obs.getcol("TELESCOPE_NAME")) == ["ALMA", "ALMA"]

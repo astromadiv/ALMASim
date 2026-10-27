@@ -216,8 +216,9 @@ def test_write_observation(tmp_path):
     write_table(
         b, str(tmp_path / "test.ms"), observation_table("ALMA", "2021.1.00001.S", time_range)
     )
-    tb.putcell.assert_any_call("TELESCOPE_NAME", 0, "ALMA")
-    tb.putcell.assert_any_call("PROJECT", 0, "2021.1.00001.S")
+    # One row per execution block, written by column.
+    tb.putcol.assert_any_call("TELESCOPE_NAME", ["ALMA"])
+    tb.putcol.assert_any_call("PROJECT", ["2021.1.00001.S"])
 
 
 @pytest.mark.unit
@@ -323,10 +324,10 @@ def test_export_native_ms_default_telescope(tmp_path):
             source_name="S",
         )
 
-    # TELESCOPE_NAME cell should receive "ALMA"
-    write_obs_calls = [c for c in tb.putcell.call_args_list if c[0][0] == "TELESCOPE_NAME"]
+    # TELESCOPE_NAME column should receive "ALMA" (one execution block)
+    write_obs_calls = [c for c in tb.putcol.call_args_list if c[0][0] == "TELESCOPE_NAME"]
     assert len(write_obs_calls) == 1
-    assert write_obs_calls[0][0][2] == "ALMA"
+    assert write_obs_calls[0][0][1] == ["ALMA"]
 
 
 # ---------------------------------------------------------------------------

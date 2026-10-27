@@ -140,6 +140,12 @@ class SimulationParams:
     # interferometry.corruptions.CorruptionModel (a mapping, its JSON, a JSON
     # file or a preset name such as "alma"); None adds nothing (MADIV-28).
     corruptions: dict[str, Any] | None = _coerced(_corruption_mapping, default=None)
+    # The MOUS's execution blocks: how many observe it (the archive's ASDM
+    # count; None: Int.Time split into blocks of at most
+    # planning.MAX_EXECUTION_TIME_S on source) and how many of them to simulate
+    # (None: all of them).
+    n_executions: int | None = _coerced(_optional(int), default=None)
+    executions: int | None = _coerced(_optional(int), default=None)
 
     def __post_init__(self) -> None:
         for spec in fields(self):
@@ -184,6 +190,7 @@ class SimulationParams:
         "lum_infrared": ("lum_infrared",),
         "n_lines": ("n_lines",),
         "line_names": ("line_names",),
+        "n_executions": ("n_executions",),
     }
 
     @classmethod
