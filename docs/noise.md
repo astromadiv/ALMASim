@@ -76,6 +76,34 @@ The schema, the validation of model files, `--noise-only` and
 field; a test checks that every component sets only simulator fields, and
 none another component sets.
 
+## Measuring Real Data
+
+`almasim noise extract` measures what a real window's calibrated
+visibilities carry, from differences of channels (three apart they remove
+the sky; one and two apart they show the correlation of neighbours), so no
+sky model is needed:
+
+```
+almasim noise extract uid___A002_X1.ms.split.cal --spw 31 --field 2 --out noise/
+almasim noise extract --windows windows.csv --out noise/ --backend slurm
+```
+
+Each window writes `windows/<name>/window.json`: its exposure (antennas,
+integrations, time on source, channels and noise bandwidth, flags, the
+target's elevation), the noise against WEIGHT (`scale`, 1 when WEIGHT is
+right) and its channel correlation (`rho1`, `rho2`) and profile, ALMA's Tsys
+across the window from SYSCAL, one Stokes I visibility's noise at unit time
+and bandwidth and the efficiency it implies with the Tsys, and each
+antenna's own noise shape (its rms and frequency scale; the arrays in
+`antenna.npz`). Rows are sampled evenly over the observation, up to
+`--max-visibilities`, and read in chunks. A windows table has the columns
+`ms` and `spw`, and optionally `field`, `name`, `syscal_ms`,
+`line_channels` ("a~b;c", left out as line emission) and `task_log` (an
+ALMASim imaging task's log, whose "lines in channels" gives them). Measured
+windows are skipped on a rerun; failures go to `failures.json`. With
+`--backend slurm` each window is its own task on a Slurm worker. It needs
+python-casacore (the `ms-casacore` extra).
+
 ## Current Model
 
 ALMASim uses a PWV-aware channel noise model that depends on:

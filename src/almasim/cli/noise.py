@@ -3,7 +3,8 @@
 ``noise show`` lists the released models, or prints one (a released name, a
 candidate file) with the components it applies; ``noise components`` lists
 the components a model can hold and their parameters; ``noise schema``
-writes the JSON Schema model files validate against.
+writes the JSON Schema model files validate against. ``noise extract``
+measures real windows' noise, one window or a table of them, on Slurm.
 """
 
 from __future__ import annotations
@@ -14,10 +15,23 @@ from pathlib import Path
 import typer
 
 from ..services.noise_model.components import NoiseComponent
-from ._shared import fail
+from ._options import (
+    Backend,
+    PostprocessBackend,
+    SchedulerHost,
+    SchedulerInterface,
+    SlurmCores,
+    SlurmMemory,
+    SlurmOptions,
+    SlurmProject,
+    SlurmQueue,
+    SlurmWalltime,
+    TaskTimeout,
+)
+from ._shared import fail, usage_error
 
 noise_app = typer.Typer(
-    help="Noise models: released versions, components, schema.",
+    help="Noise models: released versions, components, schema; measuring real data's noise.",
     no_args_is_help=True,
 )
 
@@ -118,3 +132,160 @@ def _component_class(annotation: object) -> type[NoiseComponent]:
 
 def _values(values: dict) -> str:
     return ", ".join(f"{k}={v}" for k, v in values.items())
+
+
+@noise_app.command("extract")
+def extract(
+    ms: Path | None = typer.Argument(
+        None, help="A calibrated MeasurementSet (*.ms.split.cal); or give --windows."
+    ),
+    out: Path = typer.Option(
+        ..., "--out", help="Where the measurements go (windows/<name>/).", rich_help_panel="Outputs"
+    ),
+    spw: int | None = typer.Option(
+        None, "--spw", min=0, help="The MS's spectral window.", rich_help_panel="Inputs"
+    ),
+    field: str | None = typer.Option(
+        None, "--field", help="Field name or id (default: every field).", rich_help_panel="Inputs"
+    ),
+    name: str | None = typer.Option(
+        None,
+        "--name",
+        help="The window's name (default: uid, spw, field).",
+        rich_help_panel="Outputs",
+    ),
+    syscal_ms: Path | None = typer.Option(
+        None,
+        "--syscal-ms",
+        help="Where to read SYSCAL's Tsys (default: the MS).",
+        rich_help_panel="Inputs",
+    ),
+    line_channels: str | None = typer.Option(
+        None,
+        "--line-channels",
+        help="Channels of line emission to leave out ('a~b;c').",
+        rich_help_panel="Inputs",
+    ),
+    task_log: Path | None = typer.Option(
+        None,
+        "--task-log",
+        help="An ALMASim imaging task's log; its 'lines in channels' are left out.",
+        rich_help_panel="Inputs",
+    ),
+    windows: Path | None = typer.Option(
+        None,
+        "--windows",
+        help="A CSV of windows (columns ms, spw; optional field, name, syscal_ms, "
+        "line_channels, task_log), measured one per task.",
+        rich_help_panel="Inputs",
+    ),
+    max_visibilities: int = typer.Option(
+        40_000_000,
+        "--max-visibilities",
+        min=1000,
+        help="Rows are sampled evenly over the observation up to about this many visibilities.",
+        rich_help_panel="Inputs",
+    ),
+    overwrite: bool = typer.Option(
+        False,
+        "--overwrite",
+        help="Measure windows again even when measured.",
+        rich_help_panel="Outputs",
+    ),
+    backend: PostprocessBackend = Backend.sync,
+    slurm_queue: SlurmQueue = "normal",
+    slurm_project: SlurmProject = None,
+    slurm_walltime: SlurmWalltime = "02:00:00",
+    slurm_cores: SlurmCores = 2,
+    slurm_memory: SlurmMemory = "32GB",
+    slurm_workers: int = typer.Option(
+        4,
+        "--slurm-workers",
+        min=1,
+        help="Slurm workers measuring windows at once.",
+        rich_help_panel="Cluster",
+    ),
+    scheduler_host: SchedulerHost = None,
+    scheduler_interface: SchedulerInterface = None,
+    task_timeout: TaskTimeout = 4 * 3600.0,
+) -> None:
+    """Measure real windows' noise: the level against WEIGHT, the channel
+    correlation, ALMA's Tsys across the window, one visibility's noise and
+    each antenna's noise shape (window.json)."""
+    from functools import partial
+
+    from ..services.noise.batch import run_in_process, run_on_slurm, run_tasks
+
+    tasks = _extract_tasks(ms, windows, spw, field, name, syscal_ms, line_channels, task_log)
+    out = out.expanduser().resolve()
+    if backend == Backend.slurm and len(tasks) > 1:
+        options = SlurmOptions(
+            queue=slurm_queue,
+            project=slurm_project,
+            walltime=slurm_walltime,
+            memory=slurm_memory,
+            n_workers=slurm_workers,
+            scheduler_host=scheduler_host,
+            scheduler_interface=scheduler_interface,
+        )
+        runner = partial(
+            run_on_slurm,
+            out=out,
+            backend_kwargs={"node_cores": slurm_cores + 1, **options.backend_kwargs()},
+            cores=slurm_cores,
+            timeout=task_timeout,
+            extra_args=["--max-visibilities", str(max_visibilities)]
+            + (["--overwrite"] if overwrite else []),
+            echo=typer.echo,
+        )
+    else:
+        runner = partial(
+            run_in_process, out=out, max_visibilities=max_visibilities, echo=typer.echo
+        )
+    failures = run_tasks(tasks, out, runner, overwrite=overwrite, echo=typer.echo)
+    measured = len(tasks) - len(failures)
+    typer.echo(
+        f"{measured} of {len(tasks)} window(s) measured; failures in {out / 'failures.json'}"
+    )
+    if failures:
+        raise typer.Exit(code=1)
+
+
+def _extract_tasks(
+    ms: Path | None,
+    windows: Path | None,
+    spw: int | None,
+    field: str | None,
+    name: str | None,
+    syscal_ms: Path | None,
+    line_channels: str | None,
+    task_log: Path | None,
+) -> list:
+    """The windows ``noise extract`` measures: one MS's, or a table's."""
+    from ..services.noise.batch import WindowTask, read_windows, window_name
+
+    if (ms is None) == (windows is None):
+        usage_error("give an MS (with --spw) or --windows, not both")
+    if windows is not None:
+        if any(v is not None for v in (spw, field, name, syscal_ms, line_channels, task_log)):
+            usage_error(
+                "--spw, --field, --name, --syscal-ms, --line-channels and --task-log "
+                "describe one MS; a --windows table has them as columns"
+            )
+        try:
+            return read_windows(windows)
+        except (OSError, ValueError) as exc:
+            usage_error(f"--windows: {exc}")
+    if ms is None or spw is None:
+        usage_error("--spw is needed with an MS")
+    return [
+        WindowTask(
+            ms=str(ms.expanduser().resolve()),
+            spw=spw,
+            name=name or window_name(str(ms), spw, field),
+            field=field,
+            syscal_ms=str(syscal_ms.expanduser().resolve()) if syscal_ms else None,
+            line_channels=line_channels,
+            task_log=str(task_log) if task_log else None,
+        )
+    ]
