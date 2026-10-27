@@ -16,6 +16,7 @@ STREAMS = {
     "background": 3,
     "metadata": 4,
     "receiver": 5,
+    "antennas": 6,
 }
 
 

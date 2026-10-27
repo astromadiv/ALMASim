@@ -13,7 +13,9 @@ from almasim.services.interferometry.observing import hour_angle_samples
 from almasim.services.interferometry.visibility import concatenate_visibility_tables
 from almasim.services.observation_plan import ObservationConfig
 from almasim.services.simulation.planning import (
+    EXECUTION_ANTENNA_SHARE,
     MAX_EXECUTION_TIME_S,
+    execution_antennas,
     execution_count,
     execution_date,
     plan_observation_runs,
@@ -205,3 +207,52 @@ def test_each_execution_has_its_own_time_range_in_the_ms():
     np.testing.assert_array_equal(
         _execution_ranges({"observation_id": ids}, times), [[1.0, 2.0], [1.0, 11.0], [10.0, 11.0]]
     )
+
+
+@pytest.mark.unit
+def test_a_single_block_uses_all_the_mous_antennas():
+    array = "A001:DA41 A002:DA42 A002:DA43"
+    assert execution_antennas(array, 1, np.random.default_rng(0)) == array
+
+
+@pytest.mark.unit
+def test_a_block_of_many_uses_its_share_of_the_mous_antennas_one_per_pad():
+    pads = [f"A{i:03d}:DA{i:02d}" for i in range(47)] + ["A000:DV99"]
+    array = " ".join(pads)
+    p = EXECUTION_ANTENNA_SHARE
+    two = execution_antennas(array, 2, np.random.default_rng(0)).split()
+    assert len(two) == round(47 * p / (1 - (1 - p) ** 2)) == 44
+    assert len({token.split(":")[0] for token in two}) == len(two)
+    assert "A000:DV99" not in two
+    many = execution_antennas(array, 14, np.random.default_rng(1)).split()
+    assert len(many) == round(47 * p)
+    assert execution_antennas(array, 14, np.random.default_rng(1)).split() == many
+    assert len(execution_antennas("A001:DA41 A002:DA42", 5, np.random.default_rng(0)).split()) == 2
+
+
+@pytest.mark.unit
+def test_each_block_of_a_seeded_run_draws_its_own_antennas():
+    array = " ".join(f"A{i:03d}:DA{i:02d}" for i in range(47))
+    runs, _ = _plan(
+        6000.0,
+        configs=[ObservationConfig("config_0_12m", "12m", array, 6000.0)],
+    )
+    assert len(runs) == 2
+    first, second = (set(run.antenna_array.split()) for run in runs)
+    assert len(first) == len(second) == 44 and first != second
+    assert (
+        runs[0].antenna_array
+        == _plan(6000.0, configs=[ObservationConfig("config_0_12m", "12m", array, 6000.0)])[0][
+            0
+        ].antenna_array
+    )
+
+
+@pytest.mark.unit
+def test_blocks_with_different_antennas_share_one_antenna_list():
+    joint = concatenate_visibility_tables(
+        [_table(["A1", "A2"], execution=0), _table(["A2", "A3"], execution=1)]
+    )
+    assert joint["antenna_names"] == ["A1", "A2", "A3"]
+    np.testing.assert_array_equal(joint["antenna1"], [0] * 4 + [1] * 4)
+    np.testing.assert_array_equal(joint["antenna2"], [1] * 4 + [2] * 4)

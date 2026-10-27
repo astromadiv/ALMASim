@@ -262,35 +262,25 @@ def concatenate_visibility_tables(tables: list[Mapping[str, Any]]) -> dict[str, 
         return dict(tables[0])
 
     first = tables[0]
-    # Each array's antennas follow the previous arrays' in one ANTENNA list,
-    # its ANTENNA1/ANTENNA2 shifted to match: a 7 m configuration's rows used
-    # to point at the 12 m antennas of the first table. The execution blocks of
-    # one array share its antennas.
-    offsets: list[int] = []
-    arrays: list[tuple[tuple, Mapping[str, Any]]] = []
-    for table in tables:
-        key = _array_key(table)
-        if key not in [k for k, _ in arrays]:
-            arrays.append((key, table))
-        offsets.append(_antenna_offset([t for _, t in arrays], key))
-    shifted = {
-        key: [np.asarray(t[key]) + offset for t, offset in zip(tables, offsets, strict=True)]
-        for key in ("antenna1", "antenna2")
-    }
-    arrays_tables = [t for _, t in arrays]
+    # One ANTENNA list, each antenna once in the order the tables name them,
+    # every table's ANTENNA1/ANTENNA2 mapped onto it: a 7 m configuration's rows
+    # used to point at the 12 m antennas of the first table, and the execution
+    # blocks of one array share its antennas (each block a subset of them).
+    antennas = _joint_antennas(tables)
     return {
         **{
             key: np.concatenate(
-                shifted[key] if key in shifted else [np.asarray(t[key]) for t in tables], axis=0
+                antennas["rows"][key]
+                if key in antennas["rows"]
+                else [np.asarray(t[key]) for t in tables],
+                axis=0,
             )
             for key in _ROW_COLUMNS
         },
         "channel_freq_hz": np.asarray(first["channel_freq_hz"]),
-        "antenna_names": [name for t in arrays_tables for name in t["antenna_names"]],
-        "antenna_positions_m": np.concatenate(
-            [np.asarray(t["antenna_positions_m"]).reshape(-1, 3) for t in arrays_tables], axis=0
-        ),
-        "antenna_diameters_m": np.concatenate([_diameters(t) for t in arrays_tables]),
+        "antenna_names": antennas["names"],
+        "antenna_positions_m": np.asarray(antennas["positions"], dtype=np.float64).reshape(-1, 3),
+        "antenna_diameters_m": np.asarray(antennas["diameters"], dtype=np.float64),
         "source_name": first["source_name"],
         "field_ra_rad": float(first["field_ra_rad"]),
         "field_dec_rad": float(first["field_dec_rad"]),
@@ -302,19 +292,30 @@ def concatenate_visibility_tables(tables: list[Mapping[str, Any]]) -> dict[str, 
     }
 
 
-def _array_key(table: Mapping[str, Any]) -> tuple:
-    """What identifies a table's array: its type and antennas."""
-    return (table.get("array_type"), tuple(table["antenna_names"]))
-
-
-def _antenna_offset(arrays: list[Mapping[str, Any]], key: tuple) -> int:
-    """Where the array ``key``'s antennas start in the joint ANTENNA list."""
-    offset = 0
-    for table in arrays:
-        if _array_key(table) == key:
-            return offset
-        offset += len(table["antenna_names"])
-    raise KeyError(key)
+def _joint_antennas(tables: list[Mapping[str, Any]]) -> dict[str, Any]:
+    """The tables' antennas, each name once (first position and diameter), and each
+    table's ANTENNA1/ANTENNA2 as indices into them."""
+    index: dict[str, int] = {}
+    names: list[str] = []
+    positions: list[np.ndarray] = []
+    diameters: list[float] = []
+    rows: dict[str, list[np.ndarray]] = {"antenna1": [], "antenna2": []}
+    for table in tables:
+        table_positions = np.asarray(table["antenna_positions_m"]).reshape(-1, 3)
+        local = []
+        for name, position, diameter in zip(
+            table["antenna_names"], table_positions, _diameters(table), strict=True
+        ):
+            if name not in index:
+                index[name] = len(names)
+                names.append(name)
+                positions.append(position)
+                diameters.append(float(diameter))
+            local.append(index[name])
+        mapping = np.asarray(local, dtype=np.int32)
+        for key in rows:
+            rows[key].append(mapping[np.asarray(table[key], dtype=np.int64)])
+    return {"names": names, "positions": positions, "diameters": diameters, "rows": rows}
 
 
 def _scan_numbers(tables: list[Mapping[str, Any]]) -> dict[str, np.ndarray]:

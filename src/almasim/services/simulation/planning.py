@@ -83,6 +83,30 @@ def execution_count(total_time_s: float, n_executions: int | None = None) -> int
     return max(1, math.ceil(float(total_time_s) / MAX_EXECUTION_TIME_S))
 
 
+# How many of a MOUS's antennas each execution block uses. The archive lists
+# every antenna of the MOUS, the union over its blocks; on the 12 m windows of
+# the noise study (MADIV-28) a block's count n relates to the union U of N
+# blocks as n = U p / (1 - (1 - p)^N), each antenna in a block with probability
+# p = 0.92 (typical error 1.3 antennas; a single block uses all of them).
+EXECUTION_ANTENNA_SHARE = 0.92
+
+
+def execution_antennas(antenna_array: str, n_executions: int, rng: np.random.Generator) -> str:
+    """One execution block's antennas: as many as a block of the MOUS holds, drawn
+    from the MOUS's (one per pad); all of them for a single block."""
+    if n_executions <= 1:
+        return antenna_array
+    pads: dict[str, str] = {}
+    for token in str(antenna_array).split():
+        pads.setdefault(token.split(":")[0], token)
+    tokens = list(pads.values())
+    p = EXECUTION_ANTENNA_SHARE
+    count = round(len(tokens) * p / (1.0 - (1.0 - p) ** n_executions))
+    count = min(len(tokens), max(2, count))
+    picked = np.sort(rng.choice(len(tokens), size=count, replace=False))
+    return " ".join(tokens[i] for i in picked)
+
+
 def execution_date(obs_date: str, execution: int) -> str:
     """The date execution block ``execution`` observes on: one a day from ``obs_date``."""
     try:
@@ -198,7 +222,11 @@ def plan_observation_runs(
                     central_freq=geometry.central_freq,
                     bandwidth=geometry.band_range,
                     fov=geometry.fov.value,
-                    antenna_array=config.antenna_array,
+                    antenna_array=execution_antennas(
+                        config.antenna_array,
+                        n_executions,
+                        run_rng(params.seed, "antennas", index, execution),
+                    ),
                     noise=noise_profile,
                     snr=effective_snr,
                     integration_time=execution_time_s / 3600.0,
