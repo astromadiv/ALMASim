@@ -104,6 +104,7 @@ windows are skipped on a rerun; failures go to `failures.json`. With
 `--backend slurm` each window is its own task on a Slurm worker. It needs
 python-casacore (the `ms-casacore` extra).
 
+## Current Model
 
 ALMASim uses a PWV-aware channel noise model that depends on:
 
