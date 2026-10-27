@@ -248,11 +248,13 @@ def draw_antenna_corruptions(
 ) -> AntennaCorruptions:
     """The antenna errors of one array configuration over ``times_s``.
 
-    Draws, in order: the gains per (antenna, scan), one slow screen per scan
-    sampled at the antennas, then the fast screen per integration (each
-    blended with the last over ``fast_coherence_s``, less each antenna's mean
-    over its scan, and scaled so the median antenna pair's rms path difference
-    follows the model's power law), then the baselines' own errors per scan.
+    Draws the gains per (antenna, scan), one slow screen per scan sampled at
+    the antennas, the fast screen per integration (each blended with the last
+    over ``fast_coherence_s``, less each antenna's mean over its scan, and
+    scaled so the median antenna pair's rms path difference follows the
+    model's power law), and the baselines' own errors per scan. Each from a
+    stream of its own spawned from ``rng``, so switching one off, or changing
+    its strength, leaves the others' draws as they were.
     """
     xy = np.asarray(antenna_xy_m, dtype=np.float64)[:, :2]
     times_s = np.asarray(times_s, dtype=np.float64)
@@ -263,9 +265,10 @@ def draw_antenna_corruptions(
     phase = np.zeros((nant, ntime))
     path = np.zeros((nant, ntime))
 
+    gain_rng, slow_rng, fast_rng, baseline_rng = rng.spawn(4)
     if model.gain_amp_rms > 0 or model.gain_phase_rms_deg > 0:
-        amp = rng.normal(0.0, model.gain_amp_rms, (nant, nscan))
-        ph = rng.normal(0.0, np.radians(model.gain_phase_rms_deg), (nant, nscan))
+        amp = gain_rng.normal(0.0, model.gain_amp_rms, (nant, nscan))
+        ph = gain_rng.normal(0.0, np.radians(model.gain_phase_rms_deg), (nant, nscan))
         amplitude *= np.clip(1.0 + amp[:, scans], 0.0, None)
         phase += ph[:, scans]
 
@@ -276,13 +279,15 @@ def draw_antenna_corruptions(
 
     if model.slow_path_um_1km > 0:
         for s in range(nscan):
-            screen = turbulent_screen(rng, extent, model.outer_scale_km, model.slow_slope)
+            screen = turbulent_screen(slow_rng, extent, model.outer_scale_km, model.slow_slope)
             path[:, scans == s] += (screen[iy, ix] * model.slow_path_um_1km * 1e-6)[:, None]
 
     if model.fast_path_um_1km > 0 and nant > 1:
         fast = np.zeros((ntime, nant))
         for t in range(ntime):
-            fresh = turbulent_screen(rng, extent, model.outer_scale_km, model.fast_slope)[iy, ix]
+            fresh = turbulent_screen(fast_rng, extent, model.outer_scale_km, model.fast_slope)[
+                iy, ix
+            ]
             if t and scans[t] == scans[t - 1]:
                 a = np.exp(-(times_s[t] - times_s[t - 1]) / model.fast_coherence_s)
                 fast[t] = a * fast[t - 1] + np.sqrt(1.0 - a**2) * fresh
@@ -299,8 +304,7 @@ def draw_antenna_corruptions(
             if scale > 0:
                 path += (fast * model.fast_path_um_1km * 1e-6 / scale).T
 
-    # Drawn last, so the antenna errors stay as they were without it.
-    baseline = _baseline_errors(model, nant, scans, rng)
+    baseline = _baseline_errors(model, nant, scans, baseline_rng)
     return AntennaCorruptions(amplitude=amplitude, phase=phase, path_m=path, baseline=baseline)
 
 
