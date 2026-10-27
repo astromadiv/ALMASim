@@ -3,9 +3,11 @@
 A windows table (CSV) lists one window per row: ``ms`` and ``spw`` (needed),
 ``field``, ``name``, ``syscal_ms``, ``line_channels`` ("a~b;c") and
 ``task_log`` (an ALMASim imaging task's log, whose "lines in channels" gives
-them). Each window writes ``<out>/windows/<name>/window.json`` (and
-``antenna.npz``); a window whose ``window.json`` exists for the same input
-is skipped, so a run that stopped resumes where it was.
+them), and for ``noise fit`` ``task_dir`` (the imaging task holding the
+window's clean model). Each window writes ``<out>/windows/<name>/window.json``
+(and ``antenna.npz``) when extracted, ``fit.json`` when fitted; a window
+whose file exists for the same input is skipped, so a run that stopped
+resumes where it was.
 """
 
 from __future__ import annotations
@@ -21,9 +23,11 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from .measurements import WindowNoise
+from .measurements import WindowFit, WindowNoise
 
 WINDOW_FILE = "window.json"
+FIT_FILE = "fit.json"
+STEPS = ("extract", "fit")
 ARRAYS_FILE = "antenna.npz"
 FAILURES_FILE = "failures.json"
 
@@ -39,30 +43,53 @@ class WindowTask:
     syscal_ms: str | None = None
     line_channels: str | None = None
     task_log: str | None = None
+    task_dir: str | None = None
 
     def directory(self, out: Path) -> Path:
         return out / "windows" / self.name
 
-    def done(self, out: Path) -> bool:
-        """Measured already, for this input."""
+    def measured(self, out: Path) -> WindowNoise | None:
+        """Its extraction, if made for this input."""
         path = self.directory(out) / WINDOW_FILE
         if not path.is_file():
+            return None
+        try:
+            window = WindowNoise.model_validate_json(path.read_text())
+        except ValueError:
+            return None
+        same = (window.input.ms, window.input.spw, window.input.field) == (
+            self.ms,
+            self.spw,
+            self.field,
+        )
+        return window if same else None
+
+    def done(self, out: Path, step: str = "extract") -> bool:
+        """``step`` made already, for this input."""
+        if step == "extract":
+            return self.measured(out) is not None
+        path = self.directory(out) / FIT_FILE
+        if not path.is_file() or self.measured(out) is None:
             return False
         try:
-            measured = WindowNoise.model_validate_json(path.read_text()).input
+            WindowFit.model_validate_json(path.read_text())
         except ValueError:
             return False
-        return (measured.ms, measured.spw, measured.field) == (self.ms, self.spw, self.field)
+        return path.stat().st_mtime >= (self.directory(out) / WINDOW_FILE).stat().st_mtime
 
-    def arguments(self) -> list[str]:
-        """This window as ``almasim noise extract`` arguments (less ``--out``)."""
+    def arguments(self, step: str = "extract") -> list[str]:
+        """This window as ``almasim noise <step>`` arguments (less ``--out``)."""
         args = [self.ms, "--spw", str(self.spw), "--name", self.name]
-        for flag, value in (
-            ("--field", self.field),
-            ("--syscal-ms", self.syscal_ms),
-            ("--line-channels", self.line_channels),
-            ("--task-log", self.task_log),
-        ):
+        options = [("--field", self.field)]
+        if step == "extract":
+            options += [
+                ("--syscal-ms", self.syscal_ms),
+                ("--line-channels", self.line_channels),
+                ("--task-log", self.task_log),
+            ]
+        else:
+            options += [("--task-dir", self.task_dir)]
+        for flag, value in options:
             if value:
                 args += [flag, value]
         return args
@@ -96,6 +123,7 @@ def read_windows(path: Path) -> list[WindowTask]:
                 syscal_ms=row.get("syscal_ms") or None,
                 line_channels=row.get("line_channels") or None,
                 task_log=row.get("task_log") or None,
+                task_dir=row.get("task_dir") or None,
             )
         )
     names = [t.name for t in tasks]
@@ -135,23 +163,40 @@ def measure_task(task: WindowTask, out: Path, *, max_visibilities: int = 40_000_
     return path
 
 
+def fit_task(task: WindowTask, out: Path, **options: Any) -> Path:
+    """Fit one window's calibration residuals (its extraction first) and write fit.json."""
+    from .fit import fit_window
+
+    window = task.measured(out)
+    if window is None:
+        raise ValueError(f"{task.name}: no window.json for this input; run noise extract first")
+    if not task.task_dir:
+        raise ValueError(f"{task.name}: noise fit needs the window's imaging task (--task-dir)")
+    fitted = fit_window(task.ms, task.spw, task.field, task.task_dir, window, **options)
+    path = task.directory(out) / FIT_FILE
+    _write_atomic(path, fitted.model_dump_json(indent=2) + "\n")
+    return path
+
+
 def run_tasks(
     tasks: list[WindowTask],
     out: Path,
     run: Callable[[list[WindowTask]], dict[str, str | None]],
     *,
+    step: str = "extract",
     overwrite: bool = False,
     echo: Callable[[str], Any] = print,
 ) -> dict[str, str]:
-    """Measure the windows not measured yet with ``run`` (window name -> None
-    on success, else the error); writes failures.json and returns the failures."""
-    todo = [t for t in tasks if overwrite or not t.done(out)]
+    """Run ``step`` on the windows that need it with ``run`` (window name ->
+    None on success, else the error); writes failures.json and returns the failures."""
+    todo = [t for t in tasks if overwrite or not t.done(out, step)]
     if len(todo) < len(tasks):
         echo(f"{len(tasks) - len(todo)} window(s) already measured; {len(todo)} to go")
     results = run(todo) if todo else {}
     failures = {name: error for name, error in results.items() if error}
     out.mkdir(parents=True, exist_ok=True)
-    _write_atomic(out / FAILURES_FILE, json.dumps(failures, indent=2, sort_keys=True) + "\n")
+    name = FAILURES_FILE if step == "extract" else f"failures-{step}.json"
+    _write_atomic(out / name, json.dumps(failures, indent=2, sort_keys=True) + "\n")
     return failures
 
 
@@ -159,14 +204,16 @@ def run_in_process(
     todo: list[WindowTask],
     *,
     out: Path,
-    max_visibilities: int = 40_000_000,
+    step: str = "extract",
     echo: Callable[[str], Any] = print,
+    **options: Any,
 ) -> dict[str, str | None]:
-    """Measure the windows here, one after the other."""
+    """Run ``step`` on the windows here, one after the other (``options``:
+    measure_task's or fit_task's)."""
     results: dict[str, str | None] = {}
     for task in todo:
         try:
-            path = measure_task(task, out, max_visibilities=max_visibilities)
+            path = (measure_task if step == "extract" else fit_task)(task, out, **options)
             echo(f"{task.name}: {path}")
             results[task.name] = None
         except Exception as exc:  # noqa: BLE001 - one window must not stop the others
@@ -183,10 +230,11 @@ def run_on_slurm(
     cores: int,
     timeout: float | None,
     extra_args: list[str],
+    step: str = "extract",
     echo: Callable[[str], Any] = print,
 ) -> dict[str, str | None]:
-    """Measure each window as its own ``almasim noise extract`` on a Slurm
-    worker: a window's memory and any crash of its readers stay in its task."""
+    """Run each window as its own ``almasim noise <step>`` on a Slurm worker:
+    a window's memory and any crash of its readers stay in its task."""
     from ...jobs.wrapper import ALMASIM_COMMAND
     from ..compute import create_backend
 
@@ -203,8 +251,8 @@ def run_on_slurm(
                     command=[
                         *ALMASIM_COMMAND,
                         "noise",
-                        "extract",
-                        *task.arguments(),
+                        step,
+                        *task.arguments(step),
                         "--out",
                         str(out),
                         *extra_args,

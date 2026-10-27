@@ -9,8 +9,6 @@ and a sky that channel differences remove.
 from __future__ import annotations
 
 import json
-import re
-from contextlib import contextmanager
 from pathlib import Path
 
 import numpy as np
@@ -20,49 +18,10 @@ from typer.testing import CliRunner
 from almasim.services.noise import batch, extract
 from almasim.services.noise.measurements import WindowNoise
 
+from ._fakes import FakeTable
+
 NANT, NTIME, NCHAN, SIGMA = 6, 200, 128, 0.5
 SPW, TSYS_SPW = 2, 3
-
-
-class FakeTable:
-    """The part of python-casacore's table a measurement reads."""
-
-    def __init__(self, columns: dict[str, np.ndarray]):
-        self.columns = columns
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        return False
-
-    def nrows(self) -> int:
-        return len(next(iter(self.columns.values())))
-
-    def colnames(self) -> list[str]:
-        return list(self.columns)
-
-    def getcell(self, column: str, row: int):
-        return self.columns[column][row]
-
-    def getcol(self, column: str, startrow: int = 0, nrow: int = -1, rowincr: int = 1):
-        values = self.columns[column]
-        stop = len(values) if nrow < 0 else startrow + nrow * rowincr
-        return values[startrow:stop:rowincr]
-
-    @contextmanager
-    def query(self, text: str):
-        keep = np.ones(self.nrows(), dtype=bool)
-        for clause in text.split(" AND "):
-            if m := re.fullmatch(r"(\w+) IN \[([\d,]*)\]", clause.strip()):
-                keep &= np.isin(self.columns[m[1]], [int(x) for x in m[2].split(",") if x])
-            elif m := re.fullmatch(r"(\w+) != (\w+)", clause.strip()):
-                keep &= self.columns[m[1]] != self.columns[m[2]]
-            elif m := re.fullmatch(r"(\w+) == (\d+)", clause.strip()):
-                keep &= self.columns[m[1]] == int(m[2])
-            else:
-                raise ValueError(clause)
-        yield FakeTable({k: v[keep] for k, v in self.columns.items()})
 
 
 def _fake_ms(seed: int = 0, ripple_antenna: int | None = 0) -> dict[str, FakeTable]:

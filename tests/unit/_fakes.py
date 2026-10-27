@@ -6,6 +6,8 @@ each of them.
 
 from __future__ import annotations
 
+import re
+from contextlib import contextmanager
 from unittest.mock import MagicMock
 
 import astropy.units as U
@@ -34,6 +36,12 @@ class FakeTable:
         self.columns = columns
         self.closed = False
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
     def colnames(self):
         return list(self.columns)
 
@@ -46,9 +54,26 @@ class FakeTable:
     def getcell(self, name, row):
         return self.columns[name][row]
 
-    def getcol(self, name, startrow=0, nrow=-1):
+    def getcol(self, name, startrow=0, nrow=-1, rowincr=1):
         column = self.columns[name]
-        return column[startrow:] if nrow < 0 else column[startrow : startrow + nrow]
+        stop = len(column) if nrow < 0 else startrow + nrow * rowincr
+        return column[startrow:stop:rowincr]
+
+    @contextmanager
+    def query(self, text):
+        """The rows a TaQL selection of ``A IN [..]``, ``A != B`` and ``A == n``
+        clauses joined by AND keeps."""
+        keep = np.ones(self.nrows(), dtype=bool)
+        for clause in (c.strip() for c in text.split(" AND ")):
+            if m := re.fullmatch(r"(\w+) IN \[([\d,]*)\]", clause):
+                keep &= np.isin(self.columns[m[1]], [int(x) for x in m[2].split(",") if x])
+            elif m := re.fullmatch(r"(\w+) != (\w+)", clause):
+                keep &= self.columns[m[1]] != self.columns[m[2]]
+            elif m := re.fullmatch(r"(\w+) == (\d+)", clause):
+                keep &= self.columns[m[1]] == int(m[2])
+            else:
+                raise ValueError(f"unsupported clause {clause!r}")
+        yield FakeTable({k: v[keep] for k, v in self.columns.items()})
 
     def putcol(self, name, value, startrow=0, nrow=-1):
         self.columns[name][startrow : startrow + len(value)] = value
