@@ -38,8 +38,12 @@ class Provenance(BaseModel):
 
     method: str = Field(description="How the values were obtained (fit, reduce, hand-set).")
     data: str | None = Field(default=None, description="The data set the values were measured on.")
-    windows: int | None = Field(default=None, ge=0, description="How many windows the values come from.")
-    almasim_commit: str | None = Field(default=None, description="The ALMASim commit that produced them.")
+    windows: int | None = Field(
+        default=None, ge=0, description="How many windows the values come from."
+    )
+    almasim_commit: str | None = Field(
+        default=None, description="The ALMASim commit that produced them."
+    )
     date: str | None = Field(default=None, description="When (ISO date).")
     notes: str | None = None
 
@@ -49,9 +53,13 @@ class Settings(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    scan_length_s: float = Field(default=0.0, ge=0, description="Scan length: gains and the slow phase hold for one (0: one scan)."
+    scan_length_s: float = Field(
+        default=0.0,
+        ge=0,
+        description="Scan length: gains and the slow phase hold for one (0: one scan).",
     )
-    outer_scale_km: float = Field(default=3.0, gt=0, description="Outer scale of the turbulent screens (km)."
+    outer_scale_km: float = Field(
+        default=3.0, gt=0, description="Outer scale of the turbulent screens (km)."
     )
 
 
