@@ -35,7 +35,7 @@ candidate model can be used for a run before it is released.
 
 | Component | What it adds | Parameters |
 | --- | --- | --- |
-| `radiometer` | each visibility's noise from the radiometer equation (below) | |
+| `radiometer` | each visibility's noise from the radiometer equation (below) | `receiver_temperature_k`, `aperture`, `quantisation_efficiency`, `correlator_efficiency` |
 | `atmospheric_tsys` | the atmosphere's lines in Tsys across the window | |
 | `receiver_ripple` | the receiver's smooth ripple of Tsys | `rms` |
 | `channel_correlation` | correlated noise of neighbouring channels | `rho1`, `rho2`, `average` |
@@ -44,6 +44,13 @@ candidate model can be used for a run before it is released.
 | `slow_phase` | the per-scan atmospheric phase | `path_um_1km`, `slope` |
 | `fast_phase` | the in-scan atmospheric phase | `path_um_1km`, `slope`, `coherence_s` |
 | `baseline_errors` | per-baseline errors that do not close | `amp_rms`, `phase_rms_deg` |
+
+ALMA's receiver temperatures, the dishes' Ruze aperture efficiencies and the
+quantisation and correlator efficiencies are instrument data,
+[`interferometry/data/alma_radiometer.json`](../src/almasim/services/interferometry/data/alma_radiometer.json),
+which every run uses for Tsys. A model's `radiometer` component may set its
+own (`alma@1` states the instrument's, so the model reproduces on its own),
+and a candidate model can try other values without a code change.
 
 A model's `settings` hold what components share: the scan length and the
 screens' outer scale. A selection keeps the deselected components in the

@@ -63,6 +63,39 @@
       "title": "AntennaRipple",
       "type": "object"
     },
+    "Aperture": {
+      "additionalProperties": false,
+      "description": "A dish's aperture efficiency against frequency (Ruze).",
+      "properties": {
+        "diameter_m": {
+          "description": "Dish diameter (m).",
+          "exclusiveMinimum": 0,
+          "title": "Diameter M",
+          "type": "number"
+        },
+        "eta0": {
+          "description": "Efficiency at long wavelengths.",
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "title": "Eta0",
+          "type": "number"
+        },
+        "surface_rms_m": {
+          "description": "Surface rms (m).",
+          "exclusiveMaximum": 0.001,
+          "minimum": 0,
+          "title": "Surface Rms M",
+          "type": "number"
+        }
+      },
+      "required": [
+        "diameter_m",
+        "eta0",
+        "surface_rms_m"
+      ],
+      "title": "Aperture",
+      "type": "object"
+    },
     "AtmosphericTsys": {
       "additionalProperties": false,
       "description": "The noise across the window follows the atmosphere's lines in Tsys,\nin the signal and the image band.",
@@ -374,13 +407,73 @@
     },
     "Radiometer": {
       "additionalProperties": false,
-      "description": "Each visibility's thermal noise from the radiometer equation (Tsys,\nchannel noise bandwidth, integration, dish), the source keeping its flux,\ninstead of a noise set from the run's target S/N.",
+      "description": "Each visibility's thermal noise from the radiometer equation (Tsys,\nchannel noise bandwidth, integration, dish), the source keeping its flux,\ninstead of a noise set from the run's target S/N. Its receiver\ntemperatures, apertures and efficiencies, when set, replace ALMA's\n(interferometry/data/alma_radiometer.json) wherever the run computes Tsys.",
       "properties": {
         "enabled": {
           "default": true,
           "description": "Apply this component.",
           "title": "Enabled",
           "type": "boolean"
+        },
+        "receiver_temperature_k": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/ReceiverTemperature"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Receiver temperatures by frequency, edges rising.",
+          "title": "Receiver Temperature K"
+        },
+        "aperture": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/Aperture"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Each dish size's Ruze parameters.",
+          "title": "Aperture"
+        },
+        "quantisation_efficiency": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 1,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quantisation Efficiency"
+        },
+        "correlator_efficiency": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 1,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Correlator Efficiency"
         }
       },
       "title": "Radiometer",
@@ -408,6 +501,43 @@
         "rms"
       ],
       "title": "ReceiverRipple",
+      "type": "object"
+    },
+    "ReceiverTemperature": {
+      "additionalProperties": false,
+      "description": "The receiver temperature of the frequencies up to an edge.",
+      "properties": {
+        "upper_ghz": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Upper edge (GHz); null: no edge.",
+          "title": "Upper Ghz"
+        },
+        "trx_k": {
+          "description": "Receiver temperature (K).",
+          "exclusiveMinimum": 0,
+          "title": "Trx K",
+          "type": "number"
+        },
+        "bands": {
+          "default": "",
+          "description": "The ALMA bands it covers.",
+          "title": "Bands",
+          "type": "string"
+        }
+      },
+      "required": [
+        "upper_ghz",
+        "trx_k"
+      ],
+      "title": "ReceiverTemperature",
       "type": "object"
     },
     "Settings": {

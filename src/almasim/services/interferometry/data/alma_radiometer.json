@@ -1,0 +1,21 @@
+{
+  "description": "ALMA's radiometer as ALMASim models it: what a run uses unless its noise model's radiometer component sets its own (services.noise_model).",
+  "receiver_temperature_k": [
+    {"upper_ghz": 50.0, "trx_k": 32.0, "bands": "1"},
+    {"upper_ghz": 116.0, "trx_k": 39.0, "bands": "2, 3"},
+    {"upper_ghz": 163.0, "trx_k": 37.0, "bands": "4"},
+    {"upper_ghz": 211.0, "trx_k": 50.0, "bands": "5"},
+    {"upper_ghz": 275.0, "trx_k": 46.0, "bands": "6"},
+    {"upper_ghz": 373.0, "trx_k": 63.0, "bands": "7"},
+    {"upper_ghz": 500.0, "trx_k": 110.0, "bands": "8"},
+    {"upper_ghz": null, "trx_k": 160.0, "bands": "9, 10"}
+  ],
+  "receiver_temperature_notes": "What ALMA's own Tsys (SYSCAL) on the noise study's 12 m windows implies under ALMASim's Tsys model (MADIV-28; bands 1, 3, 4, 5, 6 and 7, 8 to 29 windows each); bands 8 to 10 (one to three windows) keep the earlier estimates.",
+  "aperture": [
+    {"diameter_m": 12.0, "eta0": 0.76, "surface_rms_m": 2.7e-05},
+    {"diameter_m": 7.0, "eta0": 0.72, "surface_rms_m": 2.4e-05}
+  ],
+  "aperture_notes": "Aperture efficiency against frequency (Ruze): eta0 exp(-(4 pi eps / lambda)^2). Fitted to the efficiency ALMA's noise and Tsys imply on the noise study's 100 windows (MADIV-28). Any other diameter takes the 12 m dish's.",
+  "quantisation_efficiency": 0.96,
+  "correlator_efficiency": 0.88
+}
