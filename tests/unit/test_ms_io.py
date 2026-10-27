@@ -592,3 +592,30 @@ def test_main_table_refuses_more_than_one_correlation(tmp_path):
     vt = {"data": np.zeros((2, 2, 3)), "flag": np.zeros((2, 1, 3), dtype=bool)}
     with pytest.raises(ValueError, match="one \\(Stokes I\\) correlation"):
         main_table(str(tmp_path / "x.ms"), vt)
+
+
+def test_the_two_hands_carry_independent_noise_and_average_to_stokes_i():
+    """XX = I + d, YY = I - d: each hand sqrt(2) times I's noise, uncorrelated, mean I."""
+    from almasim.services.ms.subtables import _hands
+
+    rng = np.random.default_rng(3)
+    n, nchan = 20000, 4
+    sigma = np.linspace(1.0, 2.0, nchan, dtype=np.float32)[None, None, :] * np.ones(
+        (n, 1, nchan), np.float32
+    )
+    noise = (rng.standard_normal((n, 1, nchan)) + 1j * rng.standard_normal((n, 1, nchan))) * sigma
+    vt = {
+        "data": noise.astype(np.complex64),
+        "sigma_spectrum": sigma,
+        "weight": np.ones((n, 1), np.float32),
+        "sigma": np.ones((n, 1), np.float32),
+    }
+    hands, weight, row_sigma = _hands(vt, np.random.default_rng(4))
+    np.testing.assert_allclose(hands.mean(axis=1), vt["data"][:, 0], atol=1e-5)
+    xx, yy = hands[:, 0], hands[:, 1]
+    var = np.mean(np.abs(xx) ** 2, axis=0) / 2
+    np.testing.assert_allclose(var, 2 * sigma[0, 0] ** 2, rtol=0.05)
+    corr = np.real(np.mean(xx * np.conj(yy), axis=0)) / np.mean(np.abs(xx) ** 2, axis=0)
+    assert np.all(np.abs(corr) < 0.03)
+    np.testing.assert_allclose(weight, 0.5)
+    np.testing.assert_allclose(row_sigma, np.sqrt(2), rtol=1e-6)

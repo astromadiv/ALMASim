@@ -71,7 +71,8 @@ def test_main_table_layout_matches_the_measurementset_convention(written):
         for corr in range(2):  # both equal Stokes I
             np.testing.assert_array_equal(data[:, :, corr], vt["data"][:, 0, :])
             np.testing.assert_array_equal(ms.getcol("FLAG")[:, :, corr], vt["flag"][:, 0, :])
-            np.testing.assert_array_equal(ms.getcol("WEIGHT")[:, corr], vt["weight"][:, 0])
+            # Each hand weighs half of Stokes I (independent hands, MADIV-28).
+            np.testing.assert_allclose(ms.getcol("WEIGHT")[:, corr], vt["weight"][:, 0] / 2)
         np.testing.assert_array_equal(ms.getcol("UVW"), vt["uvw_m"])
     finally:
         ms.close()
@@ -101,9 +102,11 @@ def test_round_trip(written):
     vt, path = written
     with patch.object(ms_io, "_get_backend", return_value=backends._CasacoreBackend()):
         back = ms_io.read_native_ms(path)
-    keys = ("data", "model_data", "flag", "uvw_m", "weight", "sigma", "antenna_positions_m")
+    keys = ("data", "model_data", "flag", "uvw_m", "antenna_positions_m")
     for key in (*keys, "antenna_diameters_m"):
         np.testing.assert_array_equal(back[key], vt[key], err_msg=key)
+    for key in ("weight", "sigma"):
+        np.testing.assert_allclose(back[key], vt[key], rtol=1e-6, err_msg=key)
     np.testing.assert_array_equal(back["channel_freq_hz"], vt["channel_freq_hz"])
     assert back["antenna_names"] == vt["antenna_names"]
     assert back["field_ra_rad"] == pytest.approx(vt["field_ra_rad"])

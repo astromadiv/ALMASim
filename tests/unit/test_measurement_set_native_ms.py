@@ -253,7 +253,12 @@ def test_main_weight_roundtrip(ms):
     tb.open(str(ms), nomodify=True)
     # (ncorr, nrows) → (nrows, ncorr)
     weight_read = tb.getcol("WEIGHT").T
-    np.testing.assert_allclose(weight_read, _WEIGHT, rtol=1e-6)
+    # Each hand weighs half of Stokes I.
+    np.testing.assert_allclose(
+        weight_read,
+        np.repeat(_WEIGHT, 2, axis=1) / 2 if _WEIGHT.shape[1] == 1 else _WEIGHT / 2,
+        rtol=1e-6,
+    )
     tb.close()
 
 
@@ -261,7 +266,12 @@ def test_main_sigma_roundtrip(ms):
     tb = casatools.table()
     tb.open(str(ms), nomodify=True)
     sigma_read = tb.getcol("SIGMA").T
-    np.testing.assert_allclose(sigma_read, _SIGMA, rtol=1e-6)
+    expected = _SIGMA * np.sqrt(2)
+    np.testing.assert_allclose(
+        sigma_read,
+        np.repeat(expected, 2, axis=1) if expected.shape[1] == 1 else expected,
+        rtol=1e-6,
+    )
     tb.close()
 
 

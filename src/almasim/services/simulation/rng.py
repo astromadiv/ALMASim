@@ -17,6 +17,7 @@ STREAMS = {
     "metadata": 4,
     "receiver": 5,
     "antennas": 6,
+    "polarization": 7,
 }
 
 

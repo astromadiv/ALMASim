@@ -36,8 +36,13 @@ def export_native_ms(
     project_name: str,
     source_name: str,
     telescope_name: str = "ALMA",
+    rng: np.random.Generator | None = None,
 ) -> str:
-    """Write a CASA MSv2 to *ms_path* using casatools or python-casacore."""
+    """Write a CASA MSv2 to *ms_path* using casatools or python-casacore.
+
+    ``rng`` draws the two hands' independent noise (``subtables._hands``);
+    without it they are copies of Stokes I.
+    """
     backend = _get_backend()
     ms_path = str(Path(ms_path).expanduser().resolve())
     vt = visibility_table
@@ -53,7 +58,7 @@ def export_native_ms(
     # links to the subtables ("Table: <path>" keywords) are put last, once the
     # subtables exist: casatools stores a link to a missing table as plain
     # text, which casacore and the imagers cannot follow.
-    main = main_table(ms_path, vt)
+    main = main_table(ms_path, vt, rng)
     links = {k: v for k, v in main.keywords.items() if str(v).startswith("Table: ")}
     main = replace(main, keywords={k: v for k, v in main.keywords.items() if k not in links})
     for spec in (
@@ -123,12 +128,15 @@ def read_native_ms(ms_path: str | Path) -> dict[str, Any]:
     corr_types = tuple(int(c) for c in np.asarray(pol.getcell("CORR_TYPE", 0)).ravel())
     pol.close()
     if corr_types == MS_CORR_TYPES:
-        # XX = YY = I: back to the visibility table's single Stokes I correlation.
+        # I = (XX + YY) / 2: back to the visibility table's single Stokes I
+        # correlation, weighing what the two hands weigh together.
         data = data.mean(axis=1, keepdims=True).astype(np.complex64)
         model_data = model_data.mean(axis=1, keepdims=True).astype(np.complex64)
         flag = flag.any(axis=1, keepdims=True)
-        weight = weight.mean(axis=1, keepdims=True).astype(np.float32)
-        sigma = sigma.mean(axis=1, keepdims=True).astype(np.float32)
+        weight = weight.sum(axis=1, keepdims=True).astype(np.float32)
+        sigma = (
+            np.sqrt(np.sum(np.square(sigma.astype(np.float64)), axis=1, keepdims=True)) / 2
+        ).astype(np.float32)
 
     spw = backend.open(os.path.join(ms_path, "SPECTRAL_WINDOW"), readonly=True)
     channel_freq_hz = np.asarray(spw.getcell("CHAN_FREQ", 0), dtype=np.float64)

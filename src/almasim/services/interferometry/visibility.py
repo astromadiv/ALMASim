@@ -41,6 +41,9 @@ class VisibilityTable:
     scan_number: np.ndarray | None = None
     # Each row's execution block (the MS's OBSERVATION_ID); 0 for all when None.
     observation_id: np.ndarray | None = None
+    # Each visibility's own noise (nrows, ncorr, nchan), per real and imaginary
+    # part; the MS writer gives the two hands independent noise from it.
+    sigma_spectrum: np.ndarray | None = None
 
     def as_dict(self) -> dict[str, Any]:
         """Convert to a plain dict for serialization."""
@@ -198,6 +201,7 @@ def assemble_visibility_table(
     if scan_length_s > 0:
         scan_number = (time_offsets_s // float(scan_length_s)).astype(np.int32) + 1
     return VisibilityTable(
+        sigma_spectrum=sigma_spectrum,
         scan_number=scan_number,
         observation_id=(
             None if observation_id is None else np.full(nrows, int(observation_id), np.int32)
@@ -289,6 +293,7 @@ def concatenate_visibility_tables(tables: list[Mapping[str, Any]]) -> dict[str, 
         "array_type": first.get("array_type"),
         **_scan_numbers(tables),
         **_observation_ids(tables),
+        **_sigma_spectra(tables),
     }
 
 
@@ -333,6 +338,13 @@ def _scan_numbers(tables: list[Mapping[str, Any]]) -> dict[str, np.ndarray]:
         columns.append(scans + last)
         last += int(scans.max(initial=0))
     return {"scan_number": np.concatenate(columns).astype(np.int32)}
+
+
+def _sigma_spectra(tables: list[Mapping[str, Any]]) -> dict[str, np.ndarray]:
+    """The concatenated per-visibility noise, when every table has it."""
+    if any(t.get("sigma_spectrum") is None for t in tables):
+        return {}
+    return {"sigma_spectrum": np.concatenate([np.asarray(t["sigma_spectrum"]) for t in tables])}
 
 
 def _observation_ids(tables: list[Mapping[str, Any]]) -> dict[str, np.ndarray]:
