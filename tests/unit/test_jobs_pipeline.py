@@ -11,7 +11,13 @@ from almasim import cli
 from almasim.jobs import JobState, read_manifest, write_manifest
 from almasim.jobs.executors import slurm as slurm_exec
 from almasim.jobs.executors.slurm import SlurmState
-from almasim.jobs.pipeline import Step, archive_to_images, simulate, submit_pipeline
+from almasim.jobs.pipeline import (
+    Step,
+    archive_to_images,
+    noise_model_from_windows,
+    simulate,
+    submit_pipeline,
+)
 from almasim.jobs.policy import plan_job
 from almasim.jobs.profile import CommandPolicy, Profile
 from almasim.jobs.rundir import RunStatus, write_status
@@ -162,3 +168,22 @@ def test_submit_after_from_the_cli(tmp_path, monkeypatch, slurm):
     assert result.exit_code == 0, result.output
     assert "after:" in result.output
     assert list(slurm.after.values())[-1] == [read_manifest(first).slurm_job_id]
+
+
+def test_the_noise_model_template_measures_reduces_and_validates(tmp_path, profile):
+    folder = tmp_path / "noise"
+    steps = noise_model_from_windows(
+        folder, tmp_path / "windows.csv", tmp_path / "rows.csv", fit=["--realizations", "2"]
+    )
+    assert [s.argv[:2] for s in steps] == [
+        ["noise", "extract"],
+        ["noise", "fit"],
+        ["noise", "aggregate"],
+        ["noise", "validate"],
+    ]
+    candidate = str(folder / "candidate.json")
+    assert steps[1].argv[-2:] == ["--realizations", "2"]
+    assert candidate in steps[2].argv and steps[3].argv[3] == candidate
+    plans = [plan_job(s.argv, profile) for s in steps]
+    assert [p.executor for p in plans] == ["slurm"] * 4
+    assert "--backend" in plans[0].argv and "--backend" in plans[3].argv
