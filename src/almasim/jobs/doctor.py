@@ -63,6 +63,9 @@ _CASA_IMPORT = (
     "import casatools, casatasks\n"
     "print(casatools.version_string() if hasattr(casatools, 'version_string') else 'imported')\n"
 )
+# python-casacore reads MeasurementSet metadata (image compute-parameters and
+# the noise tools); it is an optional extra, so an install can lack it.
+_CASACORE_IMPORT = "import casacore, casacore.tables; print(casacore.__version__)"
 
 
 def _last_line(text: str) -> str:
@@ -103,6 +106,15 @@ def _python(profile: Profile, run: Runner) -> Iterator[Check]:
         f"casatools {casa.stdout.strip()}"
         if casa.returncode == 0
         else f"not importable in {python}: {_last_line(casa.stderr)}",
+        required=False,
+    )
+    casacore = run([python, "-c", _CASACORE_IMPORT])
+    yield Check(
+        "casacore",
+        casacore.returncode == 0,
+        f"python-casacore {casacore.stdout.strip()}"
+        if casacore.returncode == 0
+        else f"not importable in {python} (the ms-casacore extra): {_last_line(casacore.stderr)}",
         required=False,
     )
 
