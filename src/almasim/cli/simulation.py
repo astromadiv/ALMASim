@@ -605,6 +605,30 @@ def _planned_runs(o: SimulationRunOptions, metadata: pd.DataFrame) -> list[tuple
     return runs
 
 
+def _validated_input(o: SimulationRunOptions) -> SimulationRunOptions:
+    """``o`` with the cube size the --input (or its absence) gives; a usage error
+    for an input it cannot use."""
+    if o.input_path is not None and not o.input_path.expanduser().exists():
+        usage_error(f"--input not found: {o.input_path}")
+    if o.products_csv is not None and not o.products_csv.expanduser().exists():
+        usage_error(f"--products-csv not found: {o.products_csv}")
+    if o.source_type == "external-components" and (
+        o.input_path is None or not o.input_path.expanduser().is_file()
+    ):
+        usage_error("--source-type external-components takes one component table as --input")
+    # A cube sets its own grid; a component table has none.
+    input_cube = o.input_path is not None and o.source_type != "external-components"
+    if input_cube and (o.n_pix is not None or o.n_channels is not None):
+        usage_error("an --input cube sets its own size: drop --n-pix and --n-channels")
+    if input_cube:
+        return o
+    return replace(
+        o,
+        n_pix=o.n_pix if o.n_pix is not None else DEFAULT_N_PIX,
+        n_channels=o.n_channels if o.n_channels is not None else DEFAULT_N_CHANNELS,
+    )
+
+
 def _validated_simulation_options(o: SimulationRunOptions) -> SimulationRunOptions:
     """``o`` with its choices normalised; a usage error for anything invalid.
 
@@ -620,26 +644,9 @@ def _validated_simulation_options(o: SimulationRunOptions) -> SimulationRunOptio
     )
     if not o.metadata_path.exists():
         usage_error(f"--metadata-path not found: {o.metadata_path}")
-    if o.input_path is not None and not o.input_path.expanduser().exists():
-        usage_error(f"--input not found: {o.input_path}")
-    # A cube sets its own grid; a component table has none.
-    input_cube = o.input_path is not None and o.source_type != "external-components"
-    if input_cube and (o.n_pix is not None or o.n_channels is not None):
-        usage_error("an --input cube sets its own size: drop --n-pix and --n-channels")
-    if o.products_csv is not None and not o.products_csv.expanduser().exists():
-        usage_error(f"--products-csv not found: {o.products_csv}")
-    if not input_cube:
-        o = replace(
-            o,
-            n_pix=o.n_pix if o.n_pix is not None else DEFAULT_N_PIX,
-            n_channels=o.n_channels if o.n_channels is not None else DEFAULT_N_CHANNELS,
-        )
+    o = _validated_input(o)
     if o.kaggle_token is not None and not o.kaggle_token.expanduser().exists():
         usage_error(f"--kaggle-token not found: {o.kaggle_token}")
-    if o.source_type == "external-components" and (
-        o.input_path is None or not o.input_path.expanduser().is_file()
-    ):
-        usage_error("--source-type external-components takes one component table as --input")
     # 0 is the old default, which earlier runs pass explicitly.
     if o.background_level and o.background_mode == "none":
         usage_error("--background-level scales a background: choose one with --background-mode")
