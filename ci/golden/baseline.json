@@ -4,15 +4,15 @@
     "sha256": "c96c2ab387d9ca3883efe1d7438a748e0a2f69844bde6b401278800f59bc7019"
   },
   "baseline": {
-    "url": "https://github.com/astromadiv/ALMASim/releases/download/golden-baseline-v12/golden-baseline-v12.tar.gz",
-    "sha256": "721cff888fbf4b91c39ecfe5ed885613a15bd9aa511713c8a4648242e87da1ea",
-    "version": "v12",
-    "source": "workflow run 40236526864, commit 1c58be85; MADIV-28: channels from the archive's resolution (#476)"
+    "url": "https://github.com/astromadiv/ALMASim/releases/download/golden-baseline-v14/golden-baseline-v14.tar.gz",
+    "sha256": "25058c1539013cbdad3b4ad648312e213f68b8f1487047279abd9cb8353ca191",
+    "version": "v14",
+    "source": "workflow run 40604867613, commit 021c2201; MADIV-28: the noise model's golden case (#489)"
   },
   "simulation_baseline": {
-    "url": "https://github.com/astromadiv/ALMASim/releases/download/golden-baseline-v13/golden-simulation-v13.tar.gz",
-    "sha256": "18e30ed4f4772da7a6573daaac03bed0b199cfcfb3ffd7dd1bd022f48964b83a",
-    "version": "v13",
-    "source": "workflow run 40519179795, commit 4fa01bbb; MADIV-28: receiver temperatures and aperture efficiency calibrated on ALMA's own Tsys (#481)"
+    "url": "https://github.com/astromadiv/ALMASim/releases/download/golden-baseline-v14/golden-simulation-v14.tar.gz",
+    "sha256": "dafd3e00bf62e74175dc03db08c6b44ca802b64ba40ab5dc615f868a696c7784",
+    "version": "v14",
+    "source": "workflow run 40604867613, commit 021c2201; MADIV-28: the noise model's golden case (#489)"
   }
 }
