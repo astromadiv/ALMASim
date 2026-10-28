@@ -161,3 +161,16 @@ def test_main_starts_when_the_limit_cannot_be_raised(monkeypatch):
     cli.main()
 
     assert ran == [True]
+
+
+def test_main_starts_without_rlimits(monkeypatch):
+    """Windows has no ``resource`` module; the CLI runs with whatever it has."""
+    import sys
+
+    ran: list[bool] = []
+    monkeypatch.setitem(sys.modules, "resource", None)  # import resource -> ImportError
+    monkeypatch.setattr(cli, "app", lambda: ran.append(True))
+
+    cli.main()
+
+    assert ran == [True]
