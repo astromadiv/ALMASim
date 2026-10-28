@@ -901,8 +901,9 @@ pull request is labelled `golden:supersede` with a new golden baseline.
 from almasim.jobs.pipeline import noise_model_from_windows, submit_pipeline
 from almasim.jobs.profile import load_profile
 
-steps = noise_model_from_windows("noise/", "windows.csv", "rows.csv",
-                                 validate=["--wsclean-bin", "/path/to/wsclean"])
+steps = noise_model_from_windows(
+    "noise/", "windows.csv", "rows.csv", validate=["--wsclean-bin", "/path/to/wsclean"]
+)
 submit_pipeline(steps, load_profile(), title="alma from cycle 11")
 ```
 
