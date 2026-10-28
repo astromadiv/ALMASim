@@ -50,6 +50,28 @@ def find_calibration_directory(
     return min(candidates)
 
 
+def calibration_not_delivered(input_root: str | os.PathLike[str], asdm_uid: str) -> bool:
+    """True when ALMA delivered ``asdm_uid`` but never calibrated it.
+
+    A member OUS can ship an execution block its pipeline run left out (a QA0
+    SemiPass block, see :mod:`..qa0`): its raw ASDM is under ``raw/`` and the
+    member has a ``calibration`` directory, but no ``<uid>.ms.calapply.txt``
+    for it. There is nothing to apply, so it is skipped rather than failed. A
+    member without any ``calibration`` directory (the auxiliary products were
+    never downloaded) or a layout other than ALMA's is not covered here and
+    still fails in :func:`find_calibration_directory`.
+    """
+    input_path = Path(input_root).expanduser().resolve()
+    calibration_dirs = [
+        raw.parent.parent / "calibration"
+        for raw in input_path.glob(f"*/science_goal.*/group.*/member.*/raw/{asdm_uid}.asdm.sdm")
+    ]
+    calibration_dirs = [path for path in calibration_dirs if path.is_dir()]
+    return bool(calibration_dirs) and not any(
+        (path / f"{asdm_uid}.ms.calapply.txt").is_file() for path in calibration_dirs
+    )
+
+
 def find_raw_ms_directories(
     raw_ms_root: str | os.PathLike[str],
     asdm_uid: str | None = None,

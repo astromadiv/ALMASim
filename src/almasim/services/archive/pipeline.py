@@ -573,6 +573,34 @@ def _partition_completed_calibrations(
     return todo, done_outputs
 
 
+def _drop_uncalibrated_deliveries(
+    input_root: Path, output_root: Path, uids: list[str], echo: Echo = _log_echo
+) -> list[str]:
+    """Drop the UIDs ALMA delivered without calibration; the ones left to calibrate.
+
+    Such an execution block (QA0 SemiPass) has nothing to apply, so it is
+    reported as skipped, not as a failure that fails the whole run.
+    """
+    from almasim.services.archive.calibration import (
+        calibration_failure_marker_path,
+        calibration_not_delivered,
+    )
+
+    todo: list[str] = []
+    skipped: list[str] = []
+    for uid in uids:
+        (skipped if calibration_not_delivered(input_root, uid) else todo).append(uid)
+    if skipped:
+        echo(
+            f"Skipping {len(skipped)} UID(s) that ALMA delivered without calibration "
+            "(left out of the delivered pipeline run, e.g. QA0 SemiPass): " + ", ".join(skipped)
+        )
+        for uid in skipped:
+            # A failure recorded by a run before this check no longer applies.
+            calibration_failure_marker_path(output_root, uid).unlink(missing_ok=True)
+    return todo
+
+
 def _run_unpack_jobs(
     *,
     input_root: Path,
@@ -724,6 +752,10 @@ def _run_calibrate_jobs(  # noqa: C901
     effective_uids = asdm_uids or dedupe_keep_order(_extract_uids_from_raw_ms_root(raw_ms_root))
     if not effective_uids:
         raise StageError("No raw MeasurementSets found to calibrate.")
+    effective_uids = _drop_uncalibrated_deliveries(input_root, output_root, effective_uids, echo)
+    if not effective_uids:
+        echo("No UID left to calibrate.")
+        return []
 
     if postprocess_backend == "sync" and len(effective_uids) == 1:
         return [
@@ -1062,6 +1094,9 @@ def _run_parallel_archive_jobs(  # noqa: C901
                 calibrated_ms_root, calibrate_uids, overwrite_archive_outputs, echo
             )
             calibrated_outputs.extend(done_outputs)
+            calibrate_uids = _drop_uncalibrated_deliveries(
+                download_root, calibrated_ms_root, calibrate_uids, echo
+            )
 
         if generate_calibrated_visibilities and calibrate_uids:
             calibrate_log_paths = [

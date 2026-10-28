@@ -88,6 +88,13 @@ use `ExecBlock Status` for this decision; it does not discriminate.
 
 The library entry point is `almasim.services.archive.filter_products_by_qa0`.
 
+Raw ASDMs downloaded without this filter are still safe: calibration skips an
+execution block whose member OUS has a `calibration/` directory but no
+`<eb>.ms.calapply.txt` for it, and reports it as delivered without
+calibration rather than as a failure, so the run still succeeds. Its raw MS
+is unpacked as usual. A member with no `calibration/` directory at all (the
+auxiliary products were not downloaded) still fails.
+
 ## Python
 
 ```python

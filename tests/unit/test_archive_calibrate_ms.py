@@ -21,6 +21,7 @@ import pytest
 # with explicit patch.dict(sys.modules) in each test.
 from almasim.services.archive.calibration import (
     apply_delivered_calibration,
+    calibration_not_delivered,
     create_calibrated_measurement_sets,
     find_calibration_directory,
     find_raw_ms_directories,
@@ -178,6 +179,34 @@ def test_safe_extract_tar_multiple_files(tmp_path):
 # ===========================================================================
 # find_calibration_directory
 # ===========================================================================
+
+
+def _make_member(root: Path, raw_uids: list[str], calibrated_uids: list[str] | None) -> Path:
+    """An ALMA member OUS: raw ASDMs, and calibration for some of them (None: no directory)."""
+    member = root / "2022.1.0.S" / "science_goal.uid___S" / "group.uid___G" / "member.uid___M"
+    for uid in raw_uids:
+        (member / "raw" / f"{uid}.asdm.sdm").mkdir(parents=True)
+    if calibrated_uids is not None:
+        (member / "calibration").mkdir(parents=True)
+        for uid in calibrated_uids:
+            (member / "calibration" / f"{uid}.ms.calapply.txt").write_text("")
+    return member
+
+
+@pytest.mark.unit
+def test_calibration_not_delivered_for_a_block_the_member_left_out(tmp_path):
+    """A raw ASDM without a calapply in its member's calibration directory was never calibrated."""
+    _make_member(tmp_path, ["uid___A", "uid___B"], calibrated_uids=["uid___A"])
+    assert calibration_not_delivered(tmp_path, "uid___B")
+    assert not calibration_not_delivered(tmp_path, "uid___A")
+
+
+@pytest.mark.unit
+def test_calibration_not_delivered_needs_the_calibration_directory(tmp_path):
+    """Without any calibration directory (auxiliary not downloaded) the UID still fails later."""
+    _make_member(tmp_path, ["uid___A"], calibrated_uids=None)
+    assert not calibration_not_delivered(tmp_path, "uid___A")
+    assert not calibration_not_delivered(tmp_path, "uid___UNKNOWN")
 
 
 @pytest.mark.unit
@@ -1049,6 +1078,60 @@ def test_create_calibrated_measurement_sets_continue_on_error_skips_failed_uid(
     configure_kwargs = mock_configure_casa.call_args.kwargs
     assert configure_kwargs["log_to_terminal"] is True
     assert configure_kwargs["log_file"] == output_root.resolve() / "logs" / "casa-calibrate-all.log"
+
+
+@pytest.mark.unit
+@patch("almasim.services.archive.calibration.run.tempfile.mkdtemp")
+@patch("almasim.services.archive.calibration.run.configure_casa_environment")
+@patch("almasim.services.archive.calibration.run.ensure_casa_runtime_data")
+@patch("almasim.services.archive.calibration.run.find_raw_ms_directories")
+@patch("almasim.services.archive.calibration.run.split_calibrated_science_ms")
+@patch("almasim.services.archive.calibration.run.apply_delivered_calibration")
+def test_create_calibrated_measurement_sets_skips_blocks_delivered_without_calibration(
+    mock_apply,
+    mock_split,
+    mock_find_raw,
+    mock_ensure_casa,
+    mock_configure_casa,
+    mock_mkdtemp,
+    tmp_path,
+):
+    """A block ALMA never calibrated is skipped, not failed, and its old failure marker goes."""
+    input_root = tmp_path / "input"
+    member = _make_member(input_root, ["uid___A", "uid___B"], calibrated_uids=["uid___A"])
+    raw_ms_root = tmp_path / "raw"
+    output_root = tmp_path / "output"
+    raw_a = raw_ms_root / "uid___A.ms"
+    raw_b = raw_ms_root / "uid___B.ms"
+    for path in (raw_a, raw_b):
+        path.mkdir(parents=True)
+    output_root.mkdir()
+    stale_marker = output_root / "uid___B.ms.split.cal.failed"
+    stale_marker.write_text("{}")
+    scratch_root = tmp_path / "scratch"
+    scratch_root.mkdir()
+    mock_mkdtemp.return_value = str(scratch_root)
+    mock_find_raw.return_value = [raw_a, raw_b]
+    mock_apply.side_effect = lambda applycal, clearcal, raw_ms, *a, **k: raw_ms
+    mock_split.side_effect = lambda mstransform, working_ms, *a, **k: (
+        output_root / f"{working_ms.name}.split.cal"
+    )
+
+    messages: list[str] = []
+    with patch.dict(sys.modules, {"casatasks": MagicMock()}):
+        outputs = create_calibrated_measurement_sets(
+            input_root,
+            raw_ms_root,
+            output_root,
+            skip_casa_data_update=True,
+            logger_fn=messages.append,
+        )
+
+    assert outputs == [output_root / "uid___A.ms.split.cal"]
+    assert [call.args[2] for call in mock_apply.call_args_list] == [raw_a]
+    assert mock_apply.call_args.args[3] == (member / "calibration").resolve()
+    assert any("uid___B was delivered without calibration" in message for message in messages)
+    assert not stale_marker.exists()
 
 
 @pytest.mark.unit

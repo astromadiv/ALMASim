@@ -698,6 +698,109 @@ def test_run_parallel_archive_jobs_skips_calibration_for_failed_unpack(monkeypat
     assert [failure.label for failure in failures] == ["uid___B"]
 
 
+def _member_with_left_out_block(download_root: Path) -> None:
+    """A member OUS whose pipeline run calibrated uid___A and left uid___B out."""
+    member = download_root / "P" / "science_goal.uid___S" / "group.uid___G" / "member.uid___M"
+    for uid in ("uid___A", "uid___B"):
+        (member / "raw" / f"{uid}.asdm.sdm").mkdir(parents=True)
+    (member / "calibration").mkdir()
+    (member / "calibration" / "uid___A.ms.calapply.txt").write_text("")
+
+
+def test_run_parallel_archive_jobs_skips_blocks_delivered_without_calibration(
+    monkeypatch, tmp_path
+):
+    """A block ALMA never calibrated is unpacked but neither calibrated nor counted as failed."""
+
+    class _Backend:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return None
+
+    download_root = tmp_path / "dl"
+    _member_with_left_out_block(download_root)
+    stale_marker = tmp_path / "archive" / "calibrated_ms" / "uid___B.ms.split.cal.failed"
+    stale_marker.parent.mkdir(parents=True)
+    stale_marker.write_text("{}")
+    patch_everywhere(monkeypatch, cli_products, "create_backend", lambda *a, **k: _Backend())
+    patch_everywhere(
+        monkeypatch, cli_products, "_preflight_casa_data", lambda *a, **k: tmp_path / "casa"
+    )
+    patch_everywhere(
+        monkeypatch,
+        cli_products,
+        "_extract_asdm_uids_from_download_root",
+        lambda *_: ["uid___A", "uid___B"],
+    )
+
+    stages: list[tuple[str, list[str]]] = []
+
+    def _fake_stage(**kwargs):
+        stages.append((kwargs["stage_label"], list(kwargs["job_uids"])))
+        if kwargs["stage_label"].endswith("unpack"):
+            return [["/raw/uid___A.ms"], ["/raw/uid___B.ms"]]
+        return [["/cal/uid___A.ms.split.cal"]]
+
+    patch_everywhere(monkeypatch, cli_products, "_run_uid_stage", _fake_stage)
+
+    messages: list[str] = []
+    failures: list[cli_products.TaskFailure] = []
+    raw, cal = cli_products._run_parallel_archive_jobs(
+        download_root=download_root,
+        archive_output_root=tmp_path / "archive",
+        unpack_ms=True,
+        generate_calibrated_visibilities=True,
+        postprocess_backend="slurm",
+        postprocess_backend_kwargs={},
+        casa_data_root=None,
+        skip_casa_data_update=False,
+        overwrite_archive_outputs=False,
+        failures=failures,
+        echo=lambda message, err=False: messages.append(message),
+    )
+
+    assert raw == ["/raw/uid___A.ms", "/raw/uid___B.ms"]
+    assert cal == ["/cal/uid___A.ms.split.cal"]
+    assert stages == [("Slurm unpack", ["uid___A", "uid___B"]), ("Slurm calibrate", ["uid___A"])]
+    assert failures == []
+    assert any("delivered without calibration" in m and "uid___B" in m for m in messages)
+    assert not stale_marker.exists()
+
+
+def test_run_calibrate_jobs_with_only_uncalibrated_blocks_does_nothing(monkeypatch, tmp_path):
+    """When ALMA calibrated none of the requested blocks nothing is preflighted or submitted."""
+    download_root = tmp_path / "dl"
+    _member_with_left_out_block(download_root)
+    patch_everywhere(
+        monkeypatch,
+        cli_products,
+        "_preflight_casa_data",
+        lambda *a, **k: pytest.fail("no preflight"),
+    )
+    patch_everywhere(
+        monkeypatch,
+        cli_products,
+        "create_backend",
+        lambda *a, **k: pytest.fail("no backend expected"),
+    )
+
+    outputs = cli_products._run_calibrate_jobs(
+        input_root=download_root,
+        raw_ms_root=tmp_path / "raw",
+        output_root=tmp_path / "cal",
+        asdm_uids=["uid___B"],
+        postprocess_backend="slurm",
+        postprocess_backend_kwargs={},
+        casa_data_root=None,
+        skip_casa_data_update=True,
+        overwrite_outputs=False,
+        clean_intermediate=False,
+    )
+    assert outputs == []
+
+
 def test_tail_log_line_ignores_stale_logs(tmp_path):
     """Logs older than the stage start are not reported as running jobs."""
     from time import time
