@@ -100,9 +100,7 @@ from almasim.services.download import (
 
 products = resolve_products(metadata["member_ous_uid"].tolist())
 save_products_csv(products, "resolved.csv")
-summary = download_products(
-    filter_products(products, "auxiliary"), "downloads", extract_tar=True
-)
+summary = download_products(filter_products(products, "auxiliary"), "downloads", extract_tar=True)
 ```
 
 ## Web console
