@@ -5,6 +5,7 @@
 	import { api, type RunDetail } from '#lib/api/v2/client.js';
 	import { consoleUrl } from '#lib/config.js';
 	import { clock } from '#lib/clock.svelte.js';
+	import DashboardButton from '#lib/components/jobs/DashboardButton.svelte';
 	import LogView from '#lib/components/jobs/LogView.svelte';
 	import StateChip from '#lib/components/jobs/StateChip.svelte';
 	import Dialog from '#lib/components/shared/Dialog.svelte';
@@ -164,6 +165,7 @@
 				<p class="m-0 font-mono text-xs break-all text-fg-muted">{run.run_dir}</p>
 			</div>
 			<div class="flex flex-wrap gap-2">
+				<DashboardButton runId={run.id} finished={run.finished} />
 				<button type="button" class="btn-secondary" onclick={copyCommand}>Copy command</button>
 				<!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- the path is resolved; only the query string is appended -->
 				<a class="btn-secondary no-underline" href={`${resolve('/run')}?from=${run.id}`}

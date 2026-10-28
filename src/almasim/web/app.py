@@ -35,9 +35,11 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from almasim.__version__ import __version__
 from almasim.jobs.profile import Profile, load_profile
+from almasim.jobs.service import find_run
 
 from .api import cluster, commands, files, jobs, simulation
 from .api import profile as profile_api
+from .dashboard import DashboardRelay
 from .events import EventHub
 from .events import router as events_router
 
@@ -117,11 +119,16 @@ class BasePath:
         self.base = base
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http" or not self.base:
+        if scope["type"] not in ("http", "websocket") or not self.base:
             await self.app(scope, receive, send)
             return
         path = scope["path"]
-        if path == self.base:
+        if scope["type"] == "websocket":  # the dashboard relay's (almasim.web.dashboard)
+            if path.startswith(self.base + "/"):
+                await self.app({**scope, "root_path": self.base}, receive, send)
+            else:
+                await send({"type": "websocket.close", "code": 1008})
+        elif path == self.base:
             query = scope.get("query_string", b"").decode()
             target = self.base + "/" + (f"?{query}" if query else "")
             await RedirectResponse(target, status_code=307)(scope, receive, send)
@@ -223,6 +230,13 @@ def create_app(
     app.state.profile = profile
     app.state.events = hub
     app.state.cluster = cluster.ClusterView(profile)
+    # Inside the token check, which covers its HTTP half; it checks websockets itself.
+    app.add_middleware(
+        DashboardRelay,
+        token=token,
+        find_run=lambda run_id: find_run(profile, run_id),
+        cookie=COOKIE,
+    )
     app.add_middleware(TokenMiddleware, token=token)
     app.add_middleware(BasePath, base=base)  # added last: runs first
 

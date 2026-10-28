@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from almasim.jobs.model import JobState
 from almasim.jobs.service import RunView, short_id
@@ -48,6 +48,11 @@ class Run(BaseModel):
 
 class RunDetail(Run):
     files: list[str]
+    dashboard: bool = Field(
+        False,
+        description="Whether the run serves a Dask dashboard now, relayed at "
+        "/api/v2/jobs/{run_id}/dashboard/status.",
+    )
 
 
 class RunList(BaseModel):

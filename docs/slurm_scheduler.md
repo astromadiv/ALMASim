@@ -72,6 +72,16 @@ neither, `default_scheduler_host(queue)` picks the local address the kernel
 routes to the partition's nodes (found with `sinfo`), and falls back to the
 submit host's `HOSTNAME` unless that resolves to loopback.
 
+### Dashboard
+
+The scheduler serves the Dask dashboard (with bokeh installed: the
+`dashboard` extra) on a free port, logged as `Dask dashboard: <link>`; pass
+`scheduler_options={"dashboard_address": ":8787"}` for a fixed one. Inside a
+console job (the job wrapper sets `$ALMASIM_RUN_DIR`) it also writes the
+address to `dashboard.json` in the run folder, and removes it when the
+cluster closes; the console relays the dashboard from there
+([console](console.md#jobs-and-a-jobs-page)).
+
 ### Worker logs
 
 The workers' stdout and stderr go to `~/dask-worker-logs` (the

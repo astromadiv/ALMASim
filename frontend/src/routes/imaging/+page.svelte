@@ -11,6 +11,7 @@
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { api, type Run } from '#lib/api/v2/client.js';
+	import DashboardButton from '#lib/components/jobs/DashboardButton.svelte';
 	import StateChip from '#lib/components/jobs/StateChip.svelte';
 	import CommandSections from '#lib/components/run/CommandSections.svelte';
 	import ErrorMessage from '#lib/components/shared/ErrorMessage.svelte';
@@ -420,6 +421,11 @@
 				<span class="text-sm text-fg-muted">
 					{counts.done} done · {counts.running} running · {counts.failed} failed · {counts.waiting} waiting
 				</span>
+				{#if imageRun}
+					<span class="ml-auto"
+						><DashboardButton runId={imageRun.id} finished={imageRun.finished} /></span
+					>
+				{/if}
 			</div>
 			{#if tasks.length}
 				<div

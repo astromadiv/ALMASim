@@ -4,8 +4,8 @@
 
 This is the only thing a job's Slurm script, or the server executor, calls.
 It reads the run folder's job.json, runs ``almasim <argv>`` (``{run_dir}`` in an
-argument becomes the run folder) with its output in
-stdout.log and stderr.log, and writes status.json twice: when the command
+argument becomes the run folder, and ``$ALMASIM_RUN_DIR`` names it) with its
+output in stdout.log and stderr.log, and writes status.json twice: when the command
 starts (host, time) and when it ends (time, exit code, and the signal if it
 was stopped). A job cancelled with ``scancel`` receives SIGTERM; the wrapper
 passes it on to the command, waits for it, and records the signal, so the
@@ -26,7 +26,7 @@ from pathlib import Path
 from types import FrameType
 
 from .model import expand_run_dir
-from .rundir import RunStatus, read_manifest, write_status
+from .rundir import RUN_DIR_ENV, RunStatus, read_manifest, write_status
 
 STDOUT_NAME = "stdout.log"
 STDERR_NAME = "stderr.log"
@@ -64,6 +64,7 @@ def run_job(run_dir: str | os.PathLike[str], command: Sequence[str] = ALMASIM_CO
             child = subprocess.Popen(
                 [*command, *expand_run_dir(job.argv, run_dir.absolute())],
                 cwd=run_dir,
+                env={**os.environ, RUN_DIR_ENV: str(run_dir.absolute())},
                 stdin=subprocess.DEVNULL,
                 stdout=out,
                 stderr=err,

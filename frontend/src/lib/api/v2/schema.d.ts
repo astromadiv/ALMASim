@@ -993,6 +993,12 @@ export interface components {
 			command: string;
 			/** Created At */
 			created_at: number;
+			/**
+			 * Dashboard
+			 * @description Whether the run serves a Dask dashboard now, relayed at /api/v2/jobs/{run_id}/dashboard/status.
+			 * @default false
+			 */
+			dashboard?: boolean;
 			/** Executor */
 			executor: string;
 			/** Exit Code */

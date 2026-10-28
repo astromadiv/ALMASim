@@ -66,6 +66,9 @@ _CASA_IMPORT = (
 # python-casacore reads MeasurementSet metadata (image compute-parameters and
 # the noise tools); it is an optional extra, so an install can lack it.
 _CASACORE_IMPORT = "import casacore, casacore.tables; print(casacore.__version__)"
+# A Dask scheduler serves its dashboard (which the console relays) only with
+# bokeh, the dashboard extra; without it jobs run the same, just unwatched.
+_BOKEH_IMPORT = "import bokeh; print(bokeh.__version__)"
 
 
 def _last_line(text: str) -> str:
@@ -115,6 +118,15 @@ def _python(profile: Profile, run: Runner) -> Iterator[Check]:
         f"python-casacore {casacore.stdout.strip()}"
         if casacore.returncode == 0
         else f"not importable in {python} (the ms-casacore extra): {_last_line(casacore.stderr)}",
+        required=False,
+    )
+    bokeh = run([python, "-c", _BOKEH_IMPORT])
+    yield Check(
+        "dashboard",
+        bokeh.returncode == 0,
+        f"bokeh {bokeh.stdout.strip()}: jobs' Dask dashboards"
+        if bokeh.returncode == 0
+        else f"no bokeh in {python} (the dashboard extra), so jobs serve no Dask dashboard",
         required=False,
     )
 

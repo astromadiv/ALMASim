@@ -1618,6 +1618,12 @@
             "title": "Created At",
             "type": "number"
           },
+          "dashboard": {
+            "default": false,
+            "description": "Whether the run serves a Dask dashboard now, relayed at /api/v2/jobs/{run_id}/dashboard/status.",
+            "title": "Dashboard",
+            "type": "boolean"
+          },
           "executor": {
             "title": "Executor",
             "type": "string"
