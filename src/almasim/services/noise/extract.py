@@ -176,7 +176,8 @@ def _window(table: Any, ms: Path, spw: int) -> dict[str, Any]:
         freq = np.asarray(sw.getcell("CHAN_FREQ", spw), dtype=np.float64)
         width = np.abs(np.asarray(sw.getcell("CHAN_WIDTH", spw), dtype=np.float64))
         effective = np.abs(np.asarray(sw.getcell("EFFECTIVE_BW", spw), dtype=np.float64))
-    return {"freq": freq, "width": width, "effective": effective}
+        resolution = np.abs(np.asarray(sw.getcell("RESOLUTION", spw), dtype=np.float64))
+    return {"freq": freq, "width": width, "effective": effective, "resolution": resolution}
 
 
 def _data_descriptions(table: Any, ms: Path, spw: int) -> list[int]:
@@ -331,6 +332,7 @@ def _exposure(
         channels=int(window["freq"].size),
         channel_width_hz=width,
         noise_bandwidth_hz=effective,
+        resolution_hz=float(np.median(window["resolution"])) or None,
         frequency_ghz=float(np.mean(window["freq"]) / 1e9),
         correlations=int(ncorr),
         flagged_fraction=float(flagged),

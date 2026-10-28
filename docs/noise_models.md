@@ -857,13 +857,13 @@ almasim noise validate --model noise/candidate.json --windows windows.csv \
 
 For each window, ALMASim simulates it from its archive row with the
 candidate (a point source at the window's frequency, with its channels, up
-to 960 of them, one execution block), measures the simulated MS with
-`noise extract`, images it as the real windows were imaged
-(`image compute-parameters`, `image image-from-ms --cube --uv-contsub`,
-`image clean-quality`), and measures the residuals of both images: their
-noise level, skew, kurtosis and 5-sigma tails, the area of their noise's
-autocorrelation in beams, and in the cube the spread of the channel noise
-and the correlation of neighbouring channels. All of it goes
+to 960 of them, and their averaging as its MS gives them, one execution
+block), measures the simulated MS with `noise extract`, images it as the
+real windows were imaged (`image compute-parameters`, `image image-from-ms
+--cube --uv-contsub`, `image clean-quality`), and measures the residuals of
+both images: their noise level, skew, kurtosis and 5-sigma tails, the area
+of their noise's autocorrelation in beams, and in the cube the spread of the
+channel noise and the correlation of neighbouring channels. All of it goes
 under `noise/validation/<the model's sha256, 12 characters>/`, so validations
 of different models never mix. At the end, `noise compare` writes
 `comparison.json` and prints a table: per metric, the median of the

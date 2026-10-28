@@ -83,6 +83,9 @@ def _fake_ms(seed: int = 0, ripple_antenna: int | None = 0) -> dict[str, FakeTab
                 "EFFECTIVE_BW": np.array(
                     [np.full(f.size, 2.667 * 15.625e6) for f in chan_freq], dtype=object
                 ),
+                "RESOLUTION": np.array(
+                    [np.full(f.size, 2 * 15.625e6) for f in chan_freq], dtype=object
+                ),
                 "BBC_NO": np.array([1, 1, 2, 2]),
             }
         ),
@@ -131,6 +134,7 @@ def test_the_noise_level_correlation_and_tsys_are_measured(fake_ms):
     assert (e.antennas, e.baselines, e.integrations, e.channels) == (NANT, 15, NTIME, NCHAN)
     assert e.time_on_source_s == pytest.approx(6.0 * NTIME)
     assert e.noise_bandwidth_hz == pytest.approx(2.667 * 15.625e6)
+    assert e.resolution_hz == pytest.approx(2 * 15.625e6)
     assert e.elevation_deg is not None and -90 <= e.elevation_deg <= 90
     assert 0 < e.flagged_fraction < 0.02
     # Stokes I from independent hands: sigma / sqrt(2) per component.
