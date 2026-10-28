@@ -337,6 +337,59 @@ def test_a_window_is_simulated_from_its_row_with_the_model(monkeypatch, tmp_path
     assert params.noise_model == model and params.executions == 1 and params.seed == 5
     assert params.freq == pytest.approx(window.exposure.frequency_ghz)
     assert params.n_channels == 64 and params.ms_export
+    assert params.freq_support == row["Freq.sup."]  # no resolution measured: the row's
+
+
+@pytest.mark.unit
+def test_a_window_is_simulated_with_its_own_channel_averaging(monkeypatch, tmp_path):
+    """The row's support lists the observing unit's windows; the window's own
+    MS says how its channels are averaged (window 61: the row's averaged
+    channels, rho1 0.33, where the real ones are native, rho1 0.69)."""
+    import astropy.units as U
+    import pandas as pd
+
+    import almasim.services.simulation as simulation
+    from almasim.services.instrument.channels import channels_from_resolution
+    from almasim.services.interferometry.frequency import freq_supp_extractor
+
+    seen = {}
+
+    def clean_cube(params, logger=None, compute_backend=None):
+        seen["params"] = params
+        return "clean"
+
+    monkeypatch.setattr(simulation, "generate_clean_cube", clean_cube)
+    monkeypatch.setattr(simulation, "simulate_observation", lambda clean, compute_backend=None: 0)
+    monkeypatch.setattr(
+        simulation,
+        "export_results",
+        lambda params, clean, results, logger=None: {"ms_path": str(tmp_path / "x.ms")},
+    )
+    repo = Path(__file__).resolve().parents[2]
+    row = pd.read_csv(repo / "data" / "qso_metadata.csv").iloc[0]
+    window = _window("w", ghz=float(row["Freq"]) + 0.5)
+    native = window.model_copy(
+        update={
+            "exposure": window.exposure.model_copy(
+                update={"channel_width_hz": 976562.5, "resolution_hz": 1953125.0}
+            )
+        }
+    )
+
+    def averaging(support: str) -> tuple[int, float]:
+        band, _, _, resolution = freq_supp_extractor(support, native.exposure.frequency_ghz * U.GHz)
+        channels = channels_from_resolution(resolution.to(U.Hz).value, band.to(U.Hz).value)
+        return channels.averaged, channels.width_hz
+
+    assert averaging(row["Freq.sup."])[0] >= 4  # the row's: averaged
+    v.simulate(row, native, released_model("alma"), tmp_path / "run", seed=5)
+    support = seen["params"].freq_support
+    assert support == v.frequency_support(native)
+    assert averaging(support) == (1, 976562.5)  # the window's own: native
+    band, centre, _, _ = freq_supp_extractor(support, native.exposure.frequency_ghz * U.GHz)
+    assert centre.value == pytest.approx(native.exposure.frequency_ghz)
+    assert band.to(U.Hz).value == pytest.approx(64 * 976562.5)
+    assert v.frequency_support(window) is None
 
 
 @pytest.mark.unit

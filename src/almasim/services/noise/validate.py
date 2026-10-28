@@ -163,6 +163,8 @@ def simulate(
     main_dir = Path(almasim.__file__).parent
     record = row.copy()
     record["Freq"] = window.exposure.frequency_ghz
+    if support := frequency_support(window):
+        record["Freq.sup."] = support
     rest_frequency, _ = astro.get_line_info(main_dir)
     record = with_redshifts(pd.DataFrame([record]), rest_frequency).iloc[0]
     run.mkdir(parents=True, exist_ok=True)
@@ -192,6 +194,20 @@ def simulate(
         results = simulate_observation(clean, compute_backend=backend)
         exported = export_results(params, clean, results, logger=print)
     return Path(exported["ms_path"])
+
+
+def frequency_support(window: WindowNoise) -> str | None:
+    """The window's own entry in the archive's frequency support (its band and
+    resolution, from its MS), so that it is simulated with its own channel
+    averaging: the archive row's support lists the windows of the whole
+    observing unit, whose resolution may not be this window's. None when the
+    window's measurement has no resolution."""
+    e = window.exposure
+    if not e.resolution_hz:
+        return None
+    half = e.channels * e.channel_width_hz / 2e9
+    low, high = e.frequency_ghz - half, e.frequency_ghz + half
+    return f"[{low:.9f}..{high:.9f}GHz,{e.resolution_hz / 1e3:.6f}kHz]"
 
 
 def image(run: Path, imaging: Imaging) -> Path:

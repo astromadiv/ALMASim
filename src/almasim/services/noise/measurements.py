@@ -42,6 +42,9 @@ class Exposure(_Record):
     channels: int
     channel_width_hz: float
     noise_bandwidth_hz: float = Field(description="EFFECTIVE_BW, the channel's noise bandwidth.")
+    resolution_hz: float | None = Field(
+        default=None, description="RESOLUTION, the channel's resolution as the archive gives it."
+    )
     frequency_ghz: float
     correlations: int
     flagged_fraction: float
