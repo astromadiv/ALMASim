@@ -299,7 +299,7 @@ def simulation_run(
     metadata_path: Path = typer.Option(
         ...,
         "--metadata-path",
-        help="CSV file with pre-fetched ALMA metadata rows (from 'almasim metadata query').",
+        help="CSV file with pre-fetched ALMA metadata rows (from 'almasim metadata').",
         rich_help_panel="Observation",
     ),
     row_idx: int | None = typer.Option(

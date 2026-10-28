@@ -1,63 +1,82 @@
 # Imaging and Combination
 
-This page describes ALMASim’s image-domain products and deconvolution workflow.
+This page describes ALMASim's image-domain products and its imaging of
+MeasurementSets with WSClean.
 
 ## Location
 
-Imaging code lives in [`src/almasim/services/imaging`](../src/almasim/services/imaging).
+Imaging code lives in [`src/almasim/services/imaging`](../src/almasim/services/imaging):
 
-## Current Imaging Products
+| module | contents |
+|---|---|
+| `reconstruction/` | the in-memory image products of a simulation: Wiener deconvolution and preview, TP/INT merging, cube regridding |
+| `ms_geometry.py` | `compute_imaging_parameters`: the WSClean geometry of every (spectral window, field) of an MS |
+| `wsclean_plan.py`, `wsclean/` | WSClean command lines, the cube channel plan, the per-task run |
+| `batch_runner.py`, `task.py`, `markers.py` | running the tasks on `sync` or `slurm`, their `.done`/`.failed`/`.log` files |
+| `ms/` | the single-window MS each task images |
+| `uv_contsub.py`, `selfcal/`, `primary_beam.py` | visibility-plane continuum subtraction, self-calibration, primary-beam correction |
+| `quality/` | the cleaning-quality statistics and moment maps of `image clean-quality` |
 
-ALMASim can produce:
+## Simulation image products
 
-- interferometric image cubes
-- total-power image cubes
-- TP+INT combined image cubes
+`build_image_products()` in
+[`reconstruction/`](../src/almasim/services/imaging/reconstruction) turns a
+simulation's dirty and beam cubes into:
 
-These are built by `build_image_products()` in [`reconstruction/`](../src/almasim/services/imaging/reconstruction).
+- the interferometric image cube (Wiener-deconvolved, one per array
+  configuration too)
+- the total-power image cube
+- the TP+INT combined cube (feather-style merge; the INT or TP cube alone
+  when only one exists)
 
-## Deterministic Reconstruction
+The same package holds the deterministic tools behind them:
 
-The current deterministic image-domain tools include:
+- `wiener_deconvolve_cube`: Wiener-style deconvolution per channel
+- `feather_merge_cube` and `match_tp_to_int_flux_scale`: TP/INT merging
+- `regrid_cube_to_match` and `convolve_cube_with_beam`: per-channel cube
+  operations
+- `clean_beam_cube`: a Gaussian clean beam per channel, fitted to the central
+  lobe of each PSF
 
-- Wiener-style deconvolution
-- TP/INT feather-style merging
-- cube regridding
-- cube-to-image previews
+These in-memory products stay available for machine-learning work. The
+reference imaging of a simulation is WSClean on its MeasurementSet (below).
 
 ## Wiener preview
 
-`wiener_preview()` (in `services/imaging/reconstruction`) is the interactive
-preview behind `almasim preview wiener` and the console's Products page. Per
-spectral slice it returns:
+`wiener_preview()` is the quick look behind `almasim preview wiener` and the
+web console's *Products* page. For each spectral channel it returns:
 
-- the Wiener model (`wiener_deconvolve_cube`, regularised by `epsilon`)
-- the residual: the dirty cube minus the model convolved with the dirty beam
-- the restored cube: the model convolved with a Gaussian clean beam fitted to
-  the dirty beam's central lobe, plus the residual
-- with a reference clean cube, that cube convolved with the same clean beam
+- `model`: the Wiener model (`wiener_deconvolve_cube`, regularised by
+  `epsilon`, default `1e-3`)
+- `residual`: the dirty cube minus the model convolved with the
+  peak-normalised dirty beam
+- `restored`: the model convolved with the clean beam, plus the residual
+- `clean_beam`: the Gaussian clean beam of each channel (`clean_beam_cube`)
 
-The iterative Hogbom `clean_deconvolve_cube` was retired (MADIV-28 T5.12).
+`almasim preview wiener <dirty> <beam> <output_dir>` writes
+`wiener-model.fits`, `wiener-restored.fits` and `wiener-residual.fits`.
+
+The iterative Högbom `clean_deconvolve_cube` was retired (MADIV-28 T5.12).
 
 ## Reference imaging of simulations
 
 WSClean on the simulated MeasurementSet is the reference imaging for
 simulations. The MS writer records the `OBSERVE_TARGET#ON_SOURCE` intent, each
-antenna's dish diameter and Stokes I as XX = YY, so the archive commands below
-(`compute-parameters`, `image-from-ms`, `clean-quality`) run on a simulated MS
-as they do on archive data. The in-memory dirty and Wiener products stay
-available for machine-learning work.
+antenna's dish diameter, and two hands built from Stokes I (XX = I + d and
+YY = I − d, with d independent noise at each visibility's own level, so
+(XX + YY) / 2 is still I), so the archive commands below (`compute-parameters`, `image-from-ms`, `clean-quality`) run on a
+simulated MS as they do on archive data.
 
 ## Imaging archive MeasurementSets with WSClean
 
 `almasim image compute-parameters` and `almasim image image-from-ms` turn a
 folder of calibrated MeasurementSets into one WSClean image per science
-spectral window. They follow the same contract as the unpack and calibrate
-stages: every task leaves a marker, a failure never ends the run, and a rerun
-resumes from the markers.
+spectral window and target field. They follow the same contract as the unpack
+and calibrate stages: every task leaves a marker, a failed task never stops
+the batch, and a rerun resumes from the markers.
 
 ```bash
-# 1. one CSV row per (MS, science spectral window)
+# 1. one CSV row per (MS, science spectral window, target field)
 almasim image compute-parameters /data/ms-calibrated imaging_parameters.csv
 
 # 2. image them on Slurm, 10 cores per WSClean, 8 workers
@@ -68,50 +87,90 @@ almasim image image-from-ms imaging_parameters.csv /data/images \
   --task-timeout 7200
 ```
 
-**compute-parameters** reads each MS with python-casacore and writes the
-WSClean geometry per spectral window: field of view, synthesised beam, pixel
-count. By default it keeps only the spectral windows that actually hold
-visibilities (an ALMA MS lists every correlator window, WVR and pointing ones
-included, but after `split` only the science windows have rows) and records
-the fields observed with the `OBSERVE_TARGET` intent in `target_field_ids`,
-so imaging leaves the calibrator scans out. `--all-spws` disables that. An MS
-whose `<ms>.done` calibration marker is missing is skipped when the folder
-uses markers, and an MS that cannot be read is listed in
-`<csv>.failed.tsv` while the scan continues (`--fail-fast` to abort instead).
+**compute-parameters** reads each MS (`--pattern`, default `*.cal`) with
+python-casacore and writes the WSClean geometry of each spectral window:
+field of view (the primary beam's half-power width for the smallest dish),
+synthesized beam and reference frequency. It writes one row per spectral
+window and field, and only for (window, field) pairs that hold visibilities:
+an ALMA MS lists every correlator window, WVR ones included, but after
+`split` only the science windows have rows. By default the fields are those
+observed with the `OBSERVE_TARGET` intent, recorded in `target_field_ids`, so
+imaging leaves the calibrator scans out. `--intent` selects other fields (for
+example `CALIBRATE_PHASE#ON_SOURCE`); `--all-spws` lists every field,
+calibrators included. An MS whose `<ms>.done` calibration marker is missing is
+skipped when the folder holds such markers, and an MS that cannot be read is
+listed in `<csv>.failed.tsv` while the scan continues (`--fail-fast` aborts
+instead).
 
 **image-from-ms** runs one WSClean per CSV row, each in its own subprocess on
-a worker, writing to `<output>/<ms stem>/SPW-<n>/wsclean-*.fits`. Next to
-that directory it leaves:
+a worker, writing to `<output>/<ms stem>/SPW-<n>_FIELD-<f>/wsclean-*.fits`
+(`SPW-<n>/` for a row without a single field). Next to that directory it
+leaves:
 
 | file | meaning |
 |---|---|
-| `SPW-<n>.done` | finished; `wsclean-image.fits` exists. JSON with the command and the run time |
-| `SPW-<n>.failed` | failed; JSON with the error (exit code, the `what():` line of a crash, a timeout, a missing binary, or "exited 0 but wrote no image") and the log path |
-| `SPW-<n>.log` | the full WSClean output, written live on the shared filesystem: `tail -f` it from the submit node |
+| `<task>.done` | finished; JSON with the images written, the WSClean command(s) and the run time |
+| `<task>.failed` | failed; JSON with the error (exit code, the `what():` line of a crash, a timeout, a missing binary, or "exited 0 but wrote no image") and the log path |
+| `<task>.log` | the full WSClean output, written live on the shared filesystem: `tail -f` it from the submit node |
 
 Tasks with a `.done` marker are skipped on a rerun and everything else is
-retried; `--overwrite-outputs` redoes all of them and `--skip-existing`
-additionally trusts a `wsclean-image.fits` produced before markers existed
-(and writes its marker). Failed tasks are listed at the end and the command
-exits 1 once every task has been attempted; `--fail-fast` stops at the first
-failure instead. If a worker dies with its task (walltime, node failure) the
-driver writes the `.failed` marker itself, so the accounting stays complete:
-work remaining is always *CSV rows − `.done` markers*.
+retried. `--overwrite-outputs` redoes all of them, and `--skip-existing` also
+trusts a `wsclean-image.fits` produced before markers existed (and writes its
+marker). Failed tasks are listed at the end and the command exits 1 once every
+task has been attempted; `--fail-fast` stops at the first failure instead. If
+a worker dies with its task (walltime, node failure), the driver writes the
+`.failed` marker itself, so the accounting stays complete: the work remaining
+is always *CSV rows − `.done` markers*.
 
-Each WSClean gets `-j <num-cores>` and runs with `OPENBLAS_NUM_THREADS=1`
-(WSClean refuses to start otherwise when linked against a threaded OpenBLAS),
-`-mem` scaled to its share of the node, and `-field <target_field_ids>` when
-the CSV has that column. `--backend sync` runs the tasks one at a
-time in the current process, which is handy for a smoke test on one MS.
+By default each task first extracts its spectral window and target fields
+into a per-task MS on the worker and images that with `-no-reorder`
+(`--single-window-ms`): WSClean 3.7's reordering crashes on multi-window ALMA
+sets. `--no-single-window-ms` images the original MS with `-spws`/`-field`
+instead. Each WSClean gets `-j <num-cores>`, `-field <target_field_ids>` when
+the CSV has that column, and `-mem` set to its share of the node
+(`--task-memory-gb` gives an absolute `-abs-mem` limit instead). It runs with
+`OPENBLAS_NUM_THREADS=1`, since WSClean refuses to start otherwise when linked
+against a threaded OpenBLAS. `--backend sync` runs the tasks one at a time in
+the current process, which is handy for a smoke test on one MS.
 
-## Frontend Pages
+### Cubes, self-calibration and primary-beam correction
 
-The frontend exposes:
+`image-from-ms` makes the continuum image of every window by default. Other
+products are opt-in; [`almasim image image-from-ms`](cli.md#almasim-image-image-from-ms)
+lists every option.
 
-- `Combination` page for TP/INT comparison products
-- `Imaging` page for the Wiener preview of a simulation's dirty and beam cubes
-- `Visualizer` page for general product inspection
+- `--cube` also images each window as a spectral cube
+  (`wsclean-cube-<product>.fits`). The channel count follows
+  `--spectral-sampling`, `--velocity-resolution` and `--max-cube-gb`;
+  `--plan-only` prints the channel plan and the projected volume without
+  imaging. `--cube-products` chooses which of image, residual, psf, model and
+  dirty to keep.
+- `--contsub` writes an image-plane continuum-subtracted cube;
+  `--uv-contsub` subtracts the continuum from the visibilities (CASA
+  `uvcontsub`) before imaging instead.
+- `--selfcal` self-calibrates each window with CASA `gaincal` before imaging,
+  one round per solution interval (e.g. `inf,30s,ap:inf`). A round is kept
+  only if the continuum S/N rises. With `--noise-products` (the default) it
+  also keeps what self-calibration removed and the gain tables.
+- `--pbcor` writes the primary beam (`wsclean[-cube]-pb.fits`, CASA's ALMA
+  Airy model) and the corrected images (`wsclean[-cube]-image.pbcor.fits`).
+  `almasim image pb-correct` adds them to an existing run.
 
-## Example
+### Cleaning quality
 
-The example CLI in [`examples/imaging_cli.py`](../examples/imaging_cli.py) generates synthetic imaging products and validates that the reconstruction improves on the dirty cube.
+`almasim image clean-quality <output_root>` measures how much source signal
+the clean left in the residuals of each task. It writes `quality.json` per
+task (continuum and cube statistics), moment maps of the line and of the
+residual for cubes (`quality/cube-*.fits`), and a summary CSV
+(`clean-quality.csv`). `almasim.services.imaging.quality` documents each
+statistic.
+
+## Web console
+
+The [web console](console.md) uses the same commands:
+
+- *Imaging* runs `compute-parameters`, `image-from-ms` and `clean-quality`
+  on a folder of calibrated MeasurementSets and follows the windows as they
+  finish.
+- *Products* shows the images and cubes side by side with their cleaning
+  quality, and runs the Wiener preview of a simulation's dirty and beam cubes.

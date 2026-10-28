@@ -98,7 +98,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--scheduler-host",
         default=None,
-        help="Host advertised by scheduler (defaults to submit-side HOSTNAME)",
+        help=(
+            "Host advertised by scheduler (defaults to the address routed to the "
+            "partition's nodes; give this or --scheduler-interface, not both)"
+        ),
     )
     parser.add_argument(
         "--scheduler-interface",

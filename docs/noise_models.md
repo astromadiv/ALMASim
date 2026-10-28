@@ -19,8 +19,10 @@ It has four parts:
    from real archive data to a new, validated, released model, with every
    command and every file, and the numbers real windows give.
 
-Shorter reference material lives in [Noise](noise.md) and in the
-[command-line reference](cli.md).
+[Noise](noise.md) is the shorter overview: the noise a run has without a
+model, how ALMA's channels follow from the archive's resolution, and a
+summary of the commands. Every option is in the
+[command-line reference](cli.md#almasim-noise).
 
 
 ## What a noise model is
@@ -55,8 +57,9 @@ not sky. ALMASim calls each such thing a **component** of the noise model:
 
 A **noise model** says which of these components a simulation applies and
 how strong each one is. It is a small JSON file. ALMASim ships the released
-ones (today `alma`, version 1, measured on 100 real ALMA windows) and you can
-write or build your own.
+ones (today `alma`, version 1, set from measurements of 100 real, calibrated
+ALMA cycle 11 windows; its `provenance` says where each value comes from)
+and you can write or build your own.
 
 ### Words used on this page
 
@@ -82,7 +85,7 @@ write or build your own.
 ### The shortest path
 
 ```
-almasim simulation run --metadata-path rows.csv --row-idx 0 \
+almasim simulation --metadata-path rows.csv --row-idx 0 \
     --output-dir sims/ --project-name demo --noise-model alma
 ```
 
@@ -105,17 +108,19 @@ turned into components.
 Every component can be switched off, or you can keep only some:
 
 ```
-# Everything alma has, except the two errors calibration leaves on bright sources:
-almasim simulation run ... --noise-model alma --noise-without fast_phase,baseline_errors
+# Everything alma has, except the in-scan phase and the baseline errors:
+almasim simulation ... --noise-model alma --noise-without fast_phase,baseline_errors
 
 # Only the thermal noise and its channel correlation:
-almasim simulation run ... --noise-model alma --noise-only radiometer,channel_correlation
+almasim simulation ... --noise-model alma --noise-only radiometer,channel_correlation
 ```
 
-The components are **separable**: each one draws its own random numbers, so
-switching one off leaves every other component's realisation exactly as it
-was. Two runs with the same seed, one with and one without `fast_phase`,
-differ only by the fast phase.
+The components are **separable**: each one that draws random numbers draws
+them from its own stream, so switching one off leaves the other components'
+realisations as they were. Two runs with the same seed, one with and one
+without `fast_phase`, differ only by the fast phase. (`channel_correlation`
+is the exception: it shapes the thermal noise itself, so switching it off
+changes the thermal noise's draws.)
 
 A selection is part of the model's identity. The run records it: in the
 products' metadata (`noise_model`: name, version, label such as
@@ -162,6 +167,8 @@ This is `alma@1`, annotated (the real file has no comments):
     "method": "hand-set from per-window fits",
     "data": "MADIV-16, 100 windows of ALMA cycle 11 calibrated data",
     "windows": 100,
+    "date": "2026-10-25",
+    "notes": "...",             // which value comes from which windows
     "values": null              // filled by noise aggregate: per value, n windows and spread
   },
   "settings": {                 // values several components share
@@ -187,6 +194,8 @@ Every component also takes `"enabled": false`, which keeps it in the file but
 does not apply it. Parameters have bounds (a correlation between 0 and 1, an
 rms not below 0, ...); a file with an unknown component, an unknown
 parameter or a value out of bounds is refused with a message naming it.
+`almasim noise schema` prints the full JSON Schema, also kept in the
+repository as [`docs/noise-model.schema.json`](noise-model.schema.json).
 
 
 ## The components, one by one
@@ -251,8 +260,8 @@ dish's area, `eta_a` its aperture efficiency, `eta_c` the quantisation and
 correlator efficiency, `n_pol = 2` the hands averaged into Stokes I, `dnu`
 the channel's *noise bandwidth* (wider than its width when channels are
 smoothed; the MS's `EFFECTIVE_BW`) and `t` the integration time. `Tsys` is
-the receiver's temperature `Trx` plus the sky's, referred to above the
-atmosphere.
+the receiver's temperature `Trx` plus the sky's (with `atmospheric_tsys`,
+referred to above the atmosphere).
 
 **How it shows in real data.** As noise that is the same, on average, in
 every channel and on every baseline, and that integrates down as 1/sqrt(t)
@@ -274,9 +283,9 @@ in images.
 - *One visibility's noise.* Stokes I, `I = (XX + YY) / 2`, from its lag-3
   differences: `sigma_I^2 = mean |I(k) - I(k+3)|^2 / 4` (values 20 times
   their channel's median left out), and the *unit noise*
-  `unit = sigma_I sqrt(t dnu)` (`visibility.unit_jy`, in Jy s^0.5 Hz^0.5),
+  `unit = sigma_I sqrt(t w)` (`visibility.unit_jy`, in Jy s^0.5 Hz^0.5),
   which no longer depends on the integration time `t` and channel width
-  `dnu`, so windows can be compared.
+  `w` (the MS's `CHAN_WIDTH`), so windows can be compared.
 - *Tsys.* From the MS's `SYSCAL` table: the Tsys window on the same baseband
   that covers the science window's channels, its spectrum's median over
   antennas and times, the mean of its two hands, its rolled-off edges
@@ -286,10 +295,11 @@ in images.
   efficiency with the measured Tsys and unit noise:
 
   ```
-  eta = 2 k Tsys / (2 A unit) / sqrt(EFFECTIVE_BW / channel width)
+  eta = 2 k Tsys / (2 A unit) / sqrt(EFFECTIVE_BW / w)
   ```
 
-  (`visibility.efficiency`; it is eta_a x eta_c, 0.4 to 0.65 on real data).
+  (`visibility.efficiency`, with the Tsys in kelvin and the unit noise
+  converted to SI; it is eta_a x eta_c, 0.4 to 0.65 on real data).
 
 **How it becomes the model's value** (`noise aggregate`):
 
@@ -297,16 +307,19 @@ in images.
   archive's precipitable water vapour, given to `noise extract --pwv`) and
   an elevation, ALMASim's own Tsys model is evaluated at `Trx` = 0 K and
   100 K (it is linear in `Trx`) to find the `Trx` that gives the measured
-  median Tsys. The median over the windows of each band replaces that band's
-  receiver temperature.
+  median Tsys. The median over the windows of each row of the table (one
+  band, or bands 2-3 and 9-10 together) replaces that row's receiver
+  temperature.
 - *Aperture efficiency.* For each dish size (12 m, 7 m), Ruze's law
   `eta_a(nu) = eta0 exp(-(4 pi eps nu / c)^2)`, the surface's rms `eps`
   costing more at higher frequency, is fitted (robustly, in log) to the
-  windows' `efficiency / eta_c`.
+  windows' `efficiency / eta_c`. A dish size needs at least five windows
+  (or `--min-windows`, if more).
 
-**How the simulator applies it.** For each array configuration ALMASim
-computes, per channel, the Tsys (receiver temperature from the model's
-table by frequency, plus the sky; see `atmospheric_tsys`), the SEFD with the
+**How the simulator applies it.** For each interferometric array
+configuration (total power keeps the S/N-scaled noise) ALMASim computes, per
+channel, the Tsys (receiver temperature from the model's table by
+frequency, plus the sky; see `atmospheric_tsys`), the SEFD with the
 dish's Ruze efficiency at the window's mean frequency, and sigma from the
 radiometer equation with the window's noise bandwidth and the simulator's
 own integration time. Every visibility gets complex Gaussian noise of that
@@ -316,14 +329,15 @@ observation would reach. The exported MS's WEIGHT is
 the ALMA pipeline's `statwt` sets it, and its two hands carry independent
 noise (XX = I + d, YY = I - d), each at half the Stokes I weight.
 
-Without `radiometer`, the noise is instead scaled so the source reaches the
-run's target S/N (from the archive's sensitivity), and only its shape across
-the window follows Tsys.
+Without `radiometer`, the noise is instead scaled to the run's target S/N
+(from the archive's sensitivities; see
+[Noise](noise.md#without-a-noise-model)), and only its shape across the
+window follows Tsys.
 
 | Parameter | Meaning | alma@1 |
 | --- | --- | --- |
-| `receiver_temperature_k` | Trx (K) by upper frequency edge (GHz) | 32 (band 1), 39 (2-3), 37 (4), 50 (5), 46 (6), 63 (7), 110 (8), 160 (9-10) |
-| `aperture` | Ruze eta0 and surface rms (m) per dish | 12 m: 0.76, 27 um; 7 m: 0.72, 24 um |
+| `receiver_temperature_k` | Trx by frequency: rows of `upper_ghz` (the row's upper edge, GHz; null for the last), `trx_k` (K) and `bands`, edges rising | 32 (band 1), 39 (2-3), 37 (4), 50 (5), 46 (6), 63 (7), 110 (8), 160 (9-10) |
+| `aperture` | Ruze parameters per dish: rows of `diameter_m`, `eta0` and `surface_rms_m` (another diameter takes the 12 m dish's) | 12 m: 0.76, 27 um; 7 m: 0.72, 24 um |
 | `quantisation_efficiency`, `correlator_efficiency` | eta_c = their product | 0.96 x 0.88 |
 
 Left out, these take ALMA's values from
@@ -358,11 +372,13 @@ Tsys = (1 + g) exp(A tau) (Trx + Tsky + g Tsky_image)
 ```
 
 with `A` the airmass, `tau` the zenith opacity, `g` the band's image-band
-gain (about 0.1 for the sideband-separating bands 3 to 8, 1 for bands 9 and
-10) and the image band one IF centre on the other side of the local
-oscillator, on whichever side gives the lower Tsys. Off, the sky is a smooth
-function of frequency instead,
-`Tsky = Tground (1 - exp(-tau))`, `tau = (0.005 + 0.0025 PWV) A (1 + nu / 400 GHz)`.
+gain (0 for band 1, 0.1 for the sideband-separating bands 2 to 8, whose
+rejection is about 10 dB, and 1 for the double-sideband bands 9 and 10) and
+the image band one IF centre on the other side of the local oscillator, on
+whichever side gives the lower Tsys. Off, the sky is a smooth function of
+frequency instead, and Tsys is simply `Trx + Tsky`, with
+`Tsky = Tground (1 - exp(-tau))` and
+`tau = (0.005 + 0.0025 PWV) A (1 + nu / 400 GHz)` (PWV in mm).
 
 ### `receiver_ripple`: the receiver's ripple
 
@@ -377,7 +393,8 @@ the measured noise profile to SYSCAL's Tsys^2 profile, 5% of the channels at
 each edge left out, fitted with Legendre polynomials of order 1 to 4 (smooth
 shapes, so the per-channel sampling noise stays out); the rms of that smooth
 fit, halved (the profile is a variance, Tsys squared, so its ripple is twice
-Tsys'), is one window's ripple. The model's `rms` is the median over windows.
+Tsys'), is one window's ripple. Windows with fewer than 32 channels or no
+SYSCAL Tsys are skipped. The model's `rms` is the median over windows.
 
 **How the simulator applies it.** Per array configuration, a random smooth
 curve across the window, the sum of Legendre modes 1 to 4 with equal
@@ -419,13 +436,14 @@ windows whose channels are native (rho1 above 0.5, i.e. not averaged). The
 model holds the *native* correlation; the averaging of each simulated window
 is applied on top.
 
-**How the simulator applies it.** It builds a three-tap kernel (a, b, a) with
-unit norm whose output has exactly the asked correlations (rho1 = 2ab,
-rho2 = a^2), takes the window's averaging N (from the archive's spectral
-resolution, unless `average` sets it) to dilute rho1 and rho2, and makes each
-channel's noise as `a w(k-1) + b w(k) + a w(k+1)` from white draws `w`, each
-keyed by its channel, so that channel tasks running separately share their
-neighbours' draws.
+**How the simulator applies it.** It first dilutes rho1 and rho2 over the
+window's averaging N (from the archive's spectral resolution, unless
+`average` sets it; see [Noise](noise.md#channels)), then builds a three-tap
+kernel (a, b, a) with unit norm whose output has those correlations
+(rho1 = 2ab, rho2 = a^2; when no such kernel exists, the one that matches
+rho1), and makes each channel's noise as `a w(k-1) + b w(k) + a w(k+1)` from
+white draws `w`, each keyed by its channel, so that channel tasks running
+separately share their neighbours' draws.
 
 | Parameter | Meaning | alma@1 |
 | --- | --- | --- |
@@ -447,9 +465,9 @@ as heavier tails in the distribution of the visibility noise.
 and hand `h`, the mean lag-3 variance `v(a, k, h)` over the baselines that
 include that antenna. It is factored into an antenna term, a channel term and
 what is left, `v = A(a, h) C(k, h) L(a, k, h)`, by five rounds of alternating
-means (the antennas with most of the data, the channels with at least 50
-samples for every antenna). The leftover `L - 1` is the antennas' own shape;
-its rms beyond what sampling alone gives (`sqrt(mean(1 / n))`, n the samples
+means (the antennas with at least half the typical amount of data, the
+channels with more than 50 samples for every antenna). The leftover `L - 1`
+is the antennas' own shape; its rms beyond what sampling alone gives (`sqrt(mean(1 / n))`, n the samples
 per value) is `antenna_shape.excess_rms`, and the channel lag at which its
 autocorrelation falls to half, times the channel width, is
 `antenna_shape.half_width_mhz`. The shapes themselves, smoothed over 16
@@ -490,8 +508,8 @@ ln|r(i,j)| = a(i) + a(j)            arg r(i,j) = p(i) - p(j)
 The rms of the antenna terms `a` (each scan's mean removed) is the
 antennas' amplitude scatter, `ant_lnamp_rms`. The same is computed for a
 reference (the clean model times the phase screens already fitted, plus
-thermal noise; the `slow_phase` section below explains how references are built),
-and the gain amplitude error is the excess in quadrature:
+thermal noise; the `slow_phase` section below explains how references are
+built), and the gain amplitude error is the excess in quadrature:
 
 ```
 gain_amp_rms = sqrt(real ant_lnamp_rms^2 - reference ant_lnamp_rms^2)
@@ -501,11 +519,14 @@ It is fitted twice: once against the slow screen alone (so the fast screen
 can be fitted against the gains), and once more with the fast screen too
 (its decorrelation also scatters the antennas' amplitudes).
 
-**How it becomes the model's value.** The median over the fitted windows.
+**How it becomes the model's value.** The median of `gain_amp_rms` over the
+fitted windows. The phase error is not fitted, so `phase_rms_deg` keeps the
+base model's.
 
-**How the simulator applies it.** For each array configuration and scan,
-each antenna draws an amplitude `1 + N(0, amp_rms)` (clipped at 0) and a
-phase `N(0, phase_rms_deg)`. Every visibility of baseline (i, j) in that scan
+**How the simulator applies it.** For each run of an array configuration
+(one per execution block) and each scan, each antenna draws an amplitude
+`1 + N(0, amp_rms)` (clipped at 0) and a phase `N(0, phase_rms_deg)`. Every
+visibility of baseline (i, j) in that scan
 has its sky part multiplied by `g(i) conj(g(j))`, and its noise by the gain's
 amplitude `|g(i) g(j)|` (as in real data, where calibration scales the noise
 with the gain; the exported WEIGHT includes it). The draws come from the
@@ -560,8 +581,9 @@ ones, more than thermal noise explains.
    give values the simulator would not reproduce. This way, the fitted value
    is what the simulator needs to make data like the real data.
 
-At least three bins with 20 groups each are needed; a fainter window gets no
-fit (`fit.json` says so in `notes`).
+At least three bins with 20 groups each are needed, or no slow phase is
+fitted. A window with fewer than 20 bright groups in all is too faint for
+any of the fits (`fit.json` says so in `notes`).
 
 **How it becomes the model's value.** The medians of `path_um_1km` and
 `slope` over the fitted windows.
@@ -569,8 +591,9 @@ fit (`fit.json` says so in `notes`).
 **How the simulator applies it.** For each scan it draws a turbulent screen
 (power spectrum `k^-(2 slope + 2)` with the outer scale, on 10 m pixels over
 the array), scaled so its rms path difference 1 km apart is `path_um_1km`
-microns, and reads each antenna's extra path at its position. The phase of
-baseline (i, j) is `2 pi (path(i) - path(j)) / wavelength`, so it is larger
+microns (set at 150 m, where the screen follows its power law, and carried
+to 1 km along it), and reads each antenna's extra path at its position. The
+phase of baseline (i, j) is `2 pi (path(i) - path(j)) / wavelength`, so it is larger
 at higher frequencies, as in real data. It multiplies the sky part of the
 visibilities, constant over the scan.
 
@@ -608,7 +631,9 @@ more than three times the fit's scatter. A window whose data rise above
 the model (mean ln|r| above 0.05 in any bin) has a clean model that does not
 match its source, and gets no fast fit.
 
-**How it becomes the model's value.** The medians over the fitted windows.
+**How it becomes the model's value.** The medians of `path_um_1km` and
+`slope` over the fitted windows. The coherence time is not fitted:
+`coherence_s` keeps the base model's.
 
 **How the simulator applies it.** Per integration, a fresh turbulent screen,
 blended with the previous one as `a x previous + sqrt(1 - a^2) x fresh` with
@@ -647,10 +672,10 @@ baseline_amp_rms = sqrt(real nonclosing_lnamp_rms^2 - reference nonclosing_lnamp
 **How it becomes the model's value.** The medians over the fitted windows.
 
 **How the simulator applies it.** For each baseline and scan, a complex
-factor `exp(N(0, amp_rms) + i N(0, phase_rms_deg))`, from its own random
-stream. It multiplies only each channel's *continuum* share of the source
-(`1 + f (b - 1)`, with `f` the continuum's fraction in that channel), since
-what does not close in real data is mostly continuum structure; line
+factor `b = exp(N(0, amp_rms) + i N(0, phase_rms))`, with `phase_rms` the
+`phase_rms_deg` in radians, from its own random stream. It multiplies only
+each channel's *continuum* share of the source (`1 + f (b - 1)`, with `f`
+the continuum's fraction in that channel), since what does not close in real data is mostly continuum structure; line
 emission is left alone. An external sky model, whose continuum is not known
 separately, takes it on all its emission.
 
@@ -665,7 +690,7 @@ Not components, but values components share:
 
 | Setting | Meaning | alma@1 |
 | --- | --- | --- |
-| `scan_length_s` | the length of a scan: gains, slow phase and baseline errors hold for one; the exported MS numbers its scans by it | 300 |
+| `scan_length_s` | the length of a scan: gains, slow phase and baseline errors hold for one, and the exported MS numbers its scans by it; 0 (the default when left out) makes the whole observation one scan | 300 |
 | `outer_scale_km` | the largest scale of the turbulent screens | 3 |
 
 
@@ -675,7 +700,8 @@ This example builds a new `alma` model from real ALMA windows, checks it,
 and releases it. Every step runs on a Slurm cluster (`--backend slurm`); each
 also runs on one machine without it. Each step's output is the next one's
 input, all in one folder (`noise/` below). The numbers shown come from real
-MADIV-16 windows.
+ALMA cycle 11 windows (those of the MADIV-16 study that `alma@1` was set
+from).
 
 ### What you need
 
@@ -688,7 +714,7 @@ MADIV-16 windows.
    (for example `cubes/uid___A002_X114a61b_X31de.ms.split/SPW-31_FIELD-2/`)
    holds its clean models, residuals and `quality.json`. `noise fit` reads
    the clean models; `noise validate` compares the images.
-3. **The archive rows** of the windows (`almasim metadata query --save-csv
+3. **The archive rows** of the windows (`almasim metadata --save-csv
    rows.csv ...`), with a `name` column added that names each row's window.
    `noise validate` simulates each window from its row.
 4. **python-casacore** (`pip install 'almasim[ms-casacore]'`), to read the
@@ -749,7 +775,7 @@ This is window 81 (band 6, 12 m), shortened:
   },
   "visibility": {
     "sigma_jy": 0.369,     // one Stokes I visibility (6 s, 7.8 MHz)
-    "unit_jy": 2538.7,     // sigma x sqrt(t x dnu)
+    "unit_jy": 2538.7,     // sigma x sqrt(t x w)
     "efficiency": 0.628    // aperture x correlator efficiency implied with Tsys
   },
   "tsys": {"median_k": 133.7, "profile": [0.8452, 0.8481, ...], "spectral_window": 23},
@@ -766,9 +792,13 @@ almasim noise fit --windows windows.csv --out noise/ --backend slurm \
 
 It needs Step 1's `window.json` (it reads the noise level and channel
 correlation from it) and the `task_dir` column. It writes
-`noise/windows/<name>/fit.json`. Faint windows get a `fit.json` saying why
-nothing was fitted. Five bright windows took 47 minutes and up to 24 GB (most
-of it Sgr A, an 83 GB MS).
+`noise/windows/<name>/fit.json`; failures are listed in
+`noise/failures-fit.json`. Faint windows get a `fit.json` saying why nothing
+was fitted. By default the clean model is the continuum model where the real
+continuum image is above 5 sigma (widened by the beam) plus the cube model
+in the line channels, inside the line mask (`--continuum-model`,
+`--line-model` to change). Five bright windows took 47 minutes and up to
+24 GB (most of it Sgr A, an 83 GB MS).
 
 This is SPT0441-46 (band 7), shortened:
 
@@ -811,7 +841,7 @@ The candidate is an ordinary model file:
 
 ```
 almasim noise show noise/candidate.json
-almasim simulation run --metadata-path rows.csv --row-idx 0 --output-dir try/ \
+almasim simulation --metadata-path rows.csv --row-idx 0 --output-dir try/ \
     --noise-model noise/candidate.json
 ```
 
@@ -826,9 +856,14 @@ almasim noise validate --model noise/candidate.json --windows windows.csv \
 ```
 
 For each window, ALMASim simulates it from its archive row with the
-candidate (a point source at the window's frequency, with its channels, one
-execution block), measures the simulated MS with `noise extract`, images it
-as the real windows were imaged, and measures both images. All of it goes
+candidate (a point source at the window's frequency, with its channels, up
+to 960 of them, one execution block), measures the simulated MS with
+`noise extract`, images it as the real windows were imaged
+(`image compute-parameters`, `image image-from-ms --cube --uv-contsub`,
+`image clean-quality`), and measures the residuals of both images: their
+noise level, skew, kurtosis and 5-sigma tails, the area of their noise's
+autocorrelation in beams, and in the cube the spread of the channel noise
+and the correlation of neighbouring channels. All of it goes
 under `noise/validation/<the model's sha256, 12 characters>/`, so validations
 of different models never mix. At the end, `noise compare` writes
 `comparison.json` and prints a table: per metric, the median of the
@@ -844,7 +879,7 @@ The default criteria:
 | --- | --- |
 | continuum, cube and visibility noise | each median ratio is within 5% of 1 |
 | simulated visibilities against their WEIGHT | the median `scale` is within 1% of 1 |
-| those three noise levels | none differs at p below 0.01 |
+| those three noise levels | none differs at p below 0.01 (p needs six or more windows) |
 | each band and array group | its median continuum noise ratio is within 10% of 1 (groups of 3 or more windows) |
 
 This is `alma@1` validated on four real windows (band 3 and band 6 12 m, a
@@ -877,9 +912,12 @@ to look next: the simulated antennas' own noise ripple is weaker than the
 real one (`antenna_shape.excess_rms` 0.023 lower), which a candidate built
 by `noise aggregate` from these windows would raise.
 
-Write other criteria to a JSON file and pass `--criteria file.json`, for
-example `{"noise_tolerance": 0.1, "checked": []}`. `noise compare` alone
-re-judges what `noise validate` produced.
+Write other criteria to a JSON file and pass `--criteria file.json`. Its
+keys are `noise_tolerance` (0.05), `weight_tolerance` (0.01), `min_p`
+(0.01), `group_tolerance` (0.10) and `checked` (the metrics whose p is
+checked: the three noise levels), for example
+`{"noise_tolerance": 0.1, "checked": []}`. `noise compare` alone re-judges
+what `noise validate` produced.
 
 ### Step 6: release it (`noise promote`)
 
@@ -890,10 +928,14 @@ almasim noise promote noise/candidate.json \
 
 It refuses unless that comparison is of this very model (same SHA-256) and
 passed. It writes `src/almasim/services/noise_model/models/alma-2.json` in
-your ALMASim checkout. You then open a pull request that adds it: `alma`
-then means version 2, `alma@1` stays available, the tests that pin `alma`'s
-values are updated, and if the default model changes what runs produce, the
-pull request is labelled `golden:supersede` with a new golden baseline.
+your ALMASim checkout (`--models-dir` to write elsewhere), the version being
+the newest released one plus 1. You then open a pull request that adds it:
+`alma` then means version 2, `alma@1` stays available, the tests that pin
+`alma`'s values are updated, and if the default model changes what runs
+produce, the pull request is labelled `golden:supersede` with a new golden
+baseline. The golden simulation runs one case through
+`--noise-model alma@1`, so the noise components' code path is under the
+gate.
 
 ### All of it as one chain of jobs
 
@@ -907,8 +949,10 @@ steps = noise_model_from_windows(
 submit_pipeline(steps, load_profile(), title="alma from cycle 11")
 ```
 
-Extract, fit, aggregate and validate run as Slurm jobs, each starting when
-the one before it succeeds; promotion stays a person's decision.
+Extract, fit, aggregate and validate run as ALMASim jobs (Slurm jobs under
+a cluster profile), each starting when the one before it succeeds; the
+`extract`, `fit` and `validate` arguments add options to those steps.
+Promotion stays a person's decision.
 
 
 ## Adding a component
@@ -935,8 +979,9 @@ the observation, and you want ALMASim to simulate it.
    `amplitude_drift: AmplitudeDrift | None = None`.
 3. **Simulate it**: add `amplitude_drift_rms: float = 0.0` to
    `CorruptionModel` (`interferometry/corruptions.py`) and apply it where the
-   antenna errors are drawn, from a random stream of its own
-   (`rng.spawn`), so it does not move the other components' draws.
+   antenna errors are drawn (`draw_antenna_corruptions`), from a random
+   stream of its own spawned after the existing ones (`rng.spawn`), so it
+   does not move the other components' draws.
 4. **Measure it** (optional, but how a model gets its value): a statistic in
    `noise extract` or `noise fit`, and its reduction in `noise aggregate`.
 5. Run `scripts/generate_noise_model_schema.py` and
@@ -952,7 +997,8 @@ none another component sets.
 
 | Message | Meaning, and what to do |
 | --- | --- |
-| `no released noise model 'x'` / `not a released model` | the name is not released and no such file exists; `almasim noise show` lists the released ones |
+| `not a released model` / `no released noise model 'x'` | the name is not released and no such file exists; `almasim noise show` lists the released ones |
+| `noise model 'alma' has no version n` | that version was never released; the message lists the ones that were |
 | `unknown noise component(s) ...` | a misspelt component in `--noise-only`/`--noise-without`; `almasim noise components` lists them |
 | `... has no component(s) ...` | the model does not hold that component (it was left out of its file) |
 | `run noise extract first` (noise fit) | `fit` needs the window's `window.json`, made by `extract` for the same MS, spw and field |
@@ -968,8 +1014,8 @@ none another component sets.
 | What | Where |
 | --- | --- |
 | model files, schema, selection | `src/almasim/services/noise_model/` |
-| the simulator's corruptions | `src/almasim/services/interferometry/corruptions.py`, `noise.py`, `atmosphere.py` |
-| ALMA's radiometer data | `src/almasim/services/interferometry/data/alma_radiometer.json` |
+| the simulator's corruptions, thermal noise and Tsys | `src/almasim/services/interferometry/corruptions.py`, `noise.py`, `atmosphere.py` |
+| ALMA's radiometer data, the atmosphere table | `src/almasim/services/interferometry/data/alma_radiometer.json`, `atm_chajnantor.npz` |
+| ALMA's channels (averaging, correlation, noise bandwidth) | `src/almasim/services/instrument/channels.py` |
 | extract, fit, aggregate, validate, compare, promote | `src/almasim/services/noise/` |
 | the commands | `src/almasim/cli/noise.py` (`almasim noise ...`) |
-| the research these come from | `research/noise_realism/` on branch `MADIV-28-n0-noise-realism` |
