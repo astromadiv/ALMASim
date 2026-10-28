@@ -21,7 +21,9 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ClassVar
+from urllib.parse import urlsplit
 
+from almasim.jobs.rundir import RUN_DIR_ENV, DashboardAddress, clear_dashboard, write_dashboard
 from almasim.services.paths import UnsafePathError, safe_join
 
 logger = logging.getLogger(__name__)
@@ -270,6 +272,9 @@ class SlurmDaskClusterSingleton:
         scheduler_options = dict(cluster_kwargs.pop("scheduler_options", {}))
         if effective_scheduler_host and "host" not in scheduler_options:
             scheduler_options["host"] = effective_scheduler_host
+        # Any free port: two drivers on one node both asked for 8787, and the
+        # console finds the port in the run folder anyway (_record_dashboard).
+        scheduler_options.setdefault("dashboard_address", ":0")
 
         job_script_prologue = list(cluster_kwargs.pop("job_script_prologue", []))
         if submit_hostname and not any(
@@ -321,6 +326,7 @@ class SlurmDaskClusterSingleton:
         self.cluster.scale(n_jobs)
         self.client = Client(self.cluster)
         logger.info("Dask dashboard: %s", getattr(self.client, "dashboard_link", None))
+        self._record_dashboard()
         logger.info("Slurm worker logs (dask-worker stdout/stderr): %s", log_directory)
         self._config_signature = (
             queue,
@@ -332,6 +338,24 @@ class SlurmDaskClusterSingleton:
             scheduler_host,
             scheduler_interface,
         )
+
+    def _record_dashboard(self) -> None:
+        """Note the dashboard's address in the job's run folder, for the console to relay.
+
+        Only inside a console job (the wrapper sets ``$ALMASIM_RUN_DIR``) and
+        only when the scheduler serves a dashboard (distributed needs bokeh).
+        """
+        run_dir = os.environ.get(RUN_DIR_ENV)
+        if not run_dir:
+            return
+        port = self.cluster.scheduler_info.get("services", {}).get("dashboard")
+        host = urlsplit(self.cluster.scheduler_address).hostname
+        if not port or not host:
+            return
+        try:
+            write_dashboard(run_dir, DashboardAddress(host=host, port=int(port)))
+        except OSError as exc:
+            logger.warning("Could not record the Dask dashboard in %s: %s", run_dir, exc)
 
     def unreachable_scheduler_report(self) -> str | None:
         """Why the worker jobs cannot reach the scheduler, from their logs, or None.
@@ -434,6 +458,8 @@ class SlurmDaskClusterSingleton:
             cls._instance.client.close()
             cls._instance.cluster.close()
             cls._instance = None
+            if os.environ.get(RUN_DIR_ENV):
+                clear_dashboard(os.environ[RUN_DIR_ENV])
         cls._holders = 0
 
     def submit_callable(self, func: Callable[..., Any], *, cores: int, **kwargs: Any) -> Any:

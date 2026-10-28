@@ -45,6 +45,7 @@ def test_a_working_profile_passes(tmp_path, monkeypatch):
             "import almasim": (0, "/x/almasim/__init__.py 3.12.13\n", ""),
             "casatools": (0, "6.7.5\n", ""),
             "import casacore": (0, "3.7.1\n", ""),
+            "import bokeh": (0, "3.9.0\n", ""),
             "wsclean": (0, "\nWSClean version 3.7 (2026-04-24)\n", ""),
             "sinfo": (0, "zwickyA-CPU*\nzwickyB-CPU\n", ""),
         }
@@ -59,6 +60,7 @@ def test_a_working_profile_passes(tmp_path, monkeypatch):
         "python",
         "casatools",
         "casacore",
+        "dashboard",
         "wsclean",
         "casa data",
         "slurm",
@@ -133,3 +135,19 @@ def test_the_cli_reports_and_exits_with_the_result(tmp_path, monkeypatch):
     bad.write_text("runs_rot = 1")
     result = CliRunner().invoke(cli.app, ["doctor", "--profile", str(bad)])
     assert result.exit_code == 1
+
+
+def test_a_python_without_bokeh_warns(tmp_path, monkeypatch):
+    """Without bokeh jobs serve no Dask dashboard: shown, not fatal."""
+    monkeypatch.setattr(doctor_mod.shutil, "which", lambda tool: f"/usr/bin/{tool}")
+    profile = Profile(runs_root=tmp_path / "runs", roots=(tmp_path,), python=sys.executable)
+    run = _fake_run(
+        {
+            "import almasim": (0, "/x/almasim/__init__.py 3.12.13\n", ""),
+            "import bokeh": (1, "", "ModuleNotFoundError: No module named 'bokeh'\n"),
+            "sinfo": (0, "zwickyA-CPU*\n", ""),
+        }
+    )
+    checks = {c.name: c for c in run_checks(profile, run)}
+    assert not checks["dashboard"].ok and not checks["dashboard"].required
+    assert "dashboard extra" in format_report(list(checks.values()))

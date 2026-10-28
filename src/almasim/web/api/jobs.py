@@ -18,7 +18,7 @@ from almasim.jobs.catalog import validate
 from almasim.jobs.executors.slurm import SlurmError
 from almasim.jobs.model import JobState, ResourcesError
 from almasim.jobs.policy import PolicyError
-from almasim.jobs.rundir import ManifestError
+from almasim.jobs.rundir import ManifestError, read_dashboard
 from almasim.jobs.service import (
     RunError,
     cancel_run,
@@ -100,7 +100,8 @@ def get_job(run_id: str, request: Request) -> dict[str, Any]:
     except ManifestError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     files = sorted(p.name for p in run_dir.iterdir() if not p.name.startswith("."))
-    return {**run_json(current), "files": files}
+    dashboard = not current.state.finished and read_dashboard(run_dir) is not None
+    return {**run_json(current), "files": files, "dashboard": dashboard}
 
 
 def _fresh(run_dir):

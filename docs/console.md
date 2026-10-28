@@ -101,6 +101,16 @@ the files in its run folder, and Slurm's accounting once it ends. From there
 you can cancel it, run it again, edit and run it, or delete a finished run of
 yours.
 
+A running job with Dask workers on Slurm (imaging, the archive's unpacking
+and calibration) gets a *Dask dashboard* button: it opens the dashboard of
+the job's Dask scheduler (tasks, workers, memory) in a new tab. The console
+relays it, so it works through the same SSH tunnel or portal as the console
+itself; there is no port of its own to forward. The scheduler serves it on a
+free port of its node and notes where in the run folder (`dashboard.json`);
+the button appears once that note is there and goes when the run ends. Jobs
+need bokeh in their Python for it (the `dashboard` extra, part of the shared
+install; `almasim doctor` says when it is missing).
+
 ![Jobs](images/console/jobs.png)
 
 ![A job](images/console/job.png)
@@ -140,7 +150,8 @@ imaging parameters of each spectral window, images them all in one Slurm
 driver with its own workers, follows the windows as they finish, and then
 measures how well each was cleaned. The folder to image starts as the
 `calibrated_ms/` of your last archive download that calibrated, and the
-output folder is yours to choose.
+output folder is yours to choose. While the imaging runs, *Dask dashboard*
+shows its workers at work.
 
 ![Imaging](images/console/imaging.png)
 
@@ -216,7 +227,8 @@ runs_root = "~/almasim-runs"
 ## For administrators: the shared install
 
 One environment serves everyone: the Python every job runs (with almasim,
-its web console, casatools, casatasks and python-casacore, at the versions
+its web console, casatools, casatasks, python-casacore and bokeh (for the
+Dask dashboard), at the versions
 in `uv.lock`), a site profile pointing at it, and a file users source.
 
 ```bash

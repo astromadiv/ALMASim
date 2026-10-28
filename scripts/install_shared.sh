@@ -5,8 +5,8 @@
 #
 # makes, under <prefix> (e.g. /SKAO_data/cycle11/almasim):
 #   env/          a Python 3.12 environment with almasim, its web console,
-#                 casatools/casatasks and python-casacore: the Python every
-#                 job runs
+#                 casatools/casatasks, python-casacore and bokeh (for the
+#                 Dask dashboard): the Python every job runs
 #   site.toml     the site profile: the template, with that Python filled in
 #   almasim.sh    what users source: puts almasim on PATH, names the profile
 #   install.env   where it came from (repo, commit, template), which
@@ -40,9 +40,9 @@ uv venv --allow-existing --python 3.12 "$prefix/env"
 # The versions tested (uv.lock), not the newest: a newer casatools, say,
 # can change what calibration gives.
 uv export --project "$repo" --frozen --no-hashes --no-emit-project --extra web --extra casa \
-  --extra ms-casacore --no-default-groups > "$prefix/constraints.txt"
+  --extra ms-casacore --extra dashboard --no-default-groups > "$prefix/constraints.txt"
 uv pip install --python "$prefix/env/bin/python" --constraints "$prefix/constraints.txt" \
-  --reinstall-package almasim "$wheel[web,casa,ms-casacore]"
+  --reinstall-package almasim "$wheel[web,casa,ms-casacore,dashboard]"
 
 python_line="executable = \"$prefix/env/bin/python\""
 sed "s|^executable = .*|$python_line|" "$template" > "$prefix/site.toml"

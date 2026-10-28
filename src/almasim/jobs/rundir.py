@@ -4,6 +4,7 @@
         job.json      the manifest (Job.to_dict()), written by whoever submits
         status.json   started / host / finished / exit code, written by the wrapper
         stdout.log, stderr.log
+        dashboard.json  where the run's Dask dashboard is, while it serves one
 
 The runs root may be shared by a group (the plan puts it under
 /SKAO_data/cycle11): folders are made group-writable with the setgid bit, so
@@ -27,6 +28,10 @@ from .model import Job, JobState, is_job_id
 
 MANIFEST_NAME = "job.json"
 STATUS_NAME = "status.json"
+DASHBOARD_NAME = "dashboard.json"
+# The run folder of the job a process belongs to, set by the wrapper for the
+# command it runs, so code deep in a job (a Dask cluster) can leave a note there.
+RUN_DIR_ENV = "ALMASIM_RUN_DIR"
 
 # rwxrwsr-x: the group can add runs under a day folder; setgid keeps the group.
 _DIR_MODE = 0o2775
@@ -113,6 +118,38 @@ def read_status(run_dir: str | os.PathLike[str]) -> RunStatus:
 def write_status(run_dir: str | os.PathLike[str], status: RunStatus) -> None:
     fields = {k: v for k, v in status.__dict__.items() if v is not None}
     _write_json(Path(run_dir) / STATUS_NAME, fields)
+
+
+@dataclass(frozen=True)
+class DashboardAddress:
+    """Where a running job's Dask dashboard listens (the console relays it)."""
+
+    host: str
+    port: int
+
+
+def write_dashboard(run_dir: str | os.PathLike[str], address: DashboardAddress) -> None:
+    _write_json(Path(run_dir) / DASHBOARD_NAME, {"host": address.host, "port": address.port})
+
+
+def clear_dashboard(run_dir: str | os.PathLike[str]) -> None:
+    (Path(run_dir) / DASHBOARD_NAME).unlink(missing_ok=True)
+
+
+def read_dashboard(run_dir: str | os.PathLike[str]) -> DashboardAddress | None:
+    """The run's dashboard address, or None when it has none.
+
+    Only a note this user wrote counts: the console relays to whatever it
+    names, and in a group-writable runs root anyone could write one.
+    """
+    path = Path(run_dir) / DASHBOARD_NAME
+    try:
+        if path.stat().st_uid != os.getuid():
+            return None
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return DashboardAddress(host=str(data["host"]), port=int(data["port"]))
+    except (OSError, ValueError, TypeError, KeyError):
+        return None
 
 
 def current_state(job: Job, status: RunStatus) -> JobState:
