@@ -26,7 +26,11 @@ from ...utils import LogFn, report
 from ..unpack import casa_log_path
 from .apply import apply_delivered_calibration
 from .cleanup import cleanup_intermediate_calibration_data
-from .discovery import find_calibration_directory, find_raw_ms_directories
+from .discovery import (
+    calibration_not_delivered,
+    find_calibration_directory,
+    find_raw_ms_directories,
+)
 from .split import (
     calibrated_output_path,
     calibration_failure_marker_path,
@@ -103,7 +107,9 @@ def create_calibrated_measurement_sets(
     ``require_pipeline_flags`` is False.
 
     UIDs whose output already carries a completion marker are skipped (and
-    returned) unless ``overwrite`` is set. Partial outputs or working copies
+    returned) unless ``overwrite`` is set. UIDs ALMA delivered without
+    calibration (:func:`calibration_not_delivered`) are skipped and not
+    returned: they are neither calibrated nor a failure. Partial outputs or working copies
     without a marker are leftovers of a failed run and are replaced. With
     ``remove_working_copy`` the per-UID working directory (a full copy of the
     raw MS plus calibration tables) is deleted as soon as the UID finishes.
@@ -182,6 +188,15 @@ def calibrate_measurement_sets(
                     logger, logger_fn, f"{progress} {uid} already calibrated, skipping: {existing}"
                 )
                 calibrated_mss.append(existing)
+                continue
+            if calibration_not_delivered(input_path, uid):
+                report(
+                    logger,
+                    logger_fn,
+                    f"{progress} {uid} was delivered without calibration (e.g. QA0 SemiPass), "
+                    "skipping",
+                )
+                calibration_failure_marker_path(output_path, uid).unlink(missing_ok=True)
                 continue
 
             report(logger, logger_fn, f"{progress} Calibrating {uid}")
