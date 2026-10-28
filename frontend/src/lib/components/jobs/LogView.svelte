@@ -8,7 +8,7 @@
 	import { tick } from 'svelte';
 	import { api } from '#lib/api/v2/client.js';
 	import { consoleUrl } from '#lib/config.js';
-	import { splitChunk, visibleWindow } from '#lib/utils/logLines.js';
+	import { shownText, splitChunk, visibleWindow } from '#lib/utils/logLines.js';
 	import ErrorMessage from '#lib/components/shared/ErrorMessage.svelte';
 
 	type Stream = 'stdout' | 'stderr';
@@ -42,7 +42,7 @@
 	const indices = $derived(
 		Array.from({ length: shown.end - shown.start }, (_, k) => shown.start + k)
 	);
-	const lineAt = (i: number) => (i < lines.length ? lines[i] : partial);
+	const lineAt = (i: number) => (i < lines.length ? lines[i] : shownText(partial));
 
 	// Read the chosen stream from the start, then keep reading while the run lasts.
 	$effect(() => {
