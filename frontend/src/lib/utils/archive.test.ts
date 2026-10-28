@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+	calibratedMsFolder,
+	defaultMsFolder,
 	downloadArgv,
 	filteredBytes,
 	memberOusUids,
@@ -24,15 +26,16 @@ describe('the archive runs', () => {
 		expect(inRunDir('{run_dir}/results.csv', '/runs/01J')).toBe('/runs/01J/results.csv');
 	});
 
+	const base = {
+		productsCsv: '/runs/R/products.csv',
+		destination: '/data/archive',
+		productFilter: 'raw',
+		extract: false,
+		unpack: false,
+		calibrate: false
+	};
+
 	it('download with each post-processing step the next one needs', () => {
-		const base = {
-			productsCsv: '/runs/R/products.csv',
-			destination: '/data/archive',
-			productFilter: 'raw',
-			extract: false,
-			unpack: false,
-			calibrate: false
-		};
 		expect(downloadArgv(base)).toEqual([
 			'products', 'download', '--products-csv', '/runs/R/products.csv',
 			'--destination', '/data/archive', '--product-filter', 'raw'
@@ -46,6 +49,30 @@ describe('the archive runs', () => {
 			'--extract-tar',
 			'--unpack-ms'
 		]);
+	});
+
+	it('put the MeasurementSets in the chosen folder, when they make any', () => {
+		const choice = { ...base, msFolder: ' /data/ms ' };
+		expect(downloadArgv({ ...choice, calibrate: true }).slice(-2)).toEqual([
+			'--archive-output-root',
+			'/data/ms'
+		]);
+		expect(downloadArgv({ ...choice, extract: true })).not.toContain('--archive-output-root');
+		expect(downloadArgv({ ...base, msFolder: '  ', unpack: true })).not.toContain(
+			'--archive-output-root'
+		);
+		expect(defaultMsFolder('/data/archive/')).toBe('/data/archive/archive_ms');
+		expect(defaultMsFolder(' ')).toBe('');
+	});
+
+	it('tell the Imaging page where a download put its calibrated MSs', () => {
+		const run = downloadArgv({ ...base, calibrate: true });
+		expect(calibratedMsFolder(run)).toBe('/data/archive/archive_ms/calibrated_ms');
+		expect(calibratedMsFolder(downloadArgv({ ...base, calibrate: true, msFolder: '/ms/' }))).toBe(
+			'/ms/calibrated_ms'
+		);
+		expect(calibratedMsFolder(downloadArgv({ ...base, unpack: true }))).toBeNull();
+		expect(calibratedMsFolder(['image', 'image-from-ms', '/csv', '/out'])).toBeNull();
 	});
 });
 

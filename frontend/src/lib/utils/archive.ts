@@ -27,6 +27,8 @@ export function resolveArgv(memberOusUids: string[]): string[] {
 export interface DownloadChoice {
 	productsCsv: string;
 	destination: string;
+	/** Where the raw and calibrated MeasurementSets go; empty: <destination>/archive_ms. */
+	msFolder?: string;
 	productFilter: string;
 	extract: boolean;
 	unpack: boolean;
@@ -49,7 +51,28 @@ export function downloadArgv(choice: DownloadChoice): string[] {
 	if (choice.extract || choice.unpack || choice.calibrate) argv.push('--extract-tar');
 	if (choice.unpack || choice.calibrate) argv.push('--unpack-ms');
 	if (choice.calibrate) argv.push('--generate-calibrated-visibilities');
+	if ((choice.unpack || choice.calibrate) && choice.msFolder?.trim()) {
+		argv.push('--archive-output-root', choice.msFolder.trim());
+	}
 	return argv;
+}
+
+/** Where a download puts its MeasurementSets unless told otherwise (the CLI's default). */
+export function defaultMsFolder(destination: string): string {
+	const dest = destination.trim().replace(/\/+$/, '');
+	return dest ? `${dest}/archive_ms` : '';
+}
+
+/** The calibrated-MS folder a `products download` command line writes, or null if it does not calibrate. */
+export function calibratedMsFolder(argv: readonly string[]): string | null {
+	if (argv[0] !== 'products' || argv[1] !== 'download') return null;
+	if (!argv.includes('--generate-calibrated-visibilities')) return null;
+	const valueOf = (flag: string) => {
+		const i = argv.indexOf(flag);
+		return i >= 0 ? (argv[i + 1] ?? null) : null;
+	};
+	const root = valueOf('--archive-output-root') ?? defaultMsFolder(valueOf('--destination') ?? '');
+	return root ? `${root.replace(/\/+$/, '')}/calibrated_ms` : null;
 }
 
 /** CSV rows as records keyed by column. */
