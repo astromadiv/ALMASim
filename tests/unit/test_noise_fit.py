@@ -85,6 +85,7 @@ def _window_ms(truth: CorruptionModel, seed: int = 0) -> tuple[dict[str, FakeTab
                 "CHAN_FREQ": np.array([FREQ]),
                 "CHAN_WIDTH": np.array([np.full(NCHAN, 15.625e6)]),
                 "EFFECTIVE_BW": np.array([np.full(NCHAN, 15.625e6)]),
+                "RESOLUTION": np.array([np.full(NCHAN, 15.625e6)]),
             }
         ),
         "ms/DATA_DESCRIPTION": FakeTable(
