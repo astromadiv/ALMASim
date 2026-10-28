@@ -7,7 +7,7 @@ definitions; edit those and rerun the script instead of this file. -->
 group's commands are listed with their arguments and options. Hidden
 commands (kept for compatibility) are left out.
 
-# `almasim metadata`
+## `almasim metadata`
 
 Query ALMA metadata from TAP and save normalized CSV results.
 
@@ -57,7 +57,7 @@ $ almasim metadata [OPTIONS]
 * `-y, --yes`: Skip confirmation prompt and start the query immediately.
 * `--help`: Show this message and exit.
 
-# `almasim products`
+## `almasim products`
 
 Data product resolution and download commands.
 
@@ -77,7 +77,7 @@ $ almasim products [OPTIONS] COMMAND [ARGS]...
 * `download`: Download ALMA products and optionally...
 * `executions`: Add how many execution blocks observed...
 
-## `almasim products resolve`
+### `almasim products resolve`
 
 Extract member_ous_uid values and resolve ALMA DataLink products.
 
@@ -96,7 +96,7 @@ $ almasim products resolve [OPTIONS]
 * `--save-products-csv <path>`: Destination CSV for resolved DataLink products.  [default: ~/almasim_outputs/resolved_products.csv]
 * `--help`: Show this message and exit.
 
-## `almasim products download`
+### `almasim products download`
 
 Download ALMA products and optionally unpack/calibrate archive data.
 
@@ -138,7 +138,7 @@ $ almasim products download [OPTIONS]
 * `-y, --yes`: Skip confirmation prompt and start download immediately.
 * `--help`: Show this message and exit.
 
-## `almasim products executions`
+### `almasim products executions`
 
 Add how many execution blocks observed each row's MOUS (n_executions).
 
@@ -158,7 +158,7 @@ $ almasim products executions [OPTIONS]
 * `--save-csv <path>`: Destination CSV; defaults to overwriting --metadata-path.
 * `--help`: Show this message and exit.
 
-# `almasim simulation`
+## `almasim simulation`
 
 Run staged ALMASim simulation from a pre-queried metadata CSV.
 
@@ -200,7 +200,7 @@ $ almasim simulation [OPTIONS]
 * `--executions <int range>`: How many of the MOUS's execution blocks to simulate (default: all). A row's Int.Time is the MOUS's total time on source; it is observed in blocks (the row's n_executions, else blocks of at most 3000 s), each a track near transit on its own day. 1 gives a single execution block.  [x>=1]
 * `--help`: Show this message and exit.
 
-# `almasim visibilities`
+## `almasim visibilities`
 
 Visibility processing commands.
 
@@ -222,7 +222,7 @@ $ almasim visibilities [OPTIONS] COMMAND [ARGS]...
 * `spw-overview`: Print the spectral-window summary for one...
 * `flag-summary`: Summarise flagging and visibility...
 
-## `almasim visibilities extract`
+### `almasim visibilities extract`
 
 Extract ALMA archive tarballs as a standalone step.
 
@@ -249,7 +249,7 @@ $ almasim visibilities extract [OPTIONS]
 * `--skip-existing`: Skip archives that have already been extracted (detected via a .done marker file).
 * `--help`: Show this message and exit.
 
-## `almasim visibilities unpack`
+### `almasim visibilities unpack`
 
 Import ASDM directories into raw MeasurementSets as a standalone step.
 
@@ -278,7 +278,7 @@ $ almasim visibilities unpack [OPTIONS]
 * `--continue-on-error / --fail-fast`: Skip UIDs whose processing fails and carry on with the rest, then exit non-zero with a summary (default). --fail-fast aborts on the first failure.  [default: continue-on-error]
 * `--help`: Show this message and exit.
 
-## `almasim visibilities calibrate`
+### `almasim visibilities calibrate`
 
 Create calibrated MeasurementSets as a standalone step.
 
@@ -310,7 +310,7 @@ $ almasim visibilities calibrate [OPTIONS]
 * `--keep-working-copies`: Keep each UID's working directory (raw MS copy plus caltables, about 1.8x the raw MS) after its calibrated output is written. By default it is removed.
 * `--help`: Show this message and exit.
 
-## `almasim visibilities spw-overview`
+### `almasim visibilities spw-overview`
 
 Print the spectral-window summary for one MeasurementSet.
 
@@ -328,7 +328,7 @@ $ almasim visibilities spw-overview [OPTIONS] {input_ms}
 
 * `--help`: Show this message and exit.
 
-## `almasim visibilities flag-summary`
+### `almasim visibilities flag-summary`
 
 Summarise flagging and visibility properties per MS, field and spectral window.
 
@@ -357,7 +357,7 @@ $ almasim visibilities flag-summary [OPTIONS] {inputs}...
 * `--fail-fast`: Abort on the first MS that cannot be read (default: record it and continue).
 * `--help`: Show this message and exit.
 
-# `almasim predict`
+## `almasim predict`
 
 Predict visibilities from one MS or a folder of MSs.
 
@@ -387,7 +387,7 @@ $ almasim predict [OPTIONS] {input_ms_or_folder} {output_directory}
 * `--task-timeout <float range>`: Timeout in seconds for each worker-side command.  [default: 3600; x>=1]
 * `--help`: Show this message and exit.
 
-# `almasim image`
+## `almasim image`
 
 Visibility-to-image and image-to-visibility commands.
 
@@ -408,7 +408,7 @@ $ almasim image [OPTIONS] COMMAND [ARGS]...
 * `clean-quality`: Measure how much source signal the clean...
 * `pb-correct`: Primary-beam correct the images of an...
 
-## `almasim image compute-parameters`
+### `almasim image compute-parameters`
 
 Derive per-spectral-window imaging geometry for every MS in a folder.
 
@@ -436,7 +436,7 @@ $ almasim image compute-parameters [OPTIONS] [archive_folder] [output_metadata_f
 * `--fail-fast`: Abort on the first MS that cannot be read (default: record it and continue).
 * `--help`: Show this message and exit.
 
-## `almasim image image-from-ms`
+### `almasim image image-from-ms`
 
 Image every (MS, spectral window) row of a parameter CSV with WSClean.
 
@@ -506,7 +506,7 @@ $ almasim image image-from-ms [OPTIONS] {imaging_parameters} {output_directory}
 * `--plan-only`: Print the channel plan and the projected cube volume, then exit without imaging.
 * `--help`: Show this message and exit.
 
-## `almasim image clean-quality`
+### `almasim image clean-quality`
 
 Measure how much source signal the clean left in the residuals, task by task.
 
@@ -533,7 +533,7 @@ $ almasim image clean-quality [OPTIONS] {output_root}
 * `--summary <path>`: Summary CSV path (default <output_root>/clean-quality.csv).
 * `--help`: Show this message and exit.
 
-## `almasim image pb-correct`
+### `almasim image pb-correct`
 
 Primary-beam correct the images of an existing image-from-ms run.
 
@@ -558,7 +558,7 @@ $ almasim image pb-correct [OPTIONS] {imaging_parameters} {output_directory}
 * `--cutoff <float range>`: Blank the corrected images where the beam's response is below this.  [default: 0.2; 0.001<=x<=0.999]
 * `--help`: Show this message and exit.
 
-# `almasim preview`
+## `almasim preview`
 
 Previews of products, written as FITS (moment-style maps, Wiener reconstructions).
 
@@ -577,7 +577,7 @@ $ almasim preview [OPTIONS] COMMAND [ARGS]...
 * `integrate`: Integrate a cube along its spectral axis...
 * `wiener`: Reconstruct a simulated observation from...
 
-## `almasim preview integrate`
+### `almasim preview integrate`
 
 Integrate a cube along its spectral axis into one image.
 
@@ -600,7 +600,7 @@ $ almasim preview integrate [OPTIONS] {product} {output}
 * `--complex-part <real|imag|magnitude|phase>`: For visibility cubes: the part to show.  [default: real]
 * `--help`: Show this message and exit.
 
-## `almasim preview wiener`
+### `almasim preview wiener`
 
 Reconstruct a simulated observation from its dirty and beam cubes (Wiener filter).
 
@@ -626,7 +626,7 @@ $ almasim preview wiener [OPTIONS] {dirty} {beam} {output_dir}
 * `--epsilon <float range>`: Wiener regularisation (noise-to-signal power).  [default: 0.001; x>=1e-12]
 * `--help`: Show this message and exit.
 
-# `almasim noise`
+## `almasim noise`
 
 Noise models: released versions, components, schema; measuring real data's noise.
 
@@ -652,7 +652,7 @@ $ almasim noise [OPTIONS] COMMAND [ARGS]...
 * `compare`: Compare the windows noise validate...
 * `promote`: Write a validated candidate as the next...
 
-## `almasim noise show`
+### `almasim noise show`
 
 List the released noise models, or show one.
 
@@ -673,7 +673,7 @@ $ almasim noise show [OPTIONS] [model]
 * `--json`: Print the model's JSON.
 * `--help`: Show this message and exit.
 
-## `almasim noise components`
+### `almasim noise components`
 
 The components a noise model can hold, and their parameters.
 
@@ -687,7 +687,7 @@ $ almasim noise components [OPTIONS]
 
 * `--help`: Show this message and exit.
 
-## `almasim noise schema`
+### `almasim noise schema`
 
 The JSON Schema of a noise model file.
 
@@ -702,7 +702,7 @@ $ almasim noise schema [OPTIONS]
 * `-o, --output <path>`: Write it here (default: print).
 * `--help`: Show this message and exit.
 
-## `almasim noise extract`
+### `almasim noise extract`
 
 Measure real windows' noise: the level against WEIGHT, the channel
 correlation, ALMA's Tsys across the window, one visibility's noise and
@@ -743,7 +743,7 @@ $ almasim noise extract [OPTIONS] [ms]
 * `--task-timeout <float range>`: Timeout in seconds for each worker-side command.  [default: 14400.0; x>=1]
 * `--help`: Show this message and exit.
 
-## `almasim noise fit`
+### `almasim noise fit`
 
 Fit real windows' calibration residuals against their clean models: the
 slow and fast atmospheric phase, the antenna gains' and the baselines' own
@@ -785,7 +785,7 @@ $ almasim noise fit [OPTIONS] [ms]
 * `--task-timeout <float range>`: Timeout in seconds for each worker-side command.  [default: 28800.0; x>=1]
 * `--help`: Show this message and exit.
 
-## `almasim noise aggregate`
+### `almasim noise aggregate`
 
 Reduce the windows' measurements into a candidate noise model: each value
 they measure is their median, with its window count and spread recorded.
@@ -806,7 +806,7 @@ $ almasim noise aggregate [OPTIONS]
 * `--min-windows <int range>`: Windows a value needs; fewer keep the base's.  [default: 3; x>=1]
 * `--help`: Show this message and exit.
 
-## `almasim noise validate`
+### `almasim noise validate`
 
 Simulate the real windows with a noise model, measure and image them as
 the real ones were, and compare (validation/<model sha>/comparison.json).
@@ -846,7 +846,7 @@ $ almasim noise validate [OPTIONS]
 * `--task-timeout <float range>`: Timeout in seconds for each worker-side command.  [default: 43200.0; x>=1]
 * `--help`: Show this message and exit.
 
-## `almasim noise compare`
+### `almasim noise compare`
 
 Compare the windows noise validate simulated with the real ones
 (comparison.json): per metric the median ratio or difference, its range,
@@ -867,7 +867,7 @@ $ almasim noise compare [OPTIONS]
 * `--criteria <path>`: A JSON file of comparison criteria.
 * `--help`: Show this message and exit.
 
-## `almasim noise promote`
+### `almasim noise promote`
 
 Write a validated candidate as the next version of a released model
 (models/<name>-<n+1>.json), refused unless its comparison passed. The pull
@@ -891,7 +891,7 @@ $ almasim noise promote [OPTIONS] {candidate}
 * `--models-dir <path>`: Where released models live (default: this checkout's).
 * `--help`: Show this message and exit.
 
-# `almasim jobs`
+## `almasim jobs`
 
 List, follow and control runs submitted with `almasim submit` or the web console.
 
@@ -914,7 +914,7 @@ $ almasim jobs [OPTIONS] COMMAND [ARGS]...
 * `delete`: Remove a finished run's folder (yours...
 * `resubmit`: Run the same command again, with the same...
 
-## `almasim jobs list`
+### `almasim jobs list`
 
 List runs, newest first.
 
@@ -931,7 +931,7 @@ $ almasim jobs list [OPTIONS]
 * `--profile <path>`: User profile (default: $ALMASIM_PROFILE or ~/.config/almasim).
 * `--help`: Show this message and exit.
 
-## `almasim jobs show`
+### `almasim jobs show`
 
 Show one run: its command, resources, state and files.
 
@@ -950,7 +950,7 @@ $ almasim jobs show [OPTIONS] {run_id}
 * `--profile <path>`: User profile (default: $ALMASIM_PROFILE or ~/.config/almasim).
 * `--help`: Show this message and exit.
 
-## `almasim jobs logs`
+### `almasim jobs logs`
 
 Print a run's output.
 
@@ -971,7 +971,7 @@ $ almasim jobs logs [OPTIONS] {run_id}
 * `--profile <path>`: User profile (default: $ALMASIM_PROFILE or ~/.config/almasim).
 * `--help`: Show this message and exit.
 
-## `almasim jobs cancel`
+### `almasim jobs cancel`
 
 Stop a run (yours only).
 
@@ -990,7 +990,7 @@ $ almasim jobs cancel [OPTIONS] {run_id}
 * `--profile <path>`: User profile (default: $ALMASIM_PROFILE or ~/.config/almasim).
 * `--help`: Show this message and exit.
 
-## `almasim jobs delete`
+### `almasim jobs delete`
 
 Remove a finished run's folder (yours only); outputs written elsewhere stay.
 
@@ -1010,7 +1010,7 @@ $ almasim jobs delete [OPTIONS] {run_id}
 * `--profile <path>`: User profile (default: $ALMASIM_PROFILE or ~/.config/almasim).
 * `--help`: Show this message and exit.
 
-## `almasim jobs resubmit`
+### `almasim jobs resubmit`
 
 Run the same command again, with the same resources, as a new run.
 
@@ -1029,7 +1029,7 @@ $ almasim jobs resubmit [OPTIONS] {run_id}
 * `--profile <path>`: User profile (default: $ALMASIM_PROFILE or ~/.config/almasim).
 * `--help`: Show this message and exit.
 
-# `almasim clean`
+## `almasim clean`
 
 Run WSClean and forward all extra arguments unchanged.
 
@@ -1046,7 +1046,7 @@ $ almasim clean [OPTIONS]
 * `--dry-run`: Print the WSClean command without running it.
 * `--help`: Show this message and exit.
 
-# `almasim doctor`
+## `almasim doctor`
 
 Check the runs root, Python, CASA, WSClean and Slurm the profile names.
 
@@ -1063,7 +1063,7 @@ $ almasim doctor [OPTIONS]
 * `--profile <path>`: User profile (default: $ALMASIM_PROFILE, else ~/.config/almasim/almasim.toml).
 * `--help`: Show this message and exit.
 
-# `almasim update-shared`
+## `almasim update-shared`
 
 Rebuild the shared install from ``ref`` with the recorded repo and template.
 
@@ -1082,7 +1082,7 @@ $ almasim update-shared [OPTIONS]
 * `--force`: Update even while runs are not finished (they may break).
 * `--help`: Show this message and exit.
 
-# `almasim submit`
+## `almasim submit`
 
 Submit ``almasim <command>`` with the profile's defaults and these overrides.
 
@@ -1109,7 +1109,7 @@ $ almasim submit [OPTIONS] {command}...
 * `--profile <path>`: User profile (default: $ALMASIM_PROFILE, else ~/.config/almasim/almasim.toml).
 * `--help`: Show this message and exit.
 
-# `almasim serve`
+## `almasim serve`
 
 Serve the console; print the ssh tunnel line and the link with its access token.
 

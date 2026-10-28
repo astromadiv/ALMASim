@@ -21,5 +21,6 @@ def test_the_cli_reference_is_current():
     current = (REPO / "docs" / "cli.md").read_text(encoding="utf-8")
     assert generated == current, "run: python scripts/generate_cli_reference.py"
     assert "--install-completion" not in generated
-    assert "## `almasim image image-from-ms`" in generated
-    assert "## `almasim image batch-image`" not in generated, "hidden commands are left out"
+    assert "\n## `almasim image`\n" in generated, "commands sit under the page title"
+    assert "\n### `almasim image image-from-ms`\n" in generated
+    assert "`almasim image batch-image`" not in generated, "hidden commands are left out"

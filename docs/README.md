@@ -18,7 +18,6 @@ This directory contains focused markdown documentation for the main ALMASim subs
 - [Downloads](downloads.md)
 - [Compute Backends](compute.md)
 - [SLURM Scheduler](slurm_scheduler.md)
-- [SimALMA Fidelity Plan](simalma_fidelity_plan.md)
 - [MSv2 Realism Plan](msv2_realism_plan.md)
 
 ## Suggested Reading Order
