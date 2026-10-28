@@ -295,7 +295,7 @@ Full reference: [Simulation docs](https://astromadiv.github.io/ALMASim/simulatio
 | `hubble-100` | Hubble Top-100 image morphology prior |
 | `molecular` | Molecular cloud structured emission |
 | `diffuse` | Correlated diffuse emission field |
-| `external-fits-cube`, `external-fits-image` | Your own FITS cube or image (`almasim simulation --input`), resampled to the run's grid and given a header built from the metadata row |
+| `external-fits-cube`, `external-fits-image` | Your own FITS cube or image, or a folder of them (`almasim simulation --input`), each simulated on its own grid and matched to the metadata row of the observation it shows |
 | `external-components` | Your own component table (`almasim simulation --input`), placed on the run's grid |
 
 The `point` and `gaussian` sky models accept `source_offset_x_arcsec` / `source_offset_y_arcsec` (Python API only) to shift the science target from the phase center.

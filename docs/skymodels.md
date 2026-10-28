@@ -82,13 +82,17 @@ Builds a diffuse emission field with NIFTy.
 
 The external source types take their emission from a file instead of a model ([`services/external_skymodel.py`](../src/almasim/services/external_skymodel.py)). The file brings its own spectrum: ALMASim adds no continuum or lines.
 
-- `external-fits-cube`: a FITS cube, read as `(channel, y, x)`
+- `external-fits-cube`: a FITS cube, read as `(channel, y, x)`. A Stokes axis keeps Stokes I, channels that run down in frequency are reversed, and blanked (NaN) pixels hold no emission (WSClean writes flagged channels as NaN)
 - `external-fits-image`: a 2D FITS image (or the first plane of a cube), the same in every channel
 - `external-components`: a table of components, each with `x_pix`/`y_pix` or `ra_deg`/`dec_deg`, a flux (`flux_jy`, `flux` or `intensity`), and either a `channel` or a power-law spectrum (`spectral_index` or `alpha`, at `reference_freq_hz`)
 
-In Python, the FITS inputs are given by `external_skymodel_path` and the component table by `external_component_table_path`. A FITS input is resampled to the run's `n_pix` × `n_pix` × `n_channels`, then center-cropped or zero-padded to that exact shape, and it takes the header built from the metadata. With `external_header_mode="preserve"`, the run keeps the input's header instead and, unless `n_pix` and `n_channels` are given, takes its cube size from the input. `external_header_overrides` sets individual header keywords.
+In Python, the FITS inputs are given by `external_skymodel_path` and the component table by `external_component_table_path`. A FITS input sets the run's grid from its header (`resolve_cube_geometry`): its size, pixel and frequency axis, with `n_pix` and `n_channels` ignored. A 2D image sets the size and pixel only. The products take the header built from the metadata on that grid; with `external_header_mode="preserve"` the run keeps the input's header instead. `external_header_overrides` sets individual header keywords.
 
-On the command line, `--input` gives a FITS file, used for every row, or a directory, in which each metadata row's file is found by its `member_ous_uid` and `group_ous_uid`. With `--input`, a non-external `--source-type` becomes `external-fits-cube`. With `--source-type external-components`, `--input` is one component table (any format astropy's `Table.read` recognises, such as `.ecsv` or `.csv`), used for every row. The command line keeps the default header mode, so the input is resampled to `--n-pix` × `--n-pix` × `--n-channels` (128 × 128 × 32 by default).
+On the command line, `--input` gives a sky-model cube, or a folder of them, and each cube is simulated on its own grid: its size, pixel and frequency axis (centre, channel width, channels) come from its header, so `--n-pix` and `--n-channels` are refused with it. A 2D image sets the size and pixel; the metadata gives the channels. A folder from an imaging run (`<ms>/SPW-<n>_FIELD-<m>/`) gives each spectral window's clean-component cube, `wsclean-cube-model.fits`; other folders give every FITS file.
+
+Each cube is simulated with the metadata row of the observation its path names: a member OUS uid matches directly, and an execution block uid is looked up in the resolved products (`--products-csv`; by default the `*products*.csv` files next to `--metadata-path`), which give its member OUS. Every spectral window of an observation matches that row, so there is one run per cube, named after its MeasurementSet and window. A single cube whose path names no observation is used for the chosen rows. With `--input`, a non-external `--source-type` becomes `external-fits-cube`.
+
+With `--source-type external-components`, `--input` is one component table (any format astropy's `Table.read` recognises, such as `.ecsv` or `.csv`), used for every row; a table has no grid, so `--n-pix` and `--n-channels` apply (128 and 32 by default).
 
 ## Source Placement
 

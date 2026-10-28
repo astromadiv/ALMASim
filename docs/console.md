@@ -121,6 +121,13 @@ start one job per observation. As you choose, the page estimates each
 simulation's cube and the disk space its outputs take, and says what each
 job will ask Slurm for.
 
+To simulate your own sky models, give a *Sky-model cubes* path beside the
+metadata CSV: a cube, or a folder of them (an imaging run's gives each
+window's `wsclean-cube-model.fits`). The page ticks the rows of the
+observations the cubes show, lists each cube with its size, centre frequency,
+channel width and pixel, and runs one simulation per cube of a ticked row on
+the cube's own grid; see [external sky models](skymodels.md#external-sky-models).
+
 ![Simulate](images/console/simulate.png)
 
 ### Imaging

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
@@ -27,6 +26,13 @@ from ..services.simulation import (
     simulate_observation,
 )
 from ..services.simulation.background import BACKGROUND_MODES
+from ..services.simulation.input_cubes import (
+    cube_label,
+    find_input_cubes,
+    match_input_cubes,
+    observations_by_execution_block,
+    products_csvs_near,
+)
 from ..skymodels.registry import SKYMODELS
 from ._shared import usage_error
 
@@ -64,75 +70,14 @@ ImagingAlgorithm = StrEnum(  # type: ignore[misc]
 BackgroundMode = StrEnum(  # type: ignore[misc]
     "BackgroundMode", {name: name for name in BACKGROUND_MODES}
 )
-_EXTERNAL_INPUT_SUFFIXES = {".fits", ".fit", ".fts", ".fz"}
+# The cube size without an --input cube (which sets its own).
+DEFAULT_N_PIX = 128
+DEFAULT_N_CHANNELS = 32
 
 
 def _path_with_suffix(path: Path, *parts: Any) -> Path:
     suffix = "_".join(str(part) for part in parts)
     return path.with_name(f"{path.stem}_{suffix}{path.suffix}")
-
-
-def _normalize_match_token(value: str | None) -> str:
-    return re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
-
-
-def _contains_token(name: str, compact_name: str, token: str | None) -> bool:
-    normalized = _normalize_match_token(token)
-    raw = str(token or "").lower()
-    return bool((normalized and normalized in compact_name) or (raw and raw in name))
-
-
-def _resolve_input_path_for_row(input_path: Path | None, row: pd.Series) -> Path | None:  # noqa: C901
-    if input_path is None:
-        return None
-
-    resolved = input_path.expanduser().resolve()
-    if resolved.is_file():
-        return resolved
-    if not resolved.is_dir():
-        raise typer.BadParameter(f"--input must be an existing file or directory: {resolved}")
-
-    candidates = [
-        path
-        for path in resolved.rglob("*")
-        if path.is_file() and path.suffix.lower() in _EXTERNAL_INPUT_SUFFIXES
-    ]
-    if not candidates:
-        raise typer.BadParameter(
-            f"No FITS skymodel files found under --input directory: {resolved}"
-        )
-
-    member_uid = row.get("member_ous_uid") if hasattr(row, "get") else None
-    group_uid = row.get("group_ous_uid") if hasattr(row, "get") else None
-
-    ranked: dict[int, list[Path]] = {3: [], 2: [], 1: []}
-    for candidate in candidates:
-        name = candidate.name.lower()
-        compact_name = _normalize_match_token(candidate.name)
-        has_member = _contains_token(name, compact_name, member_uid)
-        has_group = _contains_token(name, compact_name, group_uid)
-        if has_member and has_group:
-            ranked[3].append(candidate)
-        elif has_member:
-            ranked[2].append(candidate)
-        elif has_group:
-            ranked[1].append(candidate)
-
-    for score in (3, 2, 1):
-        matches = ranked[score]
-        if len(matches) == 1:
-            return matches[0].resolve()
-        if len(matches) > 1:
-            options = ", ".join(str(path.name) for path in sorted(matches))
-            raise typer.BadParameter(
-                "Ambiguous --input directory match for metadata row "
-                f"member_ous_uid={member_uid!r}, group_ous_uid={group_uid!r}: {options}"
-            )
-
-    raise typer.BadParameter(
-        "Could not match any input skymodel file in directory "
-        f"{resolved} for metadata row member_ous_uid={member_uid!r}, group_ous_uid={group_uid!r}"
-    )
 
 
 def _update_progress(progress_bar: tqdm, target: int) -> None:
@@ -198,8 +143,8 @@ def _build_simulation_params(
     save_mode: str,
     persist_standard_outputs: bool,
     ml_shard_path: Path,
-    n_pix: int,
-    n_channels: int,
+    n_pix: int | None,
+    n_channels: int | None,
     n_lines: int | None,
     imaging_algorithm: str,
     background_mode: str = "none",
@@ -209,7 +154,7 @@ def _build_simulation_params(
     instrument_geometry: str = "legacy",
     inject_serendipitous: bool,
     output_subdir_name: str | None,
-    input_path: Path | None,
+    external_input_path: Path | None,
     kaggle_token: Path | None = None,
     noise_model: NoiseModel | str | None = None,
     executions: int | None = None,
@@ -221,7 +166,6 @@ def _build_simulation_params(
     row = with_redshifts(metadata.iloc[[row_idx]], rest_frequency).iloc[0]
     output_dir.mkdir(parents=True, exist_ok=True)
     component_table = source_type == "external-components"
-    external_input_path = _resolve_input_path_for_row(input_path, row)
     effective_source_type = (
         source_type
         if external_input_path is None or is_external_source_type(source_type)
@@ -278,10 +222,11 @@ class SimulationRunOptions:
     project_name: str
     output_dir: Path
     input_path: Path | None
+    products_csv: Path | None
     main_dir: Path
     source_type: str
-    n_pix: int
-    n_channels: int
+    n_pix: int | None
+    n_channels: int | None
     n_lines: int | None
     seed: int | None
     simulations_per_row: int
@@ -335,9 +280,22 @@ def simulation_run(
         None,
         "--input",
         help=(
-            "External skymodel input. If a file is provided, it is reused for all rows. "
-            "If a directory is provided, files are matched to each metadata row using "
-            "member_ous_uid and group_ous_uid."
+            "A sky-model cube, or a folder of them (an imaging run's: each spectral"
+            " window's wsclean-cube-model.fits). Each cube is simulated with the"
+            " metadata row of the observation its path names (an execution block,"
+            " looked up in --products-csv, or a member OUS), on its own grid: size,"
+            " pixel and frequency axis from its header. A file whose path names no"
+            " observation is used for the chosen rows."
+        ),
+        rich_help_panel="Sky model",
+    ),
+    products_csv: Path | None = typer.Option(
+        None,
+        "--products-csv",
+        help=(
+            "Resolved products (almasim products resolve) that map execution blocks"
+            " to observations, for --input (default: the *products*.csv files next to"
+            " --metadata-path)."
         ),
         rich_help_panel="Sky model",
     ),
@@ -354,18 +312,18 @@ def simulation_run(
         case_sensitive=False,
         rich_help_panel="Sky model",
     ),
-    n_pix: int = typer.Option(
-        128,
+    n_pix: int | None = typer.Option(
+        None,
         "--n-pix",
         min=1,
-        help="Spatial cube size override.",
+        help=f"Spatial cube size (default {DEFAULT_N_PIX}; an --input cube sets its own).",
         rich_help_panel="Sky model",
     ),
-    n_channels: int = typer.Option(
-        32,
+    n_channels: int | None = typer.Option(
+        None,
         "--n-channels",
         min=1,
-        help="Channel count override.",
+        help=f"Channel count (default {DEFAULT_N_CHANNELS}; an --input cube sets its own).",
         rich_help_panel="Sky model",
     ),
     n_lines: int | None = typer.Option(
@@ -542,9 +500,12 @@ def simulation_run(
     total_rows = len(metadata)
     typer.echo(f"Metadata rows available: {total_rows}")
 
-    indices = [o.row_idx] if o.row_idx is not None else list(range(total_rows))
-    total_runs = len(indices) * o.simulations_per_row
-    typer.echo(f"Rows to simulate: {len(indices)}")
+    runs = _planned_runs(o, metadata)
+    total_runs = len(runs) * o.simulations_per_row
+    rows = sorted({idx for idx, _ in runs})
+    typer.echo(f"Rows to simulate: {len(rows)}")
+    if o.input_path is not None:
+        typer.echo(f"Input cubes: {len({cube for _, cube in runs})}")
     typer.echo(f"Simulations per row: {o.simulations_per_row}")
     typer.echo(f"Total simulations: {total_runs}")
 
@@ -554,12 +515,15 @@ def simulation_run(
 
     with create_backend(o.backend, **backend_kwargs) as compute_backend:
         run_number = 0
-        for idx in indices:
+        for idx, cube in runs:
+            # Each run's own names: by row, and by cube when there are input cubes.
+            label = f"row{idx:04d}" if cube is None else f"row{idx:04d}_{cube_label(cube)}"
             for simulation_idx in range(o.simulations_per_row):
                 run_number += 1
                 typer.echo(
                     f"\n--- Simulation {run_number}/{total_runs}: row {idx + 1}/{total_rows} "
-                    f"(index {idx}), repeat {simulation_idx + 1}/{o.simulations_per_row} ---"
+                    f"(index {idx}){f' with {cube}' if cube is not None else ''}, "
+                    f"repeat {simulation_idx + 1}/{o.simulations_per_row} ---"
                 )
                 run_idx = idx * o.simulations_per_row + simulation_idx
                 run_seed = o.seed + run_idx if o.seed is not None else None
@@ -576,9 +540,7 @@ def simulation_run(
                     save_mode=o.save_mode,
                     persist_standard_outputs=persist_outputs,
                     ml_shard_path=(
-                        _path_with_suffix(
-                            ml_shard_resolved, f"row{idx:04d}", f"sim{simulation_idx:03d}"
-                        )
+                        _path_with_suffix(ml_shard_resolved, label, f"sim{simulation_idx:03d}")
                         if total_runs > 1
                         else ml_shard_resolved
                     ),
@@ -595,11 +557,15 @@ def simulation_run(
                     instrument_geometry=str(o.instrument_geometry),
                     inject_serendipitous=o.inject_serendipitous,
                     output_subdir_name=(
-                        f"{o.project_name}_{run_idx}"
+                        (
+                            f"{o.project_name}_{run_idx}"
+                            if cube is None
+                            else f"{o.project_name}_{cube_label(cube)}_{simulation_idx}"
+                        )
                         if persist_outputs and total_runs > 1
                         else None
                     ),
-                    input_path=o.input_path,
+                    external_input_path=cube,
                     kaggle_token=o.kaggle_token,
                     noise_model=o.noise_model,
                     executions=o.executions,
@@ -608,7 +574,59 @@ def simulation_run(
                     o, params, compute_backend, label=f"Simulation {run_number}/{total_runs}"
                 )
 
-    typer.echo(f"\nAll done. Simulated {total_runs} run(s) across {len(indices)} row(s).")
+    typer.echo(f"\nAll done. Simulated {total_runs} run(s) across {len(rows)} row(s).")
+
+
+def _planned_runs(o: SimulationRunOptions, metadata: pd.DataFrame) -> list[tuple[int, Path | None]]:
+    """Every run's metadata row and input cube: the chosen rows, or each input
+    cube with the rows of the observation it names (--row-idx keeps one row)."""
+    rows = [o.row_idx] if o.row_idx is not None else list(range(len(metadata)))
+    if o.input_path is None:
+        return [(i, None) for i in rows]
+    cubes = find_input_cubes(o.input_path)
+    if not cubes:
+        usage_error(f"--input: no FITS cube under {o.input_path}")
+    products = [o.products_csv] if o.products_csv else products_csvs_near(o.metadata_path)
+    matches, unmatched = match_input_cubes(
+        cubes, metadata, observations_by_execution_block(products)
+    )
+    if not matches:
+        if len(cubes) == 1:  # a cube whose path names no observation: for the chosen rows
+            return [(i, cubes[0]) for i in rows]
+        usage_error(
+            f"--input: none of its {len(cubes)} cubes names an observation in the metadata"
+            f" (by member OUS, or by execution block in {len(products)} products CSV(s))"
+        )
+    if unmatched:
+        typer.echo(f"{len(unmatched)} cube(s) match no metadata row, e.g. {unmatched[0]}")
+    runs = [(m.row_idx, m.cube) for m in matches if o.row_idx is None or m.row_idx == o.row_idx]
+    if not runs:
+        usage_error(f"--input: no cube matches metadata row {o.row_idx}")
+    return runs
+
+
+def _validated_input(o: SimulationRunOptions) -> SimulationRunOptions:
+    """``o`` with the cube size the --input (or its absence) gives; a usage error
+    for an input it cannot use."""
+    if o.input_path is not None and not o.input_path.expanduser().exists():
+        usage_error(f"--input not found: {o.input_path}")
+    if o.products_csv is not None and not o.products_csv.expanduser().exists():
+        usage_error(f"--products-csv not found: {o.products_csv}")
+    if o.source_type == "external-components" and (
+        o.input_path is None or not o.input_path.expanduser().is_file()
+    ):
+        usage_error("--source-type external-components takes one component table as --input")
+    # A cube sets its own grid; a component table has none.
+    input_cube = o.input_path is not None and o.source_type != "external-components"
+    if input_cube and (o.n_pix is not None or o.n_channels is not None):
+        usage_error("an --input cube sets its own size: drop --n-pix and --n-channels")
+    if input_cube:
+        return o
+    return replace(
+        o,
+        n_pix=o.n_pix if o.n_pix is not None else DEFAULT_N_PIX,
+        n_channels=o.n_channels if o.n_channels is not None else DEFAULT_N_CHANNELS,
+    )
 
 
 def _validated_simulation_options(o: SimulationRunOptions) -> SimulationRunOptions:
@@ -626,14 +644,9 @@ def _validated_simulation_options(o: SimulationRunOptions) -> SimulationRunOptio
     )
     if not o.metadata_path.exists():
         usage_error(f"--metadata-path not found: {o.metadata_path}")
-    if o.input_path is not None and not o.input_path.expanduser().exists():
-        usage_error(f"--input not found: {o.input_path}")
+    o = _validated_input(o)
     if o.kaggle_token is not None and not o.kaggle_token.expanduser().exists():
         usage_error(f"--kaggle-token not found: {o.kaggle_token}")
-    if o.source_type == "external-components" and (
-        o.input_path is None or not o.input_path.expanduser().is_file()
-    ):
-        usage_error("--source-type external-components takes one component table as --input")
     # 0 is the old default, which earlier runs pass explicitly.
     if o.background_level and o.background_mode == "none":
         usage_error("--background-level scales a background: choose one with --background-mode")

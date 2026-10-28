@@ -272,6 +272,67 @@
         "title": "CsvPage",
         "type": "object"
       },
+      "CubeList": {
+        "properties": {
+          "cubes": {
+            "items": {
+              "$ref": "#/components/schemas/InputCube"
+            },
+            "title": "Cubes",
+            "type": "array"
+          },
+          "products": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Products",
+            "type": "array"
+          },
+          "unmatched": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Unmatched",
+            "type": "array"
+          }
+        },
+        "required": [
+          "cubes",
+          "unmatched",
+          "products"
+        ],
+        "title": "CubeList",
+        "type": "object"
+      },
+      "CubesRequest": {
+        "properties": {
+          "input_path": {
+            "title": "Input Path",
+            "type": "string"
+          },
+          "metadata_path": {
+            "title": "Metadata Path",
+            "type": "string"
+          },
+          "products_csv": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Products Csv"
+          }
+        },
+        "required": [
+          "metadata_path",
+          "input_path"
+        ],
+        "title": "CubesRequest",
+        "type": "object"
+      },
       "Defaults": {
         "properties": {
           "account": {
@@ -509,6 +570,17 @@
       },
       "EstimateRequest": {
         "properties": {
+          "input_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Path"
+          },
           "instrument_geometry": {
             "default": "legacy",
             "title": "Instrument Geometry",
@@ -730,6 +802,97 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "InputCube": {
+        "properties": {
+          "cell_arcsec": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cell Arcsec"
+          },
+          "central_freq_ghz": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Central Freq Ghz"
+          },
+          "channel_width_mhz": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channel Width Mhz"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "member_ous_uid": {
+            "title": "Member Ous Uid",
+            "type": "string"
+          },
+          "n_channels": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "N Channels"
+          },
+          "n_pix_x": {
+            "title": "N Pix X",
+            "type": "integer"
+          },
+          "n_pix_y": {
+            "title": "N Pix Y",
+            "type": "integer"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "row_idx": {
+            "title": "Row Idx",
+            "type": "integer"
+          },
+          "source_name": {
+            "title": "Source Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "label",
+          "row_idx",
+          "member_ous_uid",
+          "source_name",
+          "n_pix_x",
+          "n_pix_y",
+          "n_channels",
+          "central_freq_ghz",
+          "channel_width_mhz",
+          "cell_arcsec"
+        ],
+        "title": "InputCube",
         "type": "object"
       },
       "JobState": {
@@ -2957,6 +3120,48 @@
         "summary": "Put User Profile",
         "tags": [
           "profile"
+        ]
+      }
+    },
+    "/api/v2/simulation/cubes": {
+      "post": {
+        "description": "The input cubes under a path, each with the metadata row of its observation.",
+        "operationId": "input_cubes_api_v2_simulation_cubes_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CubesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CubeList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Input Cubes",
+        "tags": [
+          "simulation"
         ]
       }
     },

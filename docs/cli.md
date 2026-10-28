@@ -174,11 +174,12 @@ $ almasim simulation [OPTIONS]
 * `--row-idx <int range>`: Single metadata row index to simulate. Omit to simulate all rows.  [x>=0]
 * `--project-name <str>`: Project name used in outputs.  [default: sim_demo]
 * `--output-dir <path>`: Directory for simulation outputs.  [default: ~/almasim_outputs/simulation]
-* `--input <path>`: External skymodel input. If a file is provided, it is reused for all rows. If a directory is provided, files are matched to each metadata row using member_ous_uid and group_ous_uid.
+* `--input <path>`: A sky-model cube, or a folder of them (an imaging run's: each spectral window's wsclean-cube-model.fits). Each cube is simulated with the metadata row of the observation its path names (an execution block, looked up in --products-csv, or a member OUS), on its own grid: size, pixel and frequency axis from its header. A file whose path names no observation is used for the chosen rows.
+* `--products-csv <path>`: Resolved products (almasim products resolve) that map execution blocks to observations, for --input (default: the *products*.csv files next to --metadata-path).
 * `--main-dir <path>`: Path to ALMASim data directory (defaults to src/almasim).  [default: <repo>/src/almasim]
 * `--source-type <point|gaussian|diffuse|galaxy-zoo|molecular|hubble-100|external-components|external-fits-cube|external-fits-image>`: Sky model family (the external ones take their cube from --input).  [default: point]
-* `--n-pix <int range>`: Spatial cube size override.  [default: 128; x>=1]
-* `--n-channels <int range>`: Channel count override.  [default: 32; x>=1]
+* `--n-pix <int range>`: Spatial cube size (default 128; an --input cube sets its own).  [x>=1]
+* `--n-channels <int range>`: Channel count (default 32; an --input cube sets its own).  [x>=1]
 * `--n-lines <int range>`: Number of spectral lines to inject. Omit to use metadata default.  [x>=1]
 * `--seed <int>`: Base random seed for reproducible simulations. When running multiple simulations, each run uses seed + run_index.
 * `--simulations-per-row <int range>`: How many simulations to run for each selected metadata row.  [default: 1; x>=1]

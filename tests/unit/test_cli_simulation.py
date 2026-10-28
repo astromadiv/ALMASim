@@ -128,34 +128,91 @@ def test_simulation_run_csv_happy_path(monkeypatch, tmp_path):
     assert "ML shard written to: /tmp/mock_ml.h5" in result.output
 
 
-def test_resolve_input_path_for_row_single_file(tmp_path):
-    """A single input file should be reused for every metadata row."""
-    input_file = tmp_path / "shared_model.fits"
-    input_file.write_text("dummy", encoding="utf-8")
-    row = pd.Series({"member_ous_uid": "uid://A", "group_ous_uid": "uid://G"})
+def _planned(monkeypatch, tmp_path, *args):
+    """The runs `simulation run <args>` would make: (row, cube name, subdir, n_pix)."""
+    planned = []
 
-    resolved = cli_simulation._resolve_input_path_for_row(input_file, row)
+    def build(**kwargs):
+        cube = kwargs["external_input_path"]
+        planned.append(
+            (kwargs["row_idx"], cube and cube.parent.name, kwargs["output_subdir_name"],
+             kwargs["n_pix"])
+        )  # fmt: skip
+        return SimpleNamespace()
 
-    assert resolved == input_file.resolve()
-
-
-def test_resolve_input_path_for_row_directory_match(tmp_path):
-    """Input directory should match files using member_ous_uid/group_ous_uid."""
-    input_dir = tmp_path / "inputs"
-    input_dir.mkdir()
-    matched = input_dir / "skymodel_uidA001X1X1_uidA001X1.fits"
-    matched.write_text("dummy", encoding="utf-8")
-    (input_dir / "other_model.fits").write_text("dummy", encoding="utf-8")
-    row = pd.Series(
-        {
-            "member_ous_uid": "uid://A001/X1/X1",
-            "group_ous_uid": "uid://A001/X1",
-        }
+    monkeypatch.setattr(cli_simulation, "_build_simulation_params", build)
+    monkeypatch.setattr(cli_simulation, "_run_simulation_stages", lambda *a, **k: None)
+    monkeypatch.setattr(cli_simulation, "create_backend", lambda *a, **k: _DummyBackend())
+    result = runner.invoke(
+        cli.app, ["simulation", "run", "--output-dir", str(tmp_path / "out"), *args]
     )
+    return result, planned
 
-    resolved = cli_simulation._resolve_input_path_for_row(input_dir, row)
 
-    assert resolved == matched.resolve()
+def _imaging_run(tmp_path):
+    """Two windows of one execution block, its observation in row 1 of the metadata."""
+    import numpy as np
+    from astropy.io import fits
+
+    eb = "uid___A002_X11a1c8d_X12c8e"
+    for spw in ("SPW-39_FIELD-9", "SPW-41_FIELD-9"):
+        cube = tmp_path / "cubes" / f"{eb}.ms.split" / spw / "wsclean-cube-model.fits"
+        cube.parent.mkdir(parents=True)
+        fits.PrimaryHDU(np.zeros((1, 2, 4, 4), dtype=np.float32)).writeto(cube)
+    pd.DataFrame(
+        {"uid": ["uid://A001/X362b/Xf37"], "filename": [f"2023.1.00494.S_{eb}.asdm.sdm.tar"]}
+    ).to_csv(tmp_path / "resolved_products.csv", index=False)
+    metadata = _write_metadata_csv(
+        tmp_path,
+        [{"member_ous_uid": "uid://A001/X1/X2"}, {"member_ous_uid": "uid://A001/X362b/Xf37"}],
+    )
+    return tmp_path / "cubes", metadata
+
+
+def test_each_input_cube_runs_with_the_row_of_its_observation(monkeypatch, tmp_path):
+    cubes, metadata = _imaging_run(tmp_path)
+    result, planned = _planned(
+        monkeypatch, tmp_path, "--metadata-path", metadata, "--input", str(cubes),
+        "--save-mode", "fits",
+    )  # fmt: skip
+    assert result.exit_code == 0, result.output
+    eb = "uid___A002_X11a1c8d_X12c8e"
+    assert planned == [
+        (1, "SPW-39_FIELD-9", f"sim_demo_{eb}_SPW-39_FIELD-9_0", None),
+        (1, "SPW-41_FIELD-9", f"sim_demo_{eb}_SPW-41_FIELD-9_0", None),
+    ]
+
+
+def test_an_input_cube_sets_its_own_size(monkeypatch, tmp_path):
+    cubes, metadata = _imaging_run(tmp_path)
+    result, planned = _planned(
+        monkeypatch, tmp_path, "--metadata-path", metadata, "--input", str(cubes),
+        "--n-pix", "64",
+    )  # fmt: skip
+    assert result.exit_code == 2 and not planned
+    assert "sets its own size" in result.output + (result.stderr or "")
+
+
+def test_a_cube_that_names_no_observation_serves_the_chosen_row(monkeypatch, tmp_path):
+    import numpy as np
+    from astropy.io import fits
+
+    cube = tmp_path / "anything.fits"
+    fits.PrimaryHDU(np.zeros((2, 4, 4), dtype=np.float32)).writeto(cube)
+    metadata = _write_metadata_csv(tmp_path, [{"member_ous_uid": "uid://A"}] * 3)
+    result, planned = _planned(
+        monkeypatch, tmp_path, "--metadata-path", metadata, "--input", str(cube),
+        "--row-idx", "2",
+    )  # fmt: skip
+    assert result.exit_code == 0, result.output
+    assert planned == [(2, tmp_path.name, None, None)]
+
+
+def test_without_an_input_cube_the_size_defaults_as_before(monkeypatch, tmp_path):
+    metadata = _write_metadata_csv(tmp_path, [{"member_ous_uid": "uid://A"}])
+    result, planned = _planned(monkeypatch, tmp_path, "--metadata-path", metadata)
+    assert result.exit_code == 0, result.output
+    assert planned == [(0, None, None, 128)]
 
 
 def test_simulation_invalid_source_type_exits(tmp_path):
