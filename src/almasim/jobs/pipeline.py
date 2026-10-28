@@ -90,6 +90,61 @@ def simulate(
     ]
 
 
+def noise_model_from_windows(
+    folder: str | Path,
+    windows_csv: str | Path,
+    metadata_csv: str | Path,
+    *,
+    base: str = "alma",
+    extract: Sequence[str] = (),
+    fit: Sequence[str] = (),
+    validate: Sequence[str] = (),
+) -> list[Step]:
+    """Measure real windows' noise, fit their calibration residuals, reduce
+    them into a candidate noise model and validate it against them.
+
+    ``windows_csv`` is ``noise extract``'s windows table (with ``task_dir``
+    and ``pwv`` columns for the fit and the receiver temperatures),
+    ``metadata_csv`` each window's archive row with a ``name`` column;
+    ``extract``, ``fit`` and ``validate`` add options to those steps. Everything
+    lands in ``folder``: windows/, candidate.json, validation/.
+    """
+    f = Path(folder)
+    windows, candidate = str(windows_csv), str(f / "candidate.json")
+    return [
+        Step(
+            "Measure the windows' noise",
+            ["noise", "extract", "--windows", windows, "--out", str(f), *extract],
+        ),
+        Step(
+            "Fit their calibration residuals",
+            ["noise", "fit", "--windows", windows, "--out", str(f), *fit],
+        ),
+        Step(
+            "Reduce into a candidate model",
+            ["noise", "aggregate", "--out", str(f), "--from", base, "--output", candidate],
+        ),
+        Step(
+            "Validate the candidate",
+            [
+                "noise",
+                "validate",
+                "--model",
+                candidate,
+                "--windows",
+                windows,
+                "--metadata",
+                str(metadata_csv),
+                "--measured",
+                str(f),
+                "--out",
+                str(f),
+                *validate,
+            ],
+        ),
+    ]
+
+
 def submit_pipeline(
     steps: Sequence[Step],
     profile: Profile,

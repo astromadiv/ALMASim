@@ -818,3 +818,45 @@ def _print_comparison(comparison) -> None:
     for check in comparison.checks:
         typer.echo(f"  [{'pass' if check.passed else 'FAIL'}] {check.name}: {check.value}")
     typer.echo("PASSED" if comparison.passed else "NOT PASSED")
+
+
+@noise_app.command("promote")
+def promote(
+    candidate: Path = typer.Argument(
+        ..., help="The candidate model (noise aggregate's, or any file)."
+    ),
+    comparison: Path = typer.Option(
+        ..., "--comparison", help="noise validate's comparison.json of that very model."
+    ),
+    name: str | None = typer.Option(
+        None, "--name", help="The model it releases (default: the candidate's, less -candidate)."
+    ),
+    models_dir: Path | None = typer.Option(
+        None, "--models-dir", help="Where released models live (default: this checkout's)."
+    ),
+) -> None:
+    """Write a validated candidate as the next version of a released model
+    (models/<name>-<n+1>.json), refused unless its comparison passed. The pull
+    request that adds the file, and with it moves the model to the new
+    version, stays with a person."""
+    from ..services.noise.compare import Comparison
+    from ..services.noise.promote import MODELS_DIR
+    from ..services.noise.promote import promote as release
+    from ..services.noise_model import NoiseModel
+
+    try:
+        model = NoiseModel.model_validate_json(candidate.read_text())
+        result = Comparison.model_validate_json(comparison.read_text())
+    except (OSError, ValueError) as exc:
+        usage_error(str(exc))
+    try:
+        path = release(model, result, name=name, models_dir=models_dir or MODELS_DIR)
+    except ValueError as exc:
+        fail(str(exc))
+    released = NoiseModel.model_validate_json(path.read_text())
+    typer.echo(f"{released.label()} written to {path}")
+    typer.echo(
+        "Next: add it in a pull request; update the tests that pin the model's values, "
+        "regenerate docs/noise-model.schema.json if the schema changed, and label the PR "
+        "golden:supersede if the released default changes what runs produce."
+    )

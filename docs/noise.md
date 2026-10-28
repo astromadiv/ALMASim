@@ -9,6 +9,10 @@ the noise models in [`src/almasim/services/noise_model/`](../src/almasim/service
 
 ## Noise Models
 
+[Noise models: a complete guide](noise_models.md) explains every component,
+how it is measured, fitted and simulated, and walks through building and
+releasing a model from real data. This section is the short reference.
+
 What the visibilities carry besides white thermal noise is a noise model:
 a named, versioned JSON file made of components, each with its own switch and
 parameters. Released models ship with ALMASim in
@@ -186,6 +190,29 @@ the real, the simulated visibilities' variance is within 1% of what their
 WEIGHT claims, none of those noise levels differs at p below 0.01, and no
 band and array group's median continuum noise is off by more than 10%;
 `--criteria` takes a JSON file of other values.
+
+### Releasing a validated model
+
+`almasim noise promote` writes a candidate as the next version of a released
+model, `models/<name>-<n+1>.json` in the working tree, only with a
+comparison of that very model (matched by its SHA-256) that passed:
+
+```
+almasim noise promote noise/candidate.json \
+    --comparison noise/validation/<sha>/comparison.json
+```
+
+The pull request that adds the file moves `alma` to the new version (runs
+that name `alma@1` keep the old one); it updates the tests that pin the
+model's values, and if the default model changes what runs produce, it is
+labelled `golden:supersede` with a new baseline. The golden simulation runs
+one case through `--noise-model alma@1`, so the noise components' code path
+is under the gate.
+
+The whole chain, measuring to validating, is one pipeline of jobs:
+`almasim.jobs.pipeline.noise_model_from_windows(folder, windows.csv,
+rows.csv)` submits `noise extract`, `noise fit`, `noise aggregate` and `noise
+validate`, each waiting for the one before it.
 
 ## Current Model
 

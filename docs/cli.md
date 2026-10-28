@@ -650,6 +650,7 @@ $ almasim noise [OPTIONS] COMMAND [ARGS]...
 * `aggregate`: Reduce the windows' measurements into a...
 * `validate`: Simulate the real windows with a noise...
 * `compare`: Compare the windows noise validate...
+* `promote`: Write a validated candidate as the next...
 
 ## `almasim noise show`
 
@@ -864,6 +865,30 @@ $ almasim noise compare [OPTIONS]
 * `--measured <path>`: noise extract's output for the real windows.  [required]
 * `--out <path>`: noise validate's output.  [required]
 * `--criteria <path>`: A JSON file of comparison criteria.
+* `--help`: Show this message and exit.
+
+## `almasim noise promote`
+
+Write a validated candidate as the next version of a released model
+(models/<name>-<n+1>.json), refused unless its comparison passed. The pull
+request that adds the file, and with it moves the model to the new
+version, stays with a person.
+
+**Usage**:
+
+```console
+$ almasim noise promote [OPTIONS] {candidate}
+```
+
+**Arguments**:
+
+* `candidate`: The candidate model (noise aggregate's, or any file).  [required]
+
+**Options**:
+
+* `--comparison <path>`: noise validate's comparison.json of that very model.  [required]
+* `--name <str>`: The model it releases (default: the candidate's, less -candidate).
+* `--models-dir <path>`: Where released models live (default: this checkout's).
 * `--help`: Show this message and exit.
 
 # `almasim jobs`

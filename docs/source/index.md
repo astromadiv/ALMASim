@@ -15,6 +15,7 @@ console_hub
 simulation
 interferometry
 noise
+noise_models
 background
 skymodels
 imaging
