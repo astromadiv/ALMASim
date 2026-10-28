@@ -124,3 +124,14 @@ def test_the_update_submits_the_job_and_shows_its_log(tmp_path, monkeypatch, too
     assert "installed almasim 2.1.17" in result.output
     (script,) = (prefix / "updates").glob("*/update.sh")
     assert "ref=v2.1.17" in script.read_text()
+
+
+def test_the_install_script_installs_every_extra_jobs_need():
+    """Jobs run the shared Python: image compute-parameters needs python-casacore."""
+    from pathlib import Path
+
+    script = (Path(__file__).parents[2] / "scripts" / "install_shared.sh").read_text()
+    subprocess.run(["bash", "-n"], input=script, text=True, check=True)
+    for extra in ("web", "casa", "ms-casacore"):
+        assert f"--extra {extra}" in script
+    assert '"$wheel[web,casa,ms-casacore]"' in script

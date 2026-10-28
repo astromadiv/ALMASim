@@ -44,6 +44,7 @@ def test_a_working_profile_passes(tmp_path, monkeypatch):
         {
             "import almasim": (0, "/x/almasim/__init__.py 3.12.13\n", ""),
             "casatools": (0, "6.7.5\n", ""),
+            "import casacore": (0, "3.7.1\n", ""),
             "wsclean": (0, "\nWSClean version 3.7 (2026-04-24)\n", ""),
             "sinfo": (0, "zwickyA-CPU*\nzwickyB-CPU\n", ""),
         }
@@ -57,6 +58,7 @@ def test_a_working_profile_passes(tmp_path, monkeypatch):
         "roots",
         "python",
         "casatools",
+        "casacore",
         "wsclean",
         "casa data",
         "slurm",
@@ -76,6 +78,24 @@ def test_missing_optional_tools_warn_and_required_ones_fail(tmp_path, monkeypatc
     assert not passed(list(checks.values()))
     report = format_report(list(checks.values()))
     assert "FAIL  python" in report and "warn  wsclean" in report
+
+
+def test_a_python_without_casacore_warns(tmp_path, monkeypatch):
+    """image compute-parameters needs python-casacore: its absence is shown, not fatal."""
+    monkeypatch.setattr(doctor_mod.shutil, "which", lambda tool: f"/usr/bin/{tool}")
+    profile = Profile(runs_root=tmp_path / "runs", roots=(tmp_path,), python=sys.executable)
+    run = _fake_run(
+        {
+            "import almasim": (0, "/x/almasim/__init__.py 3.12.13\n", ""),
+            "casatools": (0, "6.7.5\n", ""),
+            "import casacore": (1, "", "ModuleNotFoundError: No module named 'casacore'\n"),
+            "sinfo": (0, "zwickyA-CPU*\n", ""),
+        }
+    )
+    checks = run_checks(profile, run)
+    report = format_report(checks)
+    assert "warn  casacore" in report and "ms-casacore extra" in report
+    assert "No module named 'casacore'" in report
 
 
 def test_partitions_the_profile_names_must_exist(tmp_path, monkeypatch):

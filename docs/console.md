@@ -211,8 +211,8 @@ runs_root = "~/almasim-runs"
 ## For administrators: the shared install
 
 One environment serves everyone: the Python every job runs (with almasim,
-its web console, casatools and casatasks, at the versions in `uv.lock`), a
-site profile pointing at it, and a file users source.
+its web console, casatools, casatasks and python-casacore, at the versions
+in `uv.lock`), a site profile pointing at it, and a file users source.
 
 ```bash
 # on a compute node (it downloads Python and packages), from a checkout:
