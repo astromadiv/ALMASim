@@ -144,7 +144,9 @@ lists every option.
   `--spectral-sampling`, `--velocity-resolution` and `--max-cube-gb`;
   `--plan-only` prints the channel plan and the projected volume without
   imaging. `--cube-products` chooses which of image, residual, psf, model and
-  dirty to keep.
+  dirty to keep. The cube run lets WSClean reorder the visibilities, which
+  keeps three files open per channel; `almasim` raises its soft open-file
+  limit to the hard one at start-up, and every job it submits inherits that.
 - `--contsub` writes an image-plane continuum-subtracted cube;
   `--uv-contsub` subtracts the continuum from the visibilities (CASA
   `uvcontsub`) before imaging instead.

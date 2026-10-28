@@ -122,3 +122,42 @@ def test_python_m_almasim_cli_runs_the_app(monkeypatch, capsys):
         runpy.run_module("almasim.cli", run_name="__main__")
     assert info.value.code == 0
     assert "visibilities" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("limits", "expected"),
+    [
+        ((1024, 131072), [(131072, 131072)]),  # the console's inherited limit
+        ((131072, 131072), []),  # already at the hard limit
+        ((1024, -1), [(1 << 20, -1)]),  # unlimited hard limit: a finite soft one
+    ],
+)
+def test_main_lifts_the_soft_open_file_limit(monkeypatch, limits, expected):
+    """A 2048-channel WSClean cube opens ~6000 files; 1024 made it fail."""
+    resource = pytest.importorskip("resource")
+    calls: list[tuple[int, int]] = []
+    monkeypatch.setattr(resource, "RLIM_INFINITY", -1)
+    monkeypatch.setattr(resource, "getrlimit", lambda _: limits)
+    monkeypatch.setattr(resource, "setrlimit", lambda _, value: calls.append(value))
+    monkeypatch.setattr(cli, "app", lambda: None)
+
+    cli.main()
+
+    assert calls == expected
+
+
+def test_main_starts_when_the_limit_cannot_be_raised(monkeypatch):
+    """A refused raise keeps the inherited limit instead of failing the command."""
+    resource = pytest.importorskip("resource")
+    ran: list[bool] = []
+
+    def _refuse(_, value):
+        raise ValueError("not allowed")
+
+    monkeypatch.setattr(resource, "getrlimit", lambda _: (1024, 4096))
+    monkeypatch.setattr(resource, "setrlimit", _refuse)
+    monkeypatch.setattr(cli, "app", lambda: ran.append(True))
+
+    cli.main()
+
+    assert ran == [True]

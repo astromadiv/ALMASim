@@ -259,6 +259,31 @@ def serve_command(
     serve(port, status, stop, base_path, managed)
 
 
+def _raise_open_file_limit() -> None:
+    """Lift the soft open-file limit to the hard one.
+
+    WSClean's cube reordering keeps three files open per output channel (data,
+    weight, model), so a 2048-channel cube needs over 6000 at once. A console
+    started from a shell with the usual soft limit of 1024 passed it on to every
+    Slurm job it submitted (PropagateResourceLimits), and those cubes failed
+    with "Error opening temporary meta file" (2026-10-28). Raising it here
+    covers this process, WSClean and every job submitted from it.
+    """
+    try:
+        import resource
+    except ImportError:  # Windows: no rlimits
+        return
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    # An unlimited hard limit cannot be the soft one for open files on Linux.
+    target = hard if hard != resource.RLIM_INFINITY else 1 << 20
+    if soft != resource.RLIM_INFINITY and soft < target:
+        try:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (target, hard))
+        except (ValueError, OSError):
+            pass  # keep the inherited limit rather than refuse to start
+
+
 def main() -> None:
     """Run the ALMASim CLI application."""
+    _raise_open_file_limit()
     app()
