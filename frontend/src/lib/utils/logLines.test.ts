@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { splitChunk, visibleWindow } from './logLines';
+import { shownText, splitChunk, visibleWindow } from './logLines';
 
 describe('splitChunk', () => {
 	it('keeps an unfinished line for the next chunk', () => {
@@ -15,6 +15,23 @@ describe('splitChunk', () => {
 	it('drops carriage returns and handles empty chunks', () => {
 		expect(splitChunk('', 'a\r\nb\r\n')).toEqual({ lines: ['a', 'b'], partial: '' });
 		expect(splitChunk('x', '')).toEqual({ lines: [], partial: 'x' });
+	});
+
+	it('keeps only the last redraw of a progress bar', () => {
+		const bar = '\rDownloading:   0%| 0/9\rDownloading:  50%| 4/9\rDownloading: 100%| 9/9\n';
+		expect(splitChunk('', `${bar}Using CASA data\n`)).toEqual({
+			lines: ['Downloading: 100%| 9/9', 'Using CASA data'],
+			partial: ''
+		});
+	});
+});
+
+describe('shownText', () => {
+	it('shows what follows the last carriage return', () => {
+		expect(shownText('a\rbb\rccc')).toBe('ccc');
+		expect(shownText('ccc\r')).toBe('ccc');
+		expect(shownText('\rccc\r\r')).toBe('ccc');
+		expect(shownText('plain')).toBe('plain');
 	});
 });
 

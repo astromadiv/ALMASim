@@ -3,11 +3,22 @@
  * turn chunks into whole lines, and pick the lines a scrolled view shows.
  */
 
-/** Whole lines in `partial + text`, and the unfinished rest. */
+/** Whole lines in `partial + text` as a terminal shows them, and the unfinished rest. */
 export function splitChunk(partial: string, text: string): { lines: string[]; partial: string } {
 	const parts = (partial + text).split('\n');
 	const rest = parts.pop() ?? '';
-	return { lines: parts.map((line) => line.replace(/\r$/, '')), partial: rest };
+	return { lines: parts.map(shownText), partial: rest };
+}
+
+/**
+ * What a terminal shows of `line`: a carriage return starts the line over, so
+ * only the text after the last one is left. A progress bar redraws itself
+ * that way thousands of times on one line, which would otherwise be drawn as
+ * a single line hundreds of kilobytes wide.
+ */
+export function shownText(line: string): string {
+	const text = line.replace(/\r+$/, '');
+	return text.slice(text.lastIndexOf('\r') + 1);
 }
 
 /**
