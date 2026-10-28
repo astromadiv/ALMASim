@@ -245,3 +245,87 @@ def test_a_row_with_no_line_above_it_is_refused(monkeypatch, tmp_path):
     printed = result.output + (result.stderr or "")
     text = " ".join(re.sub(r"\x1b\[[0-9;]*m", "", printed).replace("│", " ").split())
     assert "no catalogue line at or above its frequency" in text
+
+
+def _params_from_cli(monkeypatch, tmp_path, *extra: str):
+    """The keyword arguments the CLI builds a row's SimulationParams from, and the result."""
+    metadata_path = _write_metadata_csv(
+        tmp_path,
+        [{"member_ous_uid": "uid://A001/X1/X1", "ALMA_source_name": "S", "Freq": 100.0}],
+    )
+    monkeypatch.setattr(cli_simulation.astro, "get_line_info", lambda main_dir: (400.0, None))
+    built = []
+
+    def from_row(row, **kwargs):
+        built.append(kwargs)
+        raise SystemExit(0)
+
+    monkeypatch.setattr(cli_simulation.SimulationParams, "from_metadata_row", from_row)
+    result = runner.invoke(
+        cli.app,
+        [
+            "simulation",
+            "--metadata-path",
+            metadata_path,
+            "--row-idx",
+            "0",
+            "--output-dir",
+            str(tmp_path / "out"),
+            *extra,
+        ],
+    )
+    return (built[0] if built else None), result
+
+
+def test_a_background_needs_its_mode(monkeypatch, tmp_path):
+    """--background-level once did nothing: the CLI never set background_mode."""
+    kwargs, result = _params_from_cli(
+        monkeypatch, tmp_path, "--background-mode", "combined", "--background-level", "2.5"
+    )
+    assert result.exit_code == 0, result.output
+    assert (kwargs["background_mode"], kwargs["background_level"]) == ("combined", 2.5)
+
+    kwargs, _ = _params_from_cli(monkeypatch, tmp_path, "--background-mode", "dusty_diffuse")
+    assert (kwargs["background_mode"], kwargs["background_level"]) == ("dusty_diffuse", 1.0)
+
+    kwargs, _ = _params_from_cli(monkeypatch, tmp_path)
+    assert kwargs["background_mode"] == "none"
+
+    kwargs, result = _params_from_cli(monkeypatch, tmp_path, "--background-level", "2")
+    assert kwargs is None and result.exit_code == 2
+    assert "--background-mode" in result.output + (result.stderr or "")
+
+    # 0, the old default, still runs without a mode.
+    kwargs, result = _params_from_cli(monkeypatch, tmp_path, "--background-level", "0")
+    assert result.exit_code == 0, result.output
+    assert kwargs["background_mode"] == "none"
+
+
+def test_external_components_read_their_input_as_a_table(monkeypatch, tmp_path):
+    """--input was passed as a FITS sky model, which external-components never reads."""
+    table = tmp_path / "components.ecsv"
+    table.write_text("dummy", encoding="utf-8")
+    kwargs, result = _params_from_cli(
+        monkeypatch, tmp_path, "--source-type", "external-components", "--input", str(table)
+    )
+    assert result.exit_code == 0, result.output
+    assert kwargs["source_type"] == "external-components"
+    assert kwargs["external_component_table_path"] == table.resolve()
+    assert kwargs["external_skymodel_path"] is None
+
+    # A folder holds FITS cubes to match to rows, not tables.
+    kwargs, result = _params_from_cli(
+        monkeypatch, tmp_path, "--source-type", "external-components", "--input", str(tmp_path)
+    )
+    assert kwargs is None and result.exit_code == 2
+    assert "one component table" in result.output + (result.stderr or "")
+
+
+def test_a_fits_input_stays_a_sky_model(monkeypatch, tmp_path):
+    cube = tmp_path / "cube.fits"
+    cube.write_text("dummy", encoding="utf-8")
+    kwargs, result = _params_from_cli(monkeypatch, tmp_path, "--input", str(cube))
+    assert result.exit_code == 0, result.output
+    assert kwargs["source_type"] == "external-fits-cube"
+    assert kwargs["external_skymodel_path"] == cube.resolve()
+    assert kwargs["external_component_table_path"] is None

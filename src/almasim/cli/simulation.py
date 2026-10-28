@@ -26,6 +26,7 @@ from ..services.simulation import (
     image_products,
     simulate_observation,
 )
+from ..services.simulation.background import BACKGROUND_MODES
 from ..skymodels.registry import SKYMODELS
 from ._shared import usage_error
 
@@ -59,6 +60,9 @@ SimulationBackend = StrEnum(  # type: ignore[misc]
 )
 ImagingAlgorithm = StrEnum(  # type: ignore[misc]
     "ImagingAlgorithm", {name: name for name in _IMAGING_ALGORITHMS}
+)
+BackgroundMode = StrEnum(  # type: ignore[misc]
+    "BackgroundMode", {name: name for name in BACKGROUND_MODES}
 )
 _EXTERNAL_INPUT_SUFFIXES = {".fits", ".fit", ".fts", ".fz"}
 
@@ -198,6 +202,7 @@ def _build_simulation_params(
     n_channels: int,
     n_lines: int | None,
     imaging_algorithm: str,
+    background_mode: str = "none",
     background_level: float,
     background_seed: int | None,
     seed: int | None,
@@ -215,6 +220,7 @@ def _build_simulation_params(
     rest_frequency, _ = astro.get_line_info(main_dir)
     row = with_redshifts(metadata.iloc[[row_idx]], rest_frequency).iloc[0]
     output_dir.mkdir(parents=True, exist_ok=True)
+    component_table = source_type == "external-components"
     external_input_path = _resolve_input_path_for_row(input_path, row)
     effective_source_type = (
         source_type
@@ -241,11 +247,14 @@ def _build_simulation_params(
         persist=persist_standard_outputs,
         ml_dataset_path=ml_shard_path,
         output_subdir_name=output_subdir_name,
-        external_skymodel_path=external_input_path,
+        # A component table is read as a table, not as a FITS image.
+        external_skymodel_path=None if component_table else external_input_path,
+        external_component_table_path=external_input_path if component_table else None,
         n_pix=n_pix,
         n_channels=n_channels,
         n_lines=n_lines,
         imaging_algorithm=imaging_algorithm,
+        background_mode=background_mode,
         background_level=background_level,
         background_seed=background_seed,
         seed=seed,
@@ -279,7 +288,8 @@ class SimulationRunOptions:
     imaging_algorithm: str
     robust: float
     instrument_geometry: InstrumentGeometry
-    background_level: float
+    background_mode: str
+    background_level: float | None
     background_seed: int | None
     inject_serendipitous: bool
     save_mode: str
@@ -404,10 +414,24 @@ def simulation_run(
         ),
         rich_help_panel="Observation",
     ),
-    background_level: float = typer.Option(
-        0.0,
+    background_mode: BackgroundMode = typer.Option(
+        BackgroundMode("none"),
+        "--background-mode",
+        help=(
+            "An astrophysical background added to the sky: blank_field_dsfg (faint dusty "
+            "galaxies), dusty_diffuse (a smooth dusty field), combined (both) or none."
+        ),
+        case_sensitive=False,
+        rich_help_panel="Sky model",
+    ),
+    background_level: float | None = typer.Option(
+        None,
         "--background-level",
-        help="Background sky level scaling factor (0 = no background).",
+        min=0.0,
+        help=(
+            "Strength of the --background-mode background, relative to the continuum "
+            "sensitivity (default 1; 0 adds none)."
+        ),
         rich_help_panel="Sky model",
     ),
     background_seed: int | None = typer.Option(
@@ -562,7 +586,8 @@ def simulation_run(
                     n_channels=o.n_channels,
                     n_lines=o.n_lines,
                     imaging_algorithm=o.imaging_algorithm,
-                    background_level=o.background_level,
+                    background_mode=o.background_mode,
+                    background_level=1.0 if o.background_level is None else o.background_level,
                     background_seed=(
                         o.background_seed if o.background_seed is not None else run_seed
                     ),
@@ -597,6 +622,7 @@ def _validated_simulation_options(o: SimulationRunOptions) -> SimulationRunOptio
         save_mode=o.save_mode.lower(),
         backend=o.backend.lower(),
         imaging_algorithm=o.imaging_algorithm.lower(),
+        background_mode=o.background_mode.lower(),
     )
     if not o.metadata_path.exists():
         usage_error(f"--metadata-path not found: {o.metadata_path}")
@@ -604,6 +630,13 @@ def _validated_simulation_options(o: SimulationRunOptions) -> SimulationRunOptio
         usage_error(f"--input not found: {o.input_path}")
     if o.kaggle_token is not None and not o.kaggle_token.expanduser().exists():
         usage_error(f"--kaggle-token not found: {o.kaggle_token}")
+    if o.source_type == "external-components" and (
+        o.input_path is None or not o.input_path.expanduser().is_file()
+    ):
+        usage_error("--source-type external-components takes one component table as --input")
+    # 0 is the old default, which earlier runs pass explicitly.
+    if o.background_level and o.background_mode == "none":
+        usage_error("--background-level scales a background: choose one with --background-mode")
     try:
         model = resolve_noise_model(o.noise_model)
         if model is not None:

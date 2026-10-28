@@ -130,7 +130,8 @@ def generate_clean_cube(
     log(f"Band: {params.band}")
     log(f"Velocity resolution: {round(params.vel_res, 2)} Km/s")
     log(f"Angular resolution: {round(params.ang_res, 3)} arcsec")
-    log(f"Infrared Luminosity: {spectral.lum_infrared:.2e}")
+    if spectral.lum_infrared is not None:  # none for an input cube
+        log(f"Infrared Luminosity: {spectral.lum_infrared:.2e}")
 
     sky = build_sky_cube(
         params,

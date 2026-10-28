@@ -34,10 +34,10 @@ It provides reusable services in [`src/almasim`](src/almasim) that can be driven
 ## Key Capabilities
 
 **Simulation**
-- Build clean sky cubes from point, Gaussian, extended (Python API only), molecular-cloud, diffuse, Galaxy Zoo, and Hubble-100 sky models, or from your own FITS cube or image
+- Build clean sky cubes from point, Gaussian, extended (Python API only), molecular-cloud, diffuse, Galaxy Zoo, and Hubble-100 sky models, or from your own FITS cube, FITS image or component table
 - Simulate single-pointing ALMA interferometric observations with multi-configuration support (12m, 7m, TP)
 - PWV-aware per-channel thermal noise, plus released noise models measured on real calibrated ALMA data (`--noise-model alma`, `almasim noise`)
-- Additive astrophysical background sky (Python API) — faint dusty galaxies, diffuse emission, or combined
+- Additive astrophysical background sky — faint dusty galaxies, diffuse emission, or combined
 - Optional serendipitous source injection
 - Wiener-filter preview reconstruction and TP+INT feather-style image combination
 
@@ -296,10 +296,11 @@ Full reference: [Simulation docs](https://astromadiv.github.io/ALMASim/simulatio
 | `molecular` | Molecular cloud structured emission |
 | `diffuse` | Correlated diffuse emission field |
 | `external-fits-cube`, `external-fits-image` | Your own FITS cube or image (`almasim simulation --input`), resampled to the run's grid and given a header built from the metadata row |
+| `external-components` | Your own component table (`almasim simulation --input`), placed on the run's grid |
 
 The `point` and `gaussian` sky models accept `source_offset_x_arcsec` / `source_offset_y_arcsec` (Python API only) to shift the science target from the phase center.
 
-**Additive background sky** (independent of the main source; set `background_mode` and `background_level` in `SimulationParams` — the CLI's `--background-level` does not add one yet):
+**Additive background sky** (independent of the main source; `--background-mode` and `--background-level` on the command line, `background_mode` and `background_level` in `SimulationParams`):
 
 | Mode | Effect |
 |---|---|
