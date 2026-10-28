@@ -21,6 +21,7 @@
 	import {
 		PRODUCTS_CSV,
 		RESULTS_CSV,
+		defaultMsFolder,
 		downloadArgv,
 		filteredBytes,
 		memberOusUids,
@@ -58,6 +59,9 @@
 
 	let openCsv = $state('');
 	let destination = $state('');
+	// Follows the destination (<destination>/archive_ms) until it is changed by hand.
+	let msFolder = $state('');
+	let msFolderDefault = '';
 	let productFilter = $state('all');
 	let extract = $state(true);
 	let unpack = $state(true);
@@ -164,6 +168,12 @@
 		return () => (stale = true);
 	});
 
+	$effect(() => {
+		const next = defaultMsFolder(destination);
+		if (msFolder === msFolderDefault) msFolder = next;
+		msFolderDefault = next;
+	});
+
 	// Free space where the download goes, a moment after the folder changes.
 	$effect(() => {
 		const path = destination.trim();
@@ -211,6 +221,7 @@
 		const argv = downloadArgv({
 			productsCsv,
 			destination: destination.trim(),
+			msFolder,
 			productFilter,
 			extract,
 			unpack,
@@ -423,12 +434,22 @@
 								MeasurementSets)</label
 							>
 						</fieldset>
+						{#if unpack || calibrate}
+							<PathPicker
+								bind:value={msFolder}
+								label="MeasurementSets folder"
+								allowCreate
+								required
+								hint="Raw MSs go to raw_ms/ in it and calibrated ones to calibrated_ms/; the Imaging page starts from the last download's calibrated_ms/."
+							/>
+						{/if}
 						<div>
 							<button
 								type="button"
 								class="btn-accent"
 								disabled={busy ||
 									!destination.trim() ||
+									((unpack || calibrate) && !msFolder.trim()) ||
 									downloadBytes === 0 ||
 									(space !== null && space.free_bytes < downloadBytes)}
 								onclick={download}>Download {formatBytes(downloadBytes)}</button

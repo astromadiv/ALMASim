@@ -62,7 +62,8 @@ with no tunnel. The app and its installation notes are in
   (`job.json`), batch script, logs and status. *Files* on its job page lists
   it; *Products* opens it.
 - A command's own outputs go where its options say: the output folder you
-  give *Imaging*, the destination you give *Archive*. *Simulate* keeps each
+  give *Imaging*, the destination and MeasurementSets folder you give
+  *Archive*. *Simulate* keeps each
   simulation's FITS products in its run folder (`outputs/`) unless you choose
   another folder.
 - The terminal sees the same runs: `almasim jobs list`, `almasim jobs logs -f
@@ -109,7 +110,9 @@ yours.
 Search the ALMA archive (with the filters of `almasim metadata`: project,
 source, band, science keyword and more), tick observations, find their
 products, and download them, raw or calibrated, to a folder you choose. Each step is a job. The
-ticked rows can go straight to *Simulate* instead.
+ticked rows can go straight to *Simulate* instead. Unpacked and calibrated
+MeasurementSets go to their own folder (`raw_ms/` and `calibrated_ms/` in
+it), by default `archive_ms/` in the destination.
 
 ![Archive](images/console/archive.png)
 
@@ -135,7 +138,9 @@ the cube's own grid; see [external sky models](skymodels.md#external-sky-models)
 Image calibrated MeasurementSets with WSClean: the console works out the
 imaging parameters of each spectral window, images them all in one Slurm
 driver with its own workers, follows the windows as they finish, and then
-measures how well each was cleaned.
+measures how well each was cleaned. The folder to image starts as the
+`calibrated_ms/` of your last archive download that calibrated, and the
+output folder is yours to choose.
 
 ![Imaging](images/console/imaging.png)
 
