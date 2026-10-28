@@ -12,7 +12,6 @@
 quickstart
 cli
 console
-console_hub
 simulation
 interferometry
 noise

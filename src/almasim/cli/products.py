@@ -1031,7 +1031,7 @@ def products_executions(
     metadata_path: Path = typer.Option(
         ...,
         "--metadata-path",
-        help="Metadata CSV (from 'almasim metadata query') to add n_executions to.",
+        help="Metadata CSV (from 'almasim metadata') to add n_executions to.",
     ),
     save_csv: Path | None = typer.Option(
         None,

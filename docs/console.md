@@ -47,6 +47,14 @@ their own console; the runs live in run folders that a whole team can share.
    *Archive*, *Imaging* and *Simulate* lead through the usual work: search
    and download observations, image MeasurementSets, simulate observations.
 
+### With Open OnDemand
+
+Where the site runs Open OnDemand, the console can also start from the
+portal as an interactive app: a small Slurm job of yours on a compute node
+(`almasim serve --managed`), opened with the session's *Connect* button,
+with no tunnel. The app and its installation notes are in
+[`ood/almasim`](https://github.com/astromadiv/ALMASim/tree/main/ood/almasim).
+
 ### Where results go
 
 - Each run has a **run folder** under the runs root
@@ -99,8 +107,8 @@ yours.
 ### Archive
 
 Search the ALMA archive (with the filters of `almasim metadata`: project,
-source, band, science keyword and more), tick observations, find their products, and download
-them, raw or calibrated, to a folder you choose. Each step is a job. The
+source, band, science keyword and more), tick observations, find their
+products, and download them, raw or calibrated, to a folder you choose. Each step is a job. The
 ticked rows can go straight to *Simulate* instead.
 
 ![Archive](images/console/archive.png)
@@ -110,7 +118,8 @@ ticked rows can go straight to *Simulate* instead.
 Pick observations from a metadata CSV (an archive search, or any
 `almasim metadata` CSV), choose a sky model and the simulation options, and
 start one job per observation. As you choose, the page estimates each
-simulation's cube and the disk space its outputs take.
+simulation's cube and the disk space its outputs take, and says what each
+job will ask Slurm for.
 
 ![Simulate](images/console/simulate.png)
 

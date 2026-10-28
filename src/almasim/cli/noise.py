@@ -185,7 +185,7 @@ def extract(
     windows: Path | None = typer.Option(
         None,
         "--windows",
-        help="A CSV of windows (columns ms, spw; optional field, name, syscal_ms, "
+        help="A CSV of windows (columns ms, spw; optional field, name, pwv, syscal_ms, "
         "line_channels, task_log), measured one per task.",
         rich_help_panel="Inputs",
     ),
@@ -573,7 +573,7 @@ def validate(
     metadata: Path = typer.Option(
         ...,
         "--metadata",
-        help="Each window's archive row (as metadata query writes them) with a name column.",
+        help="Each window's archive row (as 'almasim metadata' writes them) with a name column.",
         rich_help_panel="Inputs",
     ),
     measured: Path = typer.Option(

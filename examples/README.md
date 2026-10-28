@@ -1,30 +1,38 @@
-# Staged API Examples
+# ALMASim examples
 
-This directory contains runnable examples for the staged simulation API:
+This directory holds runnable examples of the ALMASim Python API and CLI:
 
 - `query_metadata_cli.py`
-  Query ALMA metadata from TAP, save it as CSV, and optionally save product-level access URLs for selected observations.
+  Queries ALMA metadata from TAP, saves it as CSV, and optionally saves the DataLink product rows of the first queried member OUSs (`--product-member-limit`, default 1).
 - `query_metadata_notebook.ipynb`
-  Notebook walkthrough for querying metadata, previewing results, and exporting CSV files for later simulation or download workflows.
+  Notebook version of the same query: preview the results and export the metadata and product rows as CSV for later simulation or download.
 - `download_products_cli.py`
-  Resolve DataLink products from `member_ous_uid` rows or a saved products CSV, then download them with a library-first Python API.
-- `archive_ms_cli.py`
-  Imports raw ALMA ASDMs into MeasurementSets, then applies delivered calibration products and writes calibrated science MSs.
+  Resolves DataLink products from `member_ous_uid` values (a metadata CSV or `--member-ous-uid`) or loads a saved products CSV, then downloads them. It can also extract the tarballs, import the ASDMs into raw MeasurementSets and write calibrated MeasurementSets.
 - `download_products_notebook.ipynb`
-  Notebook walkthrough for resolving products from queried metadata and downloading them to disk.
+  Notebook that resolves products from queried metadata, saves them as CSV and selects the files to download (the download call itself is left commented out).
+- `archive_ms_cli.py`
+  Imports raw ALMA ASDMs into MeasurementSets, then applies the delivered calibration and writes calibrated science MeasurementSets.
+- `e2e_archive_pipeline.py`
+  [Marimo](https://marimo.io) notebook for the whole archive workflow: query, resolve, download, unpack and calibrate, with query presets you can save and reload. The unpack and calibrate steps need CASA (`pip install "almasim[casa]"`).
 - `staged_pipeline_cli.py`
-  Queries metadata or loads a CSV, then runs clean-cube generation, in-memory observation simulation, and ML shard export from the command line.
+  Queries metadata or loads a CSV, then runs clean-cube generation, the observation simulation and the ML (HDF5) shard export from the command line.
 - `staged_pipeline_notebook.ipynb`
-  Notebook walkthrough of the same pipeline for interactive exploration and DDRM data preparation, starting from a live metadata query.
-- `imaging_cli.py`
-  Builds a synthetic clean/dirty/beam cube triplet, saves the products expected by the imaging page, runs iterative deconvolution, and checks that the restored cube is closer to the clean cube than the dirty cube.
+  Notebook version of the same pipeline, starting from a live metadata query, for interactive exploration and DDRM training data.
+- `slurm_cluster_submit_demo.py`
+  Submits a shell command through ALMASim's Slurm Dask cluster and prints `squeue`, `sacct` and `scontrol` details to debug the workers.
+- `ImagingWithDucc0.py`
+  Experimental Marimo notebook that grids a Stokes I dirty image and PSF from an MSv4 dataset with `ducc0`, writes them as `wsclean_like_image.fits` and `psf.fits`, and deconvolves with Radler. It needs `radler`, `xarray`, `holoviews` and `matplotlib`, which ALMASim does not install.
+- `clean.py`
+  Runs Radler deconvolution on the `wsclean_like_image.fits` and `psf.fits` that `ImagingWithDucc0.py` writes in the current directory, and saves the model and residual images as FITS.
+- `site-profiles/`
+  Site profiles for the web console and job submission (`ALMASIM_SITE_PROFILE`): `laptop.toml` for a machine without Slurm or `docker compose up`, `zwicky.toml` for the zwicky cluster.
 
-The examples use the in-process `sync` compute backend so they do not require Dask, process pools, or a running scheduler.
+The staged pipeline examples use the in-process `sync` compute backend, so they need no Dask cluster, process pool or scheduler.
 
-Metadata query CLI usage:
+The same archive workflow with the `almasim` CLI:
 
 ```bash
-almasim metadata query \
+almasim metadata \
   --science-keyword Galaxies \
   --band 6 \
   --save-csv examples/output/metadata_query_results.csv
@@ -38,16 +46,16 @@ almasim products download \
   --destination examples/output/downloads \
   --extract-tar
 
-almasim products extract \
+almasim visibilities extract \
   --source-root examples/output/downloads
 
-almasim products unpack \
+almasim visibilities unpack \
   --input-root examples/output/downloads \
   --output-dir examples/output/archive_ms/raw_ms \
   --backend slurm \
   --slurm-workers 8
 
-almasim products calibrate \
+almasim visibilities calibrate \
   --input-root examples/output/downloads \
   --raw-ms-root examples/output/archive_ms/raw_ms \
   --output-dir examples/output/archive_ms/calibrated_ms \
@@ -59,8 +67,14 @@ almasim clean -- \
   -size 1024 1024 \
   -scale 0.1asec \
   -niter 20000 \
-  examples/output/archive_ms/calibrated_ms/uid___A001_X*.ms
+  examples/output/archive_ms/calibrated_ms/*.ms.split.cal
+```
 
+`almasim visibilities extract` is only needed for archives downloaded without `--extract-tar`. See [docs/cli.md](../docs/cli.md) for every command and option.
+
+Metadata query script usage:
+
+```bash
 python examples/query_metadata_cli.py \
   --science-keyword Galaxies \
   --band 6 \
@@ -68,7 +82,7 @@ python examples/query_metadata_cli.py \
   --save-products-csv examples/output/metadata_products.csv
 ```
 
-Download CLI usage:
+Download script usage:
 
 ```bash
 python examples/download_products_cli.py \
@@ -80,7 +94,7 @@ python examples/download_products_cli.py \
   --extract-tar
 ```
 
-Download, unpack raw MSs, and generate calibrated visibilities:
+Download, unpack raw MeasurementSets and write calibrated visibilities:
 
 ```bash
 python examples/download_products_cli.py \
@@ -92,7 +106,7 @@ python examples/download_products_cli.py \
   --archive-output-root examples/output/archive_ms
 ```
 
-Archive MS CLI usage:
+Archive MeasurementSet script usage:
 
 ```bash
 python examples/archive_ms_cli.py \
@@ -100,7 +114,14 @@ python examples/archive_ms_cli.py \
   --output-root examples/output/archive_ms
 ```
 
-Staged pipeline CLI usage:
+Archive pipeline notebook:
+
+```bash
+marimo edit examples/e2e_archive_pipeline.py   # edit interactively
+marimo run examples/e2e_archive_pipeline.py    # run as an app
+```
+
+Staged pipeline script usage:
 
 ```bash
 python examples/staged_pipeline_cli.py \
@@ -112,11 +133,11 @@ python examples/staged_pipeline_cli.py \
   --ml-shard-path examples/output/ddrm_training_sample.h5
 ```
 
-Imaging CLI usage:
+Slurm submit demo usage (from a machine that can submit Slurm jobs):
 
 ```bash
-python examples/imaging_cli.py \
-  --output-dir examples/output/imaging_demo \
-  --cycles 180 \
-  --gain 0.12
+python examples/slurm_cluster_submit_demo.py \
+  --command "echo hello" \
+  --cores 2 \
+  --queue normal
 ```

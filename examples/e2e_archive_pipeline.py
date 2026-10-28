@@ -34,7 +34,7 @@ def _header():
         2. **Resolve** DataLink product URLs for selected observations
         3. **Download** raw data products (parallel, multi-mirror)
         4. **Unpack** ASDM archives into raw MeasurementSets *(requires CASA, Linux)*
-        5. **Calibrate** raw MSs using delivered calibration scripts *(requires CASA, Linux)*
+        5. **Calibrate** raw MSs with the delivered calibration *(requires CASA, Linux)*
 
         Query filter presets can be **saved** as JSON files and **reloaded** in future sessions.
         """
@@ -124,7 +124,8 @@ def _config_ui(loaded_preset, mo):
     )
     band = mo.ui.dropdown(
         options=band_map,
-        value=f.get("band", "Band 6"),
+        # A preset stores the band number (band.value); the dropdown takes its label.
+        value=f"Band {f.get('band', 6)}",
         label="ALMA band",
     )
     row_limit = mo.ui.slider(
@@ -430,7 +431,7 @@ def _casa_check(mo):
 @app.cell
 def _unpack(casa_available, download_dest, mo, out):
     if not casa_available:
-        mo.stop(False)
+        mo.stop(True)
 
     from almasim.services.archive import create_measurement_sets
 
@@ -471,8 +472,9 @@ def _unpack(casa_available, download_dest, mo, out):
 def _step5_header(mo):
     mo.md(
         "---\n## Step 5 — Apply Delivered Calibration\n\n"
-        "Runs the `scriptForPI.py` script delivered with the data and "
-        "extracts calibrated science SPWs into separate MSs."
+        "Restores the delivered pipeline flags, replays the delivered `applycal` "
+        "calls with `casatasks.applycal`, and splits the calibrated science SPWs "
+        "into separate MSs."
     )
     return
 
@@ -480,7 +482,7 @@ def _step5_header(mo):
 @app.cell
 def _calibrate(casa_available, download_dest, mo, out, raw_ms_root):
     if not casa_available:
-        mo.stop(False)
+        mo.stop(True)
 
     from almasim.services.archive import create_calibrated_measurement_sets
 

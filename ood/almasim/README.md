@@ -2,12 +2,15 @@
 
 An Open OnDemand interactive app that runs the ALMASim web console as a
 small Slurm job of the user's, on a compute node, reached through the
-portal's proxy at `/node/<host>/<port>/` (Open OnDemand plan, O4).
+portal's proxy at `/node/<host>/<port>/`. The console itself is described in
+[docs/console.md](../../docs/console.md); this app starts it with
+`almasim serve --managed` instead of the user running `almasim serve` on the
+login node.
 
 | File | What it does |
 | --- | --- |
 | `manifest.yml` | The app's name and place in the portal's menu. |
-| `form.yml` | The launch form: account, partition, hours, memory; the cluster's name and where almasim is installed. |
+| `form.yml` | The launch form: account, partition, hours, memory; the cluster's name and where `almasim` is installed. |
 | `submit.yml.erb` | The job: one CPU and the memory asked for. |
 | `template/before.sh.erb` | Picks a free port and a fresh token, and the path the proxy forwards. |
 | `template/script.sh.erb` | Starts `almasim serve --managed` with them. |
@@ -29,7 +32,9 @@ ALMASIM_SETUP=~/dev-env.sh bash ood/almasim/try-without-ondemand.sh
 
 `ALMASIM_SETUP` is the script that puts `almasim` on the PATH; by default the
 one `form.yml` names. The install must have `almasim serve --managed`, or
-the session stops and says so. Stop a session with `scancel <job id>`.
+the session stops and says so. Each session keeps its files (the job's log
+among them) in `~/ondemand-try/<session>/`. Stop a session with
+`scancel <job id>`.
 
 ## Installing
 

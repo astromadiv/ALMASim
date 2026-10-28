@@ -9,7 +9,7 @@
 
 ALMASim is a **library-first** Python environment for simulating ALMA observations, exploring ALMA metadata, downloading science products, and building ML-ready radio/mm-wave datasets.
 
-It provides reusable services in [`src/almasim`](src/almasim) that can be driven by the `almasim` command line, a web console, Jupyter notebooks, or direct Python code — all through the same staged API.
+It provides reusable services in [`src/almasim`](src/almasim) that can be driven by the `almasim` command line, the web console, Jupyter notebooks, or direct Python code — all through the same staged API.
 
 ---
 
@@ -34,13 +34,16 @@ It provides reusable services in [`src/almasim`](src/almasim) that can be driven
 ## Key Capabilities
 
 **Simulation**
-- Build clean sky cubes from point, Gaussian, extended, molecular-cloud, diffuse, Galaxy Zoo, and Hubble-100 source models
+- Build clean sky cubes from point, Gaussian, extended (Python API only), molecular-cloud, diffuse, Galaxy Zoo, and Hubble-100 sky models, or from your own FITS cube or image
 - Simulate single-pointing ALMA interferometric observations with multi-configuration support (12m, 7m, TP)
-- PWV-aware per-channel noise model
-- Additive astrophysical background sky — faint dusty galaxies, diffuse emission, or combined
+- PWV-aware per-channel thermal noise, plus released noise models measured on real calibrated ALMA data (`--noise-model alma`, `almasim noise`)
+- Additive astrophysical background sky (Python API) — faint dusty galaxies, diffuse emission, or combined
 - Optional serendipitous source injection
-- Iterative CLEAN-style deconvolution with resumable state
-- TP+INT feather-style image combination
+- Wiener-filter preview reconstruction and TP+INT feather-style image combination
+
+**Imaging**
+- WSClean imaging of calibrated MeasurementSets, one task per spectral window, on Slurm: continuum images and cubes, continuum subtraction, self-calibration and primary-beam correction
+- Clean-quality measurements per window (`almasim image clean-quality`)
 
 **Data Products**
 - Dirty cube, dirty visibilities, beam cube, UV mask cube, U/V coordinate cubes
@@ -53,11 +56,12 @@ It provides reusable services in [`src/almasim`](src/almasim) that can be driven
 - Normalise TAP columns into stable application fields
 - Resolve DataLink products, download ALMA data products with parallel support
 - Unpack raw ASDMs into MeasurementSets
-- Apply delivered calibration to produce calibrated science MSs
+- Apply delivered calibration to produce calibrated science MeasurementSets
 
 **Compute**
 - Synchronous, local multiprocess, Dask, Slurm, and Kubernetes backends
 - Backend-agnostic simulation service layer
+- Every `almasim` command can run as a Slurm job (`almasim submit`, `almasim jobs`, the web console)
 
 ---
 
@@ -66,19 +70,24 @@ It provides reusable services in [`src/almasim`](src/almasim) that can be driven
 ```
 src/almasim/          ← installable library  (pip install almasim)
   services/
-    simulation.py     ← staged pipeline entry points
+    simulation/       ← staged pipeline entry points
     interferometry/   ← UV sampling, baselines, noise, TP
-    imaging/          ← deconvolution, TP+INT combination
+    noise_model/      ← released noise models and their components
+    noise/            ← measuring the noise of real ALMA data
+    imaging/          ← WSClean batch imaging, quality, Wiener preview, TP+INT combination
     metadata/         ← TAP queries, normalisation
+    download/         ← DataLink resolution, product downloads
+    archive/          ← ASDM unpack, calibration apply
+    ms/               ← MeasurementSet reading and writing
     products/         ← MS export, HDF5 shards, cube export
     compute/          ← backend abstraction
-    archive/          ← ASDM unpack, calibration apply
     astro/            ← spectral lines, redshift, parameters
-  skymodels/          ← source model implementations
-
-  cli/               ← the `almasim` command line
-  web/               ← the web console (`almasim serve`, API v2)
+  skymodels/          ← sky model implementations
+  jobs/               ← runs of `almasim` commands as Slurm jobs (run folders, profiles)
+  cli/                ← the `almasim` command line
+  web/                ← the web console (`almasim serve`, API v2)
 frontend/             ← the console's pages (SvelteKit, built into the wheel)
+ood/almasim/          ← Open OnDemand interactive app for the console
 examples/             ← CLI scripts and Jupyter notebooks
 ```
 
@@ -88,22 +97,22 @@ The library layer owns all domain logic. The CLI wraps the library services, and
 
 ## Installation
 
-### Library only (cross-platform)
+ALMASim needs Python 3.12.
 
-```bash
-pip install almasim
-```
+### From PyPI
 
-### CLI installation
-
-The package installs the `almasim` command via the Python entry point:
+The package installs the library and the `almasim` command:
 
 ```bash
 pip install almasim
 almasim --help
 ```
 
-If you are working from a local clone, install the project into a virtual environment and use the CLI directly:
+Optional extras: `[web]` for the web console (`almasim serve`), `[casa]` and `[ms-casacore]` for MeasurementSet work (below).
+
+### From source
+
+To work from a local clone, install the project into a virtual environment with [uv](https://docs.astral.sh/uv/) and run the CLI through it:
 
 ```bash
 git clone https://github.com/astromadiv/ALMASim.git
@@ -113,14 +122,9 @@ uv sync --group dev
 uv run almasim --help
 ```
 
-For an editable local install that exposes `almasim` on your shell path:
+For an editable install that puts `almasim` on your shell path, run `pip install -e .` in the clone instead.
 
-```bash
-git clone https://github.com/astromadiv/ALMASim.git
-cd ALMASim
-pip install -e .
-almasim --help
-```
+### The `almasim` command
 
 Once installed, the CLI exposes the main workflows:
 
@@ -131,10 +135,16 @@ almasim visibilities --help  # extract, unpack and calibrate MeasurementSets; fl
 almasim image --help         # imaging parameters, WSClean imaging, quality, primary-beam correction
 almasim predict --help       # predict model visibilities into MeasurementSets
 almasim simulation --help    # simulate ALMA observations
+almasim preview --help       # quick-look FITS previews: integrated maps, Wiener reconstructions
+almasim noise --help         # released noise models; measuring real data's noise
 almasim clean --help         # run WSClean with extra arguments passed through
+almasim submit --help        # run any almasim command as a Slurm job
+almasim jobs --help          # list, follow and control those runs
+almasim serve --help         # the web console
+almasim doctor --help        # check what jobs need (Python, CASA, WSClean, Slurm)
 ```
 
-Every command and option is listed in [docs/cli.md](docs/cli.md), generated from
+Every command and option is listed in the [command-line reference](https://astromadiv.github.io/ALMASim/cli.html) (`docs/cli.md`), generated from
 the command definitions (`python scripts/generate_cli_reference.py`).
 
 ### With CASA tools (Linux x86-64 only)
@@ -149,20 +159,12 @@ The `[casa]` extra enables:
 - Native MeasurementSet export via `casatools`
 - ASDM-to-MS conversion via `casatasks.importasdm`
 - Calibration application via `casatasks.applycal`
+- Self-calibration and uv-plane continuum subtraction in `almasim image image-from-ms` (`--selfcal`, `--uv-contsub`)
 
-Without `[casa]`, all simulation, imaging, metadata, and download features still work. The MS export path falls back to `python-casacore` if available:
+Without `[casa]`, simulation, metadata and downloads still work. WSClean imaging (`almasim image`) reads the MeasurementSets with `python-casacore`, and the MS export path falls back to it when CASA is missing:
 
 ```bash
 pip install "almasim[ms-casacore]"
-```
-
-### From source (development)
-
-```bash
-git clone https://github.com/astromadiv/ALMASim.git
-cd ALMASim
-pip install uv
-uv sync --group dev
 ```
 
 ### Web console with Docker Compose (laptop)
@@ -193,26 +195,47 @@ docker pull ghcr.io/astromadiv/almasim-console:latest
 
 ## Quick Start
 
+### From the command line
+
+```bash
+# Band 6 galaxy observations from the ALMA archive, saved as a metadata CSV
+almasim metadata --science-keyword Galaxies --band 6 --limit 10 \
+  --save-csv output/metadata.csv --yes
+
+# Simulate the first row (a point source by default) into an ML-ready HDF5 shard;
+# add --save-mode fits --persist-standard-outputs to keep the FITS cubes as well
+almasim simulation --metadata-path output/metadata.csv --row-idx 0 \
+  --project-name demo --output-dir output/simulation --ml-shard-path output/demo.h5
+```
+
 ### Query ALMA metadata
 
 ```python
-from almasim.services.metadata.tap.service import query_by_science_type, InclusionFilters
+from almasim.services.metadata.tap import InclusionFilters, query_metadata_by_science
 
-df = query_by_science_type(include=InclusionFilters(science_keyword=["Galaxies"], band=[6]))
-print(df[["ALMA_source_name", "Band", "spatial_resolution"]].head())
+df = query_metadata_by_science(include=InclusionFilters(science_keyword=["Galaxies"], band=[6]))
+print(df[["ALMA_source_name", "Band", "Ang.res."]].head())
 ```
+
+`query_metadata_by_science` returns the normalised columns a simulation reads; `query_by_science_type` (in `almasim.services.metadata.tap.service`) returns the raw TAP columns.
 
 ### Run a simulation from a metadata row
 
 ```python
-from almasim import SimulationParams, run_simulation
 from pathlib import Path
 
+import almasim
+from almasim import SimulationParams, run_simulation
+
+out = Path("output")
 params = SimulationParams.from_metadata_row(
-    row,  # pandas Series from a metadata query
+    df.iloc[0],  # a row of the metadata query above
     idx=0,
-    main_dir=Path("src/almasim"),
-    output_dir=Path("output"),
+    main_dir=Path(almasim.__file__).parent,  # the package's data files
+    output_dir=out,
+    tng_dir=out / "tng",
+    galaxy_zoo_dir=out / "galaxy_zoo",
+    hubble_dir=out / "hubble",
     project_name="my_project",
 )
 
@@ -232,10 +255,10 @@ from almasim import (
 
 params = SimulationParams.from_metadata_row(row, idx=0, ...)
 
-cube_result  = generate_clean_cube(params)
-obs_result   = simulate_observation(params, cube_result)
-img_result   = image_products(params, obs_result)
-export_results(params, cube_result, obs_result, img_result)
+clean_cube_stage   = generate_clean_cube(params)
+simulation_results = simulate_observation(clean_cube_stage)
+simulation_results = image_products(simulation_results)
+exported           = export_results(params, clean_cube_stage, simulation_results)
 ```
 
 ---
@@ -246,16 +269,16 @@ The pipeline is split into four composable stages:
 
 | Stage | Function | What it does |
 |---|---|---|
-| 1 | `generate_clean_cube()` | Build sky cube from skymodel, apply background |
-| 2 | `simulate_observation()` | Run interferometric + TP simulation, return dirty products |
-| 3 | `image_products()` | Deconvolve, combine INT+TP, build image cubes |
-| 4 | `export_results()` | Write cubes, ML shards, parameter summaries to disk |
+| 1 | `generate_clean_cube()` | Build the sky cube from the sky model, add the background |
+| 2 | `simulate_observation()` | Run the interferometric + TP simulation, return the dirty products |
+| 3 | `image_products()` | Build the image cubes: Wiener reconstruction, INT+TP combination |
+| 4 | `export_results()` | Write cubes, ML shards and parameter summaries to disk |
 
 `run_simulation()` orchestrates all four in sequence.
 
 `write_ml_dataset_shard()` exports an HDF5 shard (clean cube + dirty cube + dirty visibilities + UV mask + metadata) independently of the main export path.
 
-`estimate_simulation_footprint()` returns resolved pixel count, channel count, cell size, beam size, and raw output size in GiB — useful for pre-run capacity checks.
+`estimate_simulation_footprint()` (in `almasim.services.simulation`) returns the resolved pixel count, channel count, cell size, beam size, and raw output size in GiB — useful for pre-run capacity checks.
 
 Full reference: [Simulation docs](https://astromadiv.github.io/ALMASim/simulation.html)
 
@@ -267,15 +290,16 @@ Full reference: [Simulation docs](https://astromadiv.github.io/ALMASim/simulatio
 |---|---|
 | `point` | Point source — PSF and CLEAN validation |
 | `gaussian` | 2-D Gaussian — compact extended source |
-| `extended` | TNG-backed realistic extended emission |
+| `extended` | TNG-backed realistic extended emission (Python API only, not in the CLI) |
 | `galaxy-zoo` | Galaxy Zoo image morphology prior |
 | `hubble-100` | Hubble Top-100 image morphology prior |
 | `molecular` | Molecular cloud structured emission |
 | `diffuse` | Correlated diffuse emission field |
+| `external-fits-cube`, `external-fits-image` | Your own FITS cube or image (`almasim simulation --input`), resampled to the run's grid and given a header built from the metadata row |
 
-All skymodels accept explicit `source_offset_x_arcsec` / `source_offset_y_arcsec` to shift the science target from phase center.
+The `point` and `gaussian` sky models accept `source_offset_x_arcsec` / `source_offset_y_arcsec` (Python API only) to shift the science target from the phase center.
 
-**Additive background sky** (independent of the main source):
+**Additive background sky** (independent of the main source; set `background_mode` and `background_level` in `SimulationParams` — the CLI's `--background-level` does not add one yet):
 
 | Mode | Effect |
 |---|---|
@@ -289,7 +313,7 @@ Full reference: [Skymodels docs](https://astromadiv.github.io/ALMASim/skymodels.
 
 ## Compute Backends
 
-Select via `SimulationParams.compute_backend`:
+Create a backend with `almasim.services.compute.create_backend(...)` and pass it as `compute_backend=` to `run_simulation()` or the stage functions (without one, the channels are imaged in-process). On the command line, `almasim simulation --backend sync|local` chooses between the first two.
 
 | Backend | Use case |
 |---|---|
@@ -308,13 +332,13 @@ Full reference: [Compute docs](https://astromadiv.github.io/ALMASim/compute.html
 ### Query metadata via TAP
 
 ```python
-from almasim.services.metadata.tap.service import (
-    query_by_science_type,
+from almasim.services.metadata.tap import (
+    query_metadata_by_science,
     InclusionFilters,
     ExclusionFilters,
 )
 
-df = query_by_science_type(
+df = query_metadata_by_science(
     include=InclusionFilters(
         science_keyword=["Galaxies"],
         band=[6, 7],
@@ -328,10 +352,12 @@ df = query_by_science_type(
 ### Download products
 
 ```python
-from almasim.services.download import resolve_products, run_download_job
+from pathlib import Path
+
+from almasim.services.download import download_products, resolve_products
 
 products = resolve_products(df["member_ous_uid"].tolist())
-run_download_job(products, destination=Path("downloads"), extract_tar=True)
+summary = download_products(products, destination=Path("downloads"), extract_tar=True)
 ```
 
 Full reference: [Metadata docs](https://astromadiv.github.io/ALMASim/metadata.html) · [Downloads docs](https://astromadiv.github.io/ALMASim/downloads.html)
@@ -340,7 +366,7 @@ Full reference: [Metadata docs](https://astromadiv.github.io/ALMASim/metadata.ht
 
 ## Web Console
 
-`almasim serve` runs a web console on a cluster's login node: one page to query the ALMA archive, start simulations, image measurement sets, run any `almasim` command as a Slurm job, follow jobs live and look at the products. Each user runs their own console and reaches it through an SSH tunnel:
+`almasim serve` runs the web console on a cluster's login node: one place to query the ALMA archive, start simulations, image MeasurementSets, run any `almasim` command as a Slurm job, follow jobs live and look at the products. Each user runs their own console and reaches it through an SSH tunnel:
 
 ```bash
 # on the cluster's login node (in tmux or screen, so it outlives the SSH session)
@@ -354,6 +380,8 @@ ssh -N -L 8765:/home/you/.almasim/serve.sock you@cluster.login
 
 The console listens on a socket only you can open and asks for your token. `almasim serve --status` prints the link again and `almasim serve --stop` stops it; your jobs carry on either way.
 
+On a site with Open OnDemand, the console can instead start from the portal as an interactive app, with no tunnel: see [`ood/almasim`](ood/almasim/README.md).
+
 ![The web console](https://raw.githubusercontent.com/astromadiv/ALMASim/main/docs/images/console/home.png)
 
 The console serves its pages and API v2 (`/api/v2`, OpenAPI docs at `/api/docs`) together, so a cluster needs no Node and no database: the runs live in run folders a team can share.
@@ -364,7 +392,7 @@ Full reference: [Web console docs](https://astromadiv.github.io/ALMASim/console.
 
 ## Examples
 
-All examples use the `sync` compute backend and require no running scheduler.
+The example scripts use the `sync` compute backend and need no running scheduler; the `almasim` commands below show the same workflows, some of them on Slurm.
 
 | Script | Description |
 |---|---|
@@ -372,11 +400,10 @@ All examples use the `sync` compute backend and require no running scheduler.
 | [`examples/download_products_cli.py`](examples/download_products_cli.py) | Resolve and download ALMA products |
 | [`examples/archive_ms_cli.py`](examples/archive_ms_cli.py) | Unpack ASDMs and apply calibration |
 | [`examples/staged_pipeline_cli.py`](examples/staged_pipeline_cli.py) | Full pipeline: query → simulate → ML shard |
-| [`examples/imaging_cli.py`](examples/imaging_cli.py) | Synthetic imaging + iterative deconvolution |
 
 ```bash
-# Installable CLI (Typer)
-almasim metadata query \
+# Query metadata for Band 6 galaxy observations
+almasim metadata \
   --science-keyword Galaxies --band 6 \
   --save-csv examples/output/metadata.csv
 
@@ -443,7 +470,7 @@ almasim visibilities calibrate \
 #
 # Following progress: each UID writes <output-root>/logs/<uid>.calibrate.log
 # (or <uid>.unpack.log) with the full CASA output, so on Slurm you can
-#   tail -f examples/output/archive_ms/calibrated_ms/logs/uid___A001_X*.calibrate.log
+#   tail -f examples/output/archive_ms/calibrated_ms/logs/*.calibrate.log
 # from the submit node. The submit node also prints the last log line of every
 # running UID once a minute. Dask worker stdout/stderr lands in ~/dask-worker-logs.
 
@@ -472,30 +499,25 @@ almasim clean -- \
   -size 1024 1024 \
   -scale 0.1asec \
   -niter 20000 \
-  examples/output/archive_ms/calibrated_ms/uid___A001_X*.ms
+  examples/output/archive_ms/calibrated_ms/*.ms.split.cal
 
-# Run staged simulation from metadata query
-almasim simulation run \
-  --science-keyword Galaxies \
-  --band 6 \
+# Run a staged simulation from the first row of the metadata CSV
+almasim simulation \
+  --metadata-path examples/output/metadata.csv \
   --row-idx 0 \
   --project-name demo \
   --ml-shard-path examples/output/demo.h5
 
-# Query metadata for Band 6 galaxy observations
+# The same with the example scripts: query metadata for Band 6 galaxy observations
 python examples/query_metadata_cli.py \
   --science-keyword Galaxies --band 6 \
   --save-csv examples/output/metadata.csv
 
-# Run a staged simulation from the first metadata row
+# ...then run a staged simulation from the first metadata row
 python examples/staged_pipeline_cli.py \
-  --metadata-csv examples/output/metadata.csv \
+  --metadata-mode csv --metadata-path examples/output/metadata.csv \
   --row-idx 0 --project-name demo \
   --ml-shard-path examples/output/demo.h5
-
-# Iterative deconvolution demo
-python examples/imaging_cli.py \
-  --output-dir examples/output/imaging --cycles 180 --gain 0.12
 ```
 
 Notebook equivalents: [`staged_pipeline_notebook.ipynb`](examples/staged_pipeline_notebook.ipynb) · [`query_metadata_notebook.ipynb`](examples/query_metadata_notebook.ipynb) · [`download_products_notebook.ipynb`](examples/download_products_notebook.ipynb)
@@ -532,16 +554,19 @@ Full documentation: **[astromadiv.github.io/ALMASim](https://astromadiv.github.i
 | Section | Topics |
 |---|---|
 | [Quick Start](https://astromadiv.github.io/ALMASim/quickstart.html) | Installation, first simulation |
+| [Command-line reference](https://astromadiv.github.io/ALMASim/cli.html) | Every `almasim` command and option |
+| [Web Console](https://astromadiv.github.io/ALMASim/console.html) | `almasim serve`: pages, jobs, shared runs |
 | [Simulation](https://astromadiv.github.io/ALMASim/simulation.html) | Staged API, SimulationParams, outputs |
 | [Interferometry](https://astromadiv.github.io/ALMASim/interferometry.html) | UV sampling, baselines, multi-config |
-| [Noise](https://astromadiv.github.io/ALMASim/noise.html) | PWV-aware noise model |
+| [Noise](https://astromadiv.github.io/ALMASim/noise.html) | PWV-aware thermal noise and the noise models, in brief |
+| [Noise Models](https://astromadiv.github.io/ALMASim/noise_models.html) | The noise models in depth: measuring, building and releasing one |
 | [Background Sky](https://astromadiv.github.io/ALMASim/background.html) | Additive astrophysical background |
-| [Skymodels](https://astromadiv.github.io/ALMASim/skymodels.html) | Source models reference |
-| [Imaging](https://astromadiv.github.io/ALMASim/imaging.html) | Deconvolution, TP+INT combination |
+| [Skymodels](https://astromadiv.github.io/ALMASim/skymodels.html) | Sky models reference |
+| [Imaging](https://astromadiv.github.io/ALMASim/imaging.html) | WSClean batch imaging, TP+INT combination |
 | [Metadata](https://astromadiv.github.io/ALMASim/metadata.html) | TAP queries, filters |
 | [Downloads](https://astromadiv.github.io/ALMASim/downloads.html) | Product download workflow |
 | [Compute Backends](https://astromadiv.github.io/ALMASim/compute.html) | Sync, Dask, Slurm, Kubernetes |
-| [Web Console](https://astromadiv.github.io/ALMASim/console.html) | `almasim serve`: pages, jobs, shared runs |
+| [Slurm Scheduler](https://astromadiv.github.io/ALMASim/slurm_scheduler.html) | The Slurm-backed Dask cluster behind `--backend slurm` |
 
 Build docs locally:
 
@@ -558,24 +583,23 @@ uv run sphinx-build -b html docs/source docs/build/html
 git clone https://github.com/astromadiv/ALMASim.git
 cd ALMASim
 uv sync --group dev
-uv run pytest --ignore=illustris_python
-uv run ruff check .
-uv run ruff format .
+make check        # ruff format --check, ruff check, mypy and pytest, as CI runs them
+make format       # apply ruff's formatting and automatic fixes
 ```
 
 A release is published automatically when a version tag is pushed:
 
 ```bash
-# 1. Bump version in pyproject.toml and src/almasim/__version__.py
+# 1. Bump the version in pyproject.toml (the only place it is written)
 # 2. Commit and tag
-git tag v2.1.11
-git push origin v2.1.11
+git tag vX.Y.Z
+git push origin vX.Y.Z
 ```
 
 The release pipeline then:
 1. Validates that the tag matches `pyproject.toml`
 2. Runs the full lint + test suite
-3. Publishes wheel and sdist to PyPI via OIDC trusted publisher
+3. Builds the web app into the wheel and sdist, and publishes them to PyPI via OIDC trusted publisher
 4. Creates a GitHub Release with auto-generated changelog and attached artifacts
 5. Builds and pushes the console and frontend Docker images to GHCR
 

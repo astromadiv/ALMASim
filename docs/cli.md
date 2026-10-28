@@ -154,7 +154,7 @@ $ almasim products executions [OPTIONS]
 
 **Options**:
 
-* `--metadata-path <path>`: Metadata CSV (from 'almasim metadata query') to add n_executions to.  [required]
+* `--metadata-path <path>`: Metadata CSV (from 'almasim metadata') to add n_executions to.  [required]
 * `--save-csv <path>`: Destination CSV; defaults to overwriting --metadata-path.
 * `--help`: Show this message and exit.
 
@@ -170,7 +170,7 @@ $ almasim simulation [OPTIONS]
 
 **Options**:
 
-* `--metadata-path <path>`: CSV file with pre-fetched ALMA metadata rows (from 'almasim metadata query').  [required]
+* `--metadata-path <path>`: CSV file with pre-fetched ALMA metadata rows (from 'almasim metadata').  [required]
 * `--row-idx <int range>`: Single metadata row index to simulate. Omit to simulate all rows.  [x>=0]
 * `--project-name <str>`: Project name used in outputs.  [default: sim_demo]
 * `--output-dir <path>`: Directory for simulation outputs.  [default: ~/almasim_outputs/simulation]
@@ -728,7 +728,7 @@ $ almasim noise extract [OPTIONS] [ms]
 * `--line-channels <str>`: Channels of line emission to leave out ('a~b;c').
 * `--task-log <path>`: An ALMASim imaging task's log; its 'lines in channels' are left out.
 * `--pwv <float range>`: The observation's precipitable water vapour (mm; the archive's PWV), for noise aggregate's receiver temperatures.  [x>=0]
-* `--windows <path>`: A CSV of windows (columns ms, spw; optional field, name, syscal_ms, line_channels, task_log), measured one per task.
+* `--windows <path>`: A CSV of windows (columns ms, spw; optional field, name, pwv, syscal_ms, line_channels, task_log), measured one per task.
 * `--max-visibilities <int range>`: Rows are sampled evenly over the observation up to about this many visibilities.  [default: 40000000; x>=1000]
 * `--overwrite`: Measure windows again even when measured.
 * `--backend, --postprocess-backend <sync|slurm>`: Where the tasks run: sync (this process, one at a time) or slurm (Slurm jobs).  [default: sync]
@@ -821,7 +821,7 @@ $ almasim noise validate [OPTIONS]
 
 * `--model <str>`: The model to validate: a candidate file or a released name.  [required]
 * `--windows <path>`: The windows table noise extract measured (name, ms, spw; task_dir: their imaging).  [required]
-* `--metadata <path>`: Each window's archive row (as metadata query writes them) with a name column.  [required]
+* `--metadata <path>`: Each window's archive row (as 'almasim metadata' writes them) with a name column.  [required]
 * `--measured <path>`: noise extract's output for the real windows.  [required]
 * `--out <path>`: Where the validation goes (validation/<model sha>/).  [required]
 * `--name <str>`: Validate only this window of the table.
