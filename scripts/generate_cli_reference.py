@@ -45,13 +45,33 @@ def _without_hidden(command: Any) -> Any:
     return command
 
 
+def _one_level_down(text: str) -> str:
+    """``text`` with every heading outside code blocks one level deeper.
+
+    Typer titles each command ``#``; under the page's own ``#`` they must be
+    ``##`` (and their subcommands ``###``), or the docs sidebar lists every
+    command as a page of its own.
+    """
+    lines = []
+    in_code = False
+    for line in text.splitlines(keepends=True):
+        if line.startswith("```"):
+            in_code = not in_code
+        elif not in_code and line.startswith("#"):
+            line = "#" + line
+        lines.append(line)
+    return "".join(lines)
+
+
 def _document(command: Any, name: str) -> str:
     command = _without_hidden(command)
-    return get_docs_for_click(
-        obj=command,
-        ctx=typer.Context(command, info_name=name),
-        name=name,
-        title=f"`{name}`",
+    return _one_level_down(
+        get_docs_for_click(
+            obj=command,
+            ctx=typer.Context(command, info_name=name),
+            name=name,
+            title=f"`{name}`",
+        )
     )
 
 

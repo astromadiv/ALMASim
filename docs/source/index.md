@@ -1,6 +1,7 @@
 # ALMASim Documentation
 
 ```{include} ../../README.md
+:start-line: 1
 ```
 
 ## Documentation Contents
@@ -23,7 +24,6 @@ metadata
 downloads
 compute
 slurm_scheduler
-fidelity_plan
 ```
 
 ## Indices and Tables
