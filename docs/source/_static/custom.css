@@ -14,3 +14,8 @@
 .toggle .admonition-title.open:after {
     content: "▼";
 }
+
+/* The theme caps the text column at 800px; let it follow the window instead. */
+.wy-nav-content {
+    max-width: none;
+}
