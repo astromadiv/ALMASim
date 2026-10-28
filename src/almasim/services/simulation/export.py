@@ -155,10 +155,11 @@ def _write_combined_observation(
 ) -> None:
     """The interferometric cubes of the whole observation: its execution blocks and
     configurations combined, as the results in memory hold them."""
-    if int_results is None:
+    output_dir = clean_cube_stage.sim_output_dir
+    if int_results is None or output_dir is None:
         return
     write_interferometry_products(
-        clean_cube_stage.sim_output_dir,
+        output_dir,
         idx=params.idx,
         save_mode=params.save_mode,
         header=_observation_header(int_results, clean_cube_stage.header),
