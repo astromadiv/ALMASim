@@ -141,7 +141,6 @@ def plan_observation_runs(
     effective_snr: float,
     base_noise_reference: float,
     output_dir_abs: str,
-    persist_outputs: bool,
 ) -> tuple[list[InterferometerRun], list[TotalPowerRun]]:
     """The interferometric runs, one per execution block of each configuration, and
     the total-power runs, one per configuration."""
@@ -238,7 +237,9 @@ def plan_observation_runs(
                     observation_date=execution_date(params.obs_date, execution),
                     header=header,
                     save_mode=params.save_mode,
-                    persist=persist_outputs,
+                    # Each run is one block of one configuration: export_results
+                    # writes their combination, not each run (they shared one name).
+                    persist=False,
                     antenna_diameter_m=config.antenna_diameter_m,
                     config_name=config.name,
                     array_type=config.array_type,

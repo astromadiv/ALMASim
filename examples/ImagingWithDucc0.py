@@ -78,7 +78,7 @@ def _(I, frequencies, uvw):
     import numpy as np
 
     arcsec_to_radians = np.pi / 180 / 3600
-    pix_scale_arcsec = np.array((10, 10), dtype=np.float64) * arcsec_to_radians
+    pix_scale_rad = np.array((10, 10), dtype=np.float64) * arcsec_to_radians
     image_size = (1024, 1024)
     epsilon = 1.0e-6
 
@@ -96,7 +96,7 @@ def _(I, frequencies, uvw):
         freq_array,
         image_size,
         np,
-        pix_scale_arcsec,
+        pix_scale_rad,
         uvw_array,
         vis_array,
     )
@@ -109,7 +109,7 @@ def _(
     freq_array,
     image_size,
     np,
-    pix_scale_arcsec,
+    pix_scale_rad,
     uvw_array,
     vis_array,
 ):
@@ -122,8 +122,8 @@ def _(
             freq=freq_array,
             npix_x=image_size[0],
             npix_y=image_size[1],
-            pixsize_x=pix_scale_arcsec[0],
-            pixsize_y=pix_scale_arcsec[1],
+            pixsize_x=pix_scale_rad[0],
+            pixsize_y=pix_scale_rad[1],
             do_wgridding=True,
             epsilon=epsilon,
             nthreads=10,
@@ -132,8 +132,8 @@ def _(
             uvw=uvw_array,
             dirty=psf_unweighted,
             freq=freq_array,
-            pixsize_x=pix_scale_arcsec[0],
-            pixsize_y=pix_scale_arcsec[1],
+            pixsize_x=pix_scale_rad[0],
+            pixsize_y=pix_scale_rad[1],
             do_wgridding=True,
             epsilon=epsilon,
             nthreads=10,
@@ -147,8 +147,8 @@ def _(
             freq=freq_array,
             npix_x=image_size[0],
             npix_y=image_size[1],
-            pixsize_x=pix_scale_arcsec[0],
-            pixsize_y=pix_scale_arcsec[1],
+            pixsize_x=pix_scale_rad[0],
+            pixsize_y=pix_scale_rad[1],
             do_wgridding=True,
             epsilon=epsilon,
             nthreads=10,
@@ -170,7 +170,7 @@ def _(
     epsilon,
     freq_array,
     image_size,
-    pix_scale_arcsec,
+    pix_scale_rad,
     uvw_array,
     vis_array,
     weights,
@@ -182,8 +182,8 @@ def _(
         freq=freq_array,
         npix_x=image_size[0],
         npix_y=image_size[1],
-        pixsize_x=pix_scale_arcsec[0],
-        pixsize_y=pix_scale_arcsec[1],
+        pixsize_x=pix_scale_rad[0],
+        pixsize_y=pix_scale_rad[1],
         do_wgridding=True,
         epsilon=epsilon,
         nthreads=10,
@@ -198,7 +198,7 @@ def _(chunked_dset):
 
 
 @app.cell
-def _(dec, dirty_image, image_size, np, pix_scale_arcsec, psf, ra):
+def _(dec, dirty_image, image_size, np, pix_scale_rad, psf, ra):
     from astropy.io import fits
     from astropy.wcs import WCS
 
@@ -211,8 +211,8 @@ def _(dec, dirty_image, image_size, np, pix_scale_arcsec, psf, ra):
     ra_deg = ra / np.pi * 180  # CRVAL1
     dec_deg = dec / np.pi * 180  # CRVAL2
 
-    # Pixel scale in arcsec (like -scale in WSClean)
-    pixscale_deg = pix_scale_arcsec / 3600.0
+    # Pixel scale in degrees, as CDELT holds it (pix_scale_rad is in radians)
+    pixscale_deg = np.degrees(pix_scale_rad)
 
     # --- construct WCS like WSClean ---
 
@@ -278,14 +278,15 @@ def _(dirty_image, mo, psf):
 
 
 @app.cell
-def _(arcsec_to_radians, dirty_image, np, psf, radler, pixscale_deg):
+def _(arcsec_to_radians, dirty_image, np, pix_scale_rad, psf, radler):
     residual = np.array(dirty_image)
     model = np.zeros_like(residual)
     settings = radler.Settings()
 
     settings.trimmed_image_width, settings.trimmed_image_height = psf.shape
-    settings.pixel_scale.x = pixscale_deg[0]
-    settings.pixel_scale.y = pixscale_deg[1]
+    # Radler takes the pixel scale in radians.
+    settings.pixel_scale.x = pix_scale_rad[0]
+    settings.pixel_scale.y = pix_scale_rad[1]
     settings.minor_iteration_count = 50000
     settings.major_iteration_count = 1
     settings.auto_threshold_sigma = 1.0

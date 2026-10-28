@@ -81,7 +81,6 @@ def _plan(total_time_s: float, *, n_executions=None, executions=None, configs=No
         effective_snr=10.0,
         base_noise_reference=1e-3,
         output_dir_abs="/tmp",
-        persist_outputs=False,
     )
 
 
@@ -256,3 +255,43 @@ def test_blocks_with_different_antennas_share_one_antenna_list():
     assert joint["antenna_names"] == ["A1", "A2", "A3"]
     np.testing.assert_array_equal(joint["antenna1"], [0] * 4 + [1] * 4)
     np.testing.assert_array_equal(joint["antenna2"], [1] * 4 + [2] * 4)
+
+
+@pytest.mark.unit
+def test_the_runs_leave_their_cubes_to_the_export():
+    """Every run once wrote its cubes under the same name: the last block's were kept."""
+    runs, _ = _plan(36469.44, n_executions=13)
+    assert len(runs) == 13 and not any(run.persist for run in runs)
+
+
+@pytest.mark.unit
+def test_the_export_writes_the_combined_observation(tmp_path):
+    from astropy.io import fits
+
+    from almasim.services.interferometry.multiconfig import combine_interferometric_results
+    from almasim.services.simulation.export import _write_combined_observation
+
+    def run(value: float) -> dict:
+        cube = np.full((2, 8, 8), value, dtype=np.float32)
+        return {
+            "image_header": fits.Header([("EPOCH", int(value) + 2)]),
+            "model_cube": cube,
+            "dirty_cube": cube,
+            "model_vis": cube.astype(np.complex64),
+            "dirty_vis": cube.astype(np.complex64),
+            "beam_cube": np.ones_like(cube),
+            "totsampling_cube": np.ones_like(cube),
+            "uv_mask_cube": np.ones_like(cube),
+            "u_cube": np.zeros((2, 4)),
+            "v_cube": np.zeros((2, 4)),
+        }
+
+    combined = combine_interferometric_results([run(1.0), run(3.0)], config_weights=[1.0, 1.0])
+    _write_combined_observation(
+        SimpleNamespace(idx=5, save_mode="fits"),
+        SimpleNamespace(sim_output_dir=str(tmp_path), header=fits.Header()),
+        combined,
+    )
+    dirty = fits.getdata(tmp_path / "dirty-cube_5.fits")
+    assert dirty == pytest.approx(np.full((2, 8, 8), 2.0)), "the blocks' mean, not the last"
+    assert fits.getheader(tmp_path / "dirty-cube_5.fits")["EPOCH"] == 3 + 5, "both tracks"

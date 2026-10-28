@@ -456,6 +456,8 @@ class Interferometer:
             "array_type": self.array_type,
             "antenna_diameter_m": self.antenna_diameter_m,
             "visibility_table": visibility_table,
+            # Its image header, with the EPOCH (hour-angle samples) of its track.
+            "image_header": self.header,
         }
 
         return simulation_results

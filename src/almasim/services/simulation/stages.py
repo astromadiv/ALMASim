@@ -164,7 +164,6 @@ def generate_clean_cube(
         effective_snr=effective_snr,
         base_noise_reference=noise_reference(spectral.line_fluxes, beam_area, effective_snr),
         output_dir_abs=output_dir_abs,
-        persist_outputs=persist_outputs,
     )
     interferometer_kwargs = (
         interferometer_runs[0].interferometer_kwargs() if interferometer_runs else {}

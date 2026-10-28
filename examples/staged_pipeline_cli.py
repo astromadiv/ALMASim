@@ -220,6 +220,8 @@ def build_params(args: argparse.Namespace, metadata: pd.DataFrame) -> Simulation
         ml_dataset_path=ml_shard_path,
         n_pix=args.n_pix,
         n_channels=args.n_channels,
+        # No MeasurementSet: it needs casatools or python-casacore.
+        ms_save_mode="none",
     )
 
 
