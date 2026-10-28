@@ -28,8 +28,9 @@ def run_clean() -> bool:
 
     settings = radler.Settings()
     settings.trimmed_image_width, settings.trimmed_image_height = psf.shape
-    settings.pixel_scale.x = abs(float(header.get("CDELT1", 0.0)))
-    settings.pixel_scale.y = abs(float(header.get("CDELT2", 0.0)))
+    # CDELT is in degrees; Radler takes the pixel scale in radians.
+    settings.pixel_scale.x = np.deg2rad(abs(float(header.get("CDELT1", 0.0))))
+    settings.pixel_scale.y = np.deg2rad(abs(float(header.get("CDELT2", 0.0))))
     settings.minor_iteration_count = 50000
     settings.major_iteration_count = 1
     settings.auto_threshold_sigma = 1.0

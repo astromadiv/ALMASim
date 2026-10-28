@@ -1132,9 +1132,10 @@ def test_run_simulation_multiconfig_single_pointing(
     mock_interferometry_module.calibrate_noise_profile.side_effect = lambda raw, reference_noise: (
         raw * (reference_noise / np.median(raw))
     )
-    mock_combine_results.return_value = {
+    # The export writes the combined observation's cubes: a whole result.
+    mock_combine_results.side_effect = lambda results, **_: {
+        **results[0],
         "combined_config_count": 2,
-        "dirty_cube": np.ones((8, 8, 8), dtype=np.float32),
     }
 
     params = SimulationParams.from_metadata_row(

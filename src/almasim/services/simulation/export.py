@@ -8,10 +8,15 @@ from collections.abc import Callable
 from typing import Any
 
 import numpy as np
+from astropy.io import fits
 
 from ..interferometry import antenna as ual_antenna
 from ..ms.io import export_native_ms
-from ..products.cube_export import save_optional_cube, write_ml_dataset_shard
+from ..products.cube_export import (
+    save_optional_cube,
+    write_interferometry_products,
+    write_ml_dataset_shard,
+)
 from .context import RunContext
 from .params import LogFn, SimulationParams
 from .rng import run_rng
@@ -60,6 +65,9 @@ def export_results(  # noqa: C901
                 antenna_config_paths.append(os.path.join(output_dir, output_name))
             exported_results["antenna_config_path"] = antenna_config_paths[0]
             exported_results["antenna_config_paths"] = antenna_config_paths
+            _write_combined_observation(
+                params, clean_cube_stage, exported_results.get("int_results")
+            )
             optional_cubes = (
                 ("int_image_cube", "int-image-cube", exported_results.get("int_image_cube")),
                 ("tp_image_cube", "tp-image-cube", exported_results.get("tp_image_cube")),
@@ -140,3 +148,39 @@ def export_results(  # noqa: C901
         exported_results["ml_dataset_path"] = ml_dataset_path
 
     return exported_results
+
+
+def _write_combined_observation(
+    params: SimulationParams, clean_cube_stage: CleanCubeStage, int_results: dict[str, Any] | None
+) -> None:
+    """The interferometric cubes of the whole observation: its execution blocks and
+    configurations combined, as the results in memory hold them."""
+    if int_results is None:
+        return
+    write_interferometry_products(
+        clean_cube_stage.sim_output_dir,
+        idx=params.idx,
+        save_mode=params.save_mode,
+        header=_observation_header(int_results, clean_cube_stage.header),
+        model_cube=int_results["model_cube"],
+        vis_cube=int_results["model_vis"],
+        dirty_cube=int_results["dirty_cube"],
+        dirty_vis_cube=int_results["dirty_vis"],
+        beam_cube=int_results["beam_cube"],
+        totsampling_cube=int_results["totsampling_cube"],
+        uv_mask_cube=int_results["uv_mask_cube"],
+        u_cube=int_results["u_cube"],
+        v_cube=int_results["v_cube"],
+    )
+
+
+def _observation_header(int_results: dict[str, Any], fallback: Any) -> fits.Header | None:
+    """The runs' image header, its EPOCH the hour-angle samples of all their tracks."""
+    runs = int_results.get("per_config_results") or [int_results]
+    headers = [run.get("image_header") for run in runs]
+    if not all(isinstance(header, fits.Header) for header in headers):
+        return fallback if isinstance(fallback, fits.Header) else None
+    header = headers[0].copy()
+    if len(headers) > 1 and "EPOCH" in header:
+        header["EPOCH"] = sum(int(h.get("EPOCH", 0)) for h in headers)
+    return header
