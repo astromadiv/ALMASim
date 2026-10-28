@@ -80,3 +80,13 @@ def test_the_rehearsal_script_fills_in_what_the_templates_ask_for():
     # It provides OnDemand's helpers that before.sh calls.
     for helper in re.findall(r"\$\((\w+) ", _read("template/before.sh.erb")):
         assert f"{helper}()" in rehearse, helper
+
+
+def test_the_rehearsal_script_keeps_one_console_per_user():
+    rehearse = _read("try-without-ondemand.sh")
+    # It looks for this user's console by the job name it submits it under...
+    name = re.search(r"sbatch --parsable -J (\S+)", rehearse).group(1)
+    assert re.search(rf'squeue -h -u "\$USER" -n {name} ', rehearse)
+    # ...and --replace, which must come before the sbatch options, stops it.
+    assert 'if [ "${1:-}" = "--replace" ]; then replace=true; shift; fi' in rehearse
+    assert "scancel $(" in rehearse
