@@ -8,13 +8,22 @@
 #
 #   bash ood/almasim/try-without-ondemand.sh                 # 1 CPU, 4 GB, 8 h
 #   bash ood/almasim/try-without-ondemand.sh -p PART -A ACC  # sbatch options
+#   bash ood/almasim/try-without-ondemand.sh --replace       # stop it, start anew
 #   ALMASIM_SETUP=~/dev-env.sh bash ood/almasim/try-without-ondemand.sh
 #
+# One console per user: when one is already running (or starting), its tunnel
+# and link are printed again instead of starting a second. Every console holds
+# a Slurm job slot for 8 h, and three forgotten ones once kept an imaging
+# worker queued behind the per-user job limit (2026-10-28). --replace stops
+# it and starts a new one, e.g. after updating the install.
 # ALMASIM_SETUP is the script that puts almasim on the PATH (default: the
 # site's, as form.yml sets it). Each session keeps its files in
 # ~/ondemand-try/<session>/, as OnDemand keeps them under ~/ondemand/data/.
 # Stop a session with: scancel <job id>.
 set -euo pipefail
+
+replace=false
+if [ "${1:-}" = "--replace" ]; then replace=true; shift; fi
 
 app=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 form_setup=$(awk '/^  almasim_setup:/ {f = 1} f && /value:/ {gsub(/.*value: *"|".*/, ""); print; exit}' "$app/form.yml")
@@ -22,6 +31,21 @@ setup=${ALMASIM_SETUP:-$form_setup}
 [ -r "$setup" ] || { echo "Cannot read the setup script $setup (set ALMASIM_SETUP)." >&2; exit 1; }
 setup=$(cd "$(dirname "$setup")" && pwd)/$(basename "$setup")
 
+# This user's consoles, newest first: "<job id> <session directory>".
+running=$(squeue -h -u "$USER" -n almasim-try -t PENDING,RUNNING -o '%i %Z' | sort -rn)
+if [ -n "$running" ] && $replace; then
+    scancel $(cut -d' ' -f1 <<<"$running")
+    echo "Stopped the running console(s): $(cut -d' ' -f1 <<<"$running" | xargs)"
+    running=
+fi
+if [ -n "$running" ]; then
+    read -r job session <<<"$(head -1 <<<"$running")"
+    others=$(tail -n +2 <<<"$running" | cut -d' ' -f1 | xargs)
+    echo "A console is already running: Slurm job $job, session $session."
+    [ -z "$others" ] || echo "More consoles are running; stop them with: scancel $others"
+fi
+
+if [ -z "$running" ]; then
 mkdir -p -m 700 ~/ondemand-try
 session=$(mktemp -d ~/ondemand-try/session-XXXXXX)
 
@@ -50,6 +74,7 @@ JOB
 job=$(sbatch --parsable -J almasim-try -c 1 --mem=4G -t 08:00:00 \
     --chdir "$session" -o "$session/output.log" "$@" "$session/job.sh")
 echo "Session $session: Slurm job $job; waiting for it to start..."
+fi
 while [ ! -f "$session/connection.env" ]; do
     if [ -f "$session/failed.txt" ] || ! squeue -h -j "$job" 2>/dev/null | grep -q .; then
         # Its last words, once the shared filesystem shows them here.
@@ -78,4 +103,5 @@ cat <<MSG
 
 The console runs as Slurm job ${job}; its log is ${session}/output.log.
 Stop it with:  scancel ${job}
+Start a new one instead (e.g. after updating the install) with --replace.
 MSG

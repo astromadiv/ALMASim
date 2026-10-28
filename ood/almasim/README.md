@@ -27,8 +27,15 @@ Connect button would open:
 ```bash
 bash ood/almasim/try-without-ondemand.sh                 # 1 CPU, 4 GB, 8 hours
 bash ood/almasim/try-without-ondemand.sh -p PART -A ACC  # other sbatch options
+bash ood/almasim/try-without-ondemand.sh --replace       # stop it, start anew
 ALMASIM_SETUP=~/dev-env.sh bash ood/almasim/try-without-ondemand.sh
 ```
+
+It keeps one console per user. When one is already running or starting, the
+script prints that console's tunnel and link again instead of starting
+another: each console holds a Slurm job slot for 8 hours, and jobs the
+console submits need slots too. `--replace` stops it and starts a new one,
+for instance after updating the install.
 
 `ALMASIM_SETUP` is the script that puts `almasim` on the PATH; by default the
 one `form.yml` names. The install must have `almasim serve --managed`, or
