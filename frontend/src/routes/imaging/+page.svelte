@@ -19,7 +19,7 @@
 	import Spinner from '#lib/components/shared/Spinner.svelte';
 	import { jobs } from '#lib/stores/jobs.svelte.js';
 	import { toasts } from '#lib/toasts.svelte.js';
-	import { toRecords } from '#lib/utils/archive.js';
+	import { calibratedMsFolder, toRecords } from '#lib/utils/archive.js';
 	import { buildArgv, initialValues, type Command, type Values } from '#lib/utils/commandForm.js';
 	import { errorMessage } from '#lib/utils/errors.js';
 	import {
@@ -49,6 +49,21 @@
 	let allSpws = $state(false);
 	let openCsv = $state('');
 	let outputRoot = $state('');
+
+	/** The calibrated-MS folder of the latest archive download that calibrated, to start from. */
+	const lastCalibrated = $derived(
+		jobs.list
+			.filter((run) => run.state === 'succeeded')
+			.map((run) => calibratedMsFolder(run.argv))
+			.find((path) => path !== null) ?? null
+	);
+	// Filled in once; clearing it afterwards keeps it clear.
+	let prefilled = false;
+	$effect(() => {
+		if (prefilled || !lastCalibrated) return;
+		prefilled = true;
+		if (!folder) folder = lastCalibrated;
+	});
 
 	const paramsId = $derived(page.url.searchParams.get('params'));
 	const imageId = $derived(page.url.searchParams.get('image'));
@@ -284,7 +299,11 @@
 					bind:value={folder}
 					label="Folder of calibrated MeasurementSets"
 					required
-					hint="Every MS in it matching the pattern is imaged, one task per spectral window and field."
+					hint={`Every MS in it matching the pattern is imaged, one task per spectral window and field.${
+						lastCalibrated && folder === lastCalibrated
+							? ' Filled in from your last archive download.'
+							: ''
+					}`}
 				/>
 				<div class="flex flex-wrap items-end gap-4">
 					<label class="flex flex-col gap-1 text-sm">
