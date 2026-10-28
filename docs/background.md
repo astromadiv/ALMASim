@@ -42,7 +42,7 @@ Adds both of the above.
 
 Without `background_seed`, the background is drawn from the run's `seed` (see [Reproducibility](simulation.md#reproducibility)).
 
-The command line has `--background-level` (default 0) and `--background-seed` (default: the run's seed), but no option for the mode, so `almasim simulation` adds no background. Choose a mode from Python.
+On the command line, `almasim simulation` takes `--background-mode`, `--background-level` (default 1) and `--background-seed` (default: the run's seed). A `--background-level` above 0 without a `--background-mode` is refused, since it would add nothing.
 
 ## Physical Intent
 

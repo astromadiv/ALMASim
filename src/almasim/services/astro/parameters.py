@@ -121,8 +121,14 @@ def write_sim_parameters(
         if source_type in ("gaussian", "extended") and angle is not None:
             f.write(f"Projection Angle: {angle}\n")
 
+        # An input cube injects no lines: none to list.
         for i, (line_name, line_freq, line_flux) in enumerate(
-            zip(line_names, line_frequencies, line_fluxes, strict=False)
+            zip(
+                [] if line_names is None else line_names,
+                [] if line_frequencies is None else line_frequencies,
+                [] if line_fluxes is None else line_fluxes,
+                strict=False,
+            )
         ):
             f.write(
                 f"Line: {line_name} - Frequency: {line_freq} GHz "

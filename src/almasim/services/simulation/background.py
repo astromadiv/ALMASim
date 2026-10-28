@@ -6,6 +6,9 @@ from collections.abc import Sequence
 
 import numpy as np
 
+# "none" adds nothing; "combined" is both the galaxies and the diffuse field.
+BACKGROUND_MODES = ("none", "blank_field_dsfg", "dusty_diffuse", "combined")
+
 
 def _smoothed_positive_field(
     n_pix: int,

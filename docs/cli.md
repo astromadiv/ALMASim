@@ -185,7 +185,8 @@ $ almasim simulation [OPTIONS]
 * `--imaging-algorithm <legacy>`: Channel imaging algorithm.  [default: legacy]
 * `--robust <float>`: Robust weighting parameter for imaging.  [default: 0.0]
 * `--instrument-geometry <legacy|planner>`: Beam, field of view and cell: legacy (the metadata FOV, beam / 5) or planner (the imaging planner's: the primary beam's FOV, beam / 8).  [default: legacy]
-* `--background-level <float>`: Background sky level scaling factor (0 = no background).  [default: 0.0]
+* `--background-mode <none|blank_field_dsfg|dusty_diffuse|combined>`: An astrophysical background added to the sky: blank_field_dsfg (faint dusty galaxies), dusty_diffuse (a smooth dusty field), combined (both) or none.  [default: none]
+* `--background-level <float range>`: Strength of the --background-mode background, relative to the continuum sensitivity (default 1; 0 adds none).  [x>=0.0]
 * `--background-seed <int>`: Random seed for background sky generation.
 * `--inject-serendipitous`: Add a few random serendipitous sources around the target.
 * `--save-mode <memory|npz|h5|fits>`: Output save mode.  [default: memory]

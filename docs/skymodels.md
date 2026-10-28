@@ -21,7 +21,7 @@ Sky-model implementations live in [`src/almasim/skymodels`](../src/almasim/skymo
 | `hubble-100` | `HubbleSkyModel` | yes |
 | `external-fits-cube` | an external FITS cube | yes, with `--input` |
 | `external-fits-image` | an external FITS image | yes, with `--input` |
-| `external-components` | an external component table | Python only (see below) |
+| `external-components` | an external component table | yes, with `--input` |
 
 The default is `point`.
 
@@ -88,7 +88,7 @@ The external source types take their emission from a file instead of a model ([`
 
 In Python, the FITS inputs are given by `external_skymodel_path` and the component table by `external_component_table_path`. A FITS input is resampled to the run's `n_pix` × `n_pix` × `n_channels`, then center-cropped or zero-padded to that exact shape, and it takes the header built from the metadata. With `external_header_mode="preserve"`, the run keeps the input's header instead and, unless `n_pix` and `n_channels` are given, takes its cube size from the input. `external_header_overrides` sets individual header keywords.
 
-On the command line, `--input` gives a FITS file, used for every row, or a directory, in which each metadata row's file is found by its `member_ous_uid` and `group_ous_uid`. With `--input`, a non-external `--source-type` becomes `external-fits-cube`. The command line keeps the default header mode, so the input is resampled to `--n-pix` × `--n-pix` × `--n-channels` (128 × 128 × 32 by default).
+On the command line, `--input` gives a FITS file, used for every row, or a directory, in which each metadata row's file is found by its `member_ous_uid` and `group_ous_uid`. With `--input`, a non-external `--source-type` becomes `external-fits-cube`. With `--source-type external-components`, `--input` is one component table (any format astropy's `Table.read` recognises, such as `.ecsv` or `.csv`), used for every row. The command line keeps the default header mode, so the input is resampled to `--n-pix` × `--n-pix` × `--n-channels` (128 × 128 × 32 by default).
 
 ## Source Placement
 
