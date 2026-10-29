@@ -87,6 +87,29 @@ def test_visibility_table_as_dict_keys():
 
 
 @pytest.mark.unit
+def test_the_noise_the_ms_writer_needs_reaches_it():
+    """Each visibility's noise and the channels' kernel go into the dict the MS
+    writer gets, and through the joining of execution blocks."""
+    from dataclasses import replace
+
+    kernel = np.array([0.25, 0.866, 0.25])
+    vt = replace(
+        _make_visibility_table(),
+        sigma_spectrum=np.full((6, 1, 4), 2.0, np.float32),
+        channel_kernel=kernel,
+    )
+    d = vt.as_dict()
+    np.testing.assert_allclose(d["sigma_spectrum"], 2.0)
+    np.testing.assert_allclose(d["channel_kernel"], kernel)
+    assert "channel_kernel" not in _make_visibility_table().as_dict()
+    joined = concatenate_visibility_tables([d, vt.as_dict()])
+    np.testing.assert_allclose(joined["channel_kernel"], kernel)
+    assert joined["sigma_spectrum"].shape == (12, 1, 4)
+    other = replace(vt, channel_kernel=np.array([0.0, 1.0, 0.0])).as_dict()
+    assert "channel_kernel" not in concatenate_visibility_tables([d, other])
+
+
+@pytest.mark.unit
 def test_visibility_table_as_dict_optional_fields():
     """as_dict() includes config_name and array_type (may be None)."""
     vt = _make_visibility_table()

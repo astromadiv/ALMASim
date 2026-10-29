@@ -335,6 +335,7 @@ def image_channel(
         uv_pixsize=UVpixsize,
         noise_std=float(noise),
         mean_wavelength_m=float(wavelength[2] * 1e3),
+        noise_scale=noise_scale,
     )
     dirtymap, modelvis, dirtyvis = observe(dirtymap, GrobustNoise, modelfft, Grobustsamp, beamScale)
     del noisemap, robustsamp, Gsampling, Grobustsamp, GrobustNoise
