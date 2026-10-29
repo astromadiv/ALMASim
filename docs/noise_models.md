@@ -998,6 +998,11 @@ a cluster profile), each starting when the one before it succeeds; the
 `extract`, `fit` and `validate` arguments add options to those steps.
 Promotion stays a person's decision.
 
+The console's *Noise models* page runs this chain for an imaging run, from
+`noise windows` to `noise validate`, and shows the candidate and the
+verdict ([console](console.md#noise-models)). Each step there takes
+`--allow-partial`: a window that fails is listed in the step's failures
+file and left out, and the step fails only when every window does.
 
 ## Adding a component
 

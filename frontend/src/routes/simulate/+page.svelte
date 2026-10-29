@@ -87,6 +87,9 @@
 				const { data } = await api.GET('/api/v2/commands');
 				simulation = data?.find((c) => c.name === 'simulation') ?? null;
 				if (simulation) values = simulationDefaults(simulation);
+				// ?noise=<model> (the Noise models page's candidate) chooses the noise model.
+				const noise = page.url.searchParams.get('noise');
+				if (noise && 'noise_model' in values) values.noise_model = noise;
 			} catch (err) {
 				loadError = err;
 			}

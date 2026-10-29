@@ -204,6 +204,20 @@ def test_pwv(value, expected):
     assert noise_windows._pwv(value) == expected
 
 
+def test_only_the_named_windows(tmp_path):
+    paths = _run(tmp_path)
+    found = imaging_windows(
+        pd.read_csv(paths["parameters"]),
+        paths["images"],
+        pd.read_csv(paths["metadata"], dtype=str, keep_default_na=False),
+        {"uid://a002/x10aa712/x5ddf": OUS1.lower()},
+        names={f"{EB1}_spw13_field3", "not-there"},
+    )
+    assert list(found.windows["name"]) == [f"{EB1}_spw13_field3"]
+    # Windows not asked for are not reported as left out.
+    assert found.skipped == []
+
+
 def test_windows_need_their_clean_quality(tmp_path):
     paths = _run(tmp_path)
     (paths["images"] / f"{EB1}.ms.split" / "SPW-13_FIELD-3" / "quality.json").unlink()
@@ -218,3 +232,18 @@ def test_windows_need_their_clean_quality(tmp_path):
         f"{EB1}_spw13_field3",
         "no quality.json: run image clean-quality on the images",
     ) in found.skipped
+
+
+@pytest.mark.parametrize(
+    ("failures", "allow_partial", "failed"),
+    [
+        ({}, False, False),
+        ({"a": "x"}, False, True),
+        ({"a": "x"}, True, False),
+        ({"a": "x", "b": "y"}, True, True),  # all of them
+    ],
+)
+def test_a_step_fails(failures, allow_partial, failed):
+    from almasim.cli.noise import _failed
+
+    assert _failed(failures, ["a", "b"], allow_partial) is failed

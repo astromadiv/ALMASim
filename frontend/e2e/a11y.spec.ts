@@ -10,6 +10,7 @@ const PAGES = [
 	'/archive',
 	'/simulate',
 	'/imaging',
+	'/noise',
 	'/products',
 	'/settings'
 ];

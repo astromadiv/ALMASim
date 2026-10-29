@@ -2,6 +2,8 @@
  * The console's workflows end to end, against a real `almasim serve` whose
  * commands are instant stand-ins (e2e/fake_almasim.py).
  */
+import { mkdirSync, writeFileSync } from 'node:fs';
+
 import { expect, test, type Page } from '@playwright/test';
 
 import { E2E_ROOT } from '../playwright.config';
@@ -111,4 +113,39 @@ test('image a folder, then look at the results', async ({ page }) => {
 	await page.getByRole('button', { name: 'map' }).first().click();
 	await expect(page.getByText('opened below')).toBeVisible({ timeout: 60_000 });
 	await expect(page.getByLabel(/-map\.fits, channel 1/)).toBeVisible();
+});
+
+test('build a noise model from an imaging run', async ({ page }) => {
+	test.setTimeout(180_000); // five jobs, one after the other
+	// The inputs need only exist: the fake noise commands make up their windows.
+	const inputs = `${E2E_ROOT}/data/noise-inputs`;
+	mkdirSync(`${inputs}/images`, { recursive: true });
+	writeFileSync(`${inputs}/params.csv`, 'filename,spectral_window_id\n');
+	writeFileSync(`${inputs}/results.csv`, 'member_ous_uid\n');
+
+	await page.goto('noise');
+	await page.getByRole('textbox', { name: /Imaging parameters CSV/ }).fill(`${inputs}/params.csv`);
+	await page.getByRole('textbox', { name: /Imaging output folder/ }).fill(`${inputs}/images`);
+	await page.getByRole('textbox', { name: /Archive search CSV/ }).fill(`${inputs}/results.csv`);
+	await page.getByRole('button', { name: 'List the windows' }).click();
+
+	await expect(page.locator('table tbody tr')).toHaveCount(2, { timeout: 60_000 });
+	await expect(page.getByText('1 left out')).toBeVisible();
+	await page.getByRole('checkbox', { name: /spw27/ }).uncheck();
+	await expect(page.getByText('1 of 2 ticked')).toBeVisible();
+	await expect(page.getByRole('textbox', { name: /Output folder/ })).toHaveValue(
+		`${inputs}/images-noise`
+	);
+	await page.getByRole('button', { name: /^Measure 1 window and build/ }).click();
+
+	await expect(page.getByRole('heading', { name: 'Candidate alma-candidate@2' })).toBeVisible({
+		timeout: 90_000
+	});
+	await expect(page.getByRole('cell', { name: 'channel_correlation.rho1' })).toBeVisible();
+	await expect(page.getByText('1 window(s) failed')).toBeVisible();
+	await expect(page.getByText('passed', { exact: true })).toBeVisible({ timeout: 60_000 });
+	await expect(page.getByRole('cell', { name: /cont\.sigma/ })).toBeVisible();
+
+	await page.getByRole('link', { name: 'Use in Simulate' }).click();
+	await expect(page).toHaveURL(/simulate\?noise=/);
 });

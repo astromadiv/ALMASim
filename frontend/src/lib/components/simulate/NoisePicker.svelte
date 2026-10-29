@@ -17,7 +17,7 @@
 		provenanceLine,
 		tickedBy,
 		type NoiseModelInfo
-	} from '#lib/utils/noise.js';
+	} from '#lib/utils/noisePicker.js';
 
 	interface Props {
 		values: Values;

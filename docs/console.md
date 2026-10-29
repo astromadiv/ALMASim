@@ -44,8 +44,9 @@ their own console; the runs live in run folders that a whole team can share.
 
 4. **A first run:** *Run a command* → `doctor` → *Run*. It runs as a Slurm job;
    its page shows its log live, the batch script, and Slurm's accounting.
-   *Archive*, *Imaging* and *Simulate* lead through the usual work: search
-   and download observations, image MeasurementSets, simulate observations.
+   *Archive*, *Imaging*, *Noise models* and *Simulate* lead through the
+   usual work: search and download observations, image MeasurementSets,
+   learn a noise model from them, simulate observations.
 
 ### With Open OnDemand
 
@@ -161,6 +162,24 @@ output folder is yours to choose. While the imaging runs, *Dask dashboard*
 shows its workers at work.
 
 ![Imaging](images/console/imaging.png)
+
+### Noise models
+
+Learn a noise model from real data. The page starts from your latest
+imaging run and archive search: *List the windows* runs `almasim noise
+windows`, which keeps the windows the imaging finished that are science
+targets and links each to its archive row. Tick the windows to learn from,
+choose the model to start from (`alma` by default) and an output folder,
+and the page runs `noise extract`, `fit`, `aggregate` and `validate` as a
+chain of jobs, each after the one before. A window that fails a step is
+listed there and left out of the rest; a step fails only when all its
+windows do. When the chain ends, the page shows the candidate's values (the
+median over the windows and their 16–84% range, and the values it kept from
+the base model) and the validation's verdict, metric by metric. *Use in
+Simulate* opens *Simulate* with the candidate as the noise model. See
+[noise models](noise_models.md) for what each step measures.
+
+![Noise models](images/console/noise.png)
 
 ### Products
 

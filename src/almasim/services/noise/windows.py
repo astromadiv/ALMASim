@@ -47,6 +47,7 @@ def imaging_windows(
     done_only: bool = True,
     science_fields: Callable[[str], Iterable[int]] | None = None,
     max_windows: int | None = None,
+    names: set[str] | None = None,
 ) -> ImagingWindows:
     """One window per (MS, spectral window, field) row of ``parameters`` (an
     ``image compute-parameters`` CSV) imaged under ``images``.
@@ -59,7 +60,8 @@ def imaging_windows(
     marker, or no ``quality.json`` (``image clean-quality``'s, which ``noise
     fit`` and ``validate`` read), is left out; ``science_fields(ms)``, when
     given, says which fields of an MS are science targets (others are left
-    out); ``max_windows`` keeps the first that many.
+    out); ``max_windows`` keeps the first that many; ``names``, when given,
+    keeps only the windows so named.
     """
     from ..imaging.markers import imaging_log_path
     from ..imaging.wsclean_plan import task_directory
@@ -78,6 +80,8 @@ def imaging_windows(
         task_dir, field_ids = task_directory(images, row)
         field_id = str(field_ids[0]) if len(field_ids) == 1 else None
         name = window_name(ms, spw, field_id)
+        if names is not None and name not in names:
+            continue
         why = _left_out(task_dir, done_only) or _not_science(ms, field_id, science_fields, science)
         if why:
             skipped.append((name, why))
