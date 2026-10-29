@@ -193,6 +193,8 @@ $ almasim simulation [OPTIONS]
 * `--save-mode <memory|npz|h5|fits>`: Output save mode.  [default: memory]
 * `--persist-standard-outputs`: Persist standard outputs in addition to ML shard.
 * `--ml-shard-path <path>`: Destination HDF5 shard path.  [default: ~/almasim_outputs/ddrm_training_sample.h5]
+* `--ms-export`: Also write each run's MeasurementSet, <project-name>_<run>.ms in --output-dir (in the run's own folder when there are several runs and products are kept), with any --save-mode: Stokes I in both hands, with the noise model's noise and WEIGHT. Needs casatools or python-casacore.
+* `--casa-data-root <path>`: CASA runtime data for writing the MS with casatools (default <output-dir>/.casa-data, downloaded once when missing). python-casacore alone needs none.
 * `--backend <sync|local>`: How the channels are imaged: sync, one after another in one process; local, in parallel worker processes on this node (--n-workers).  [default: sync]
 * `--n-workers <int range>`: Worker processes for --backend local; give the job as many CPUs.  [default: 1; x>=1]
 * `--kaggle-token <path>`: Path to a Kaggle credentials file (JSON with username/key, e.g. kaggle.json or access_token) or the directory containing it, used to download morphology images for the galaxy-zoo / hubble-100 source types. Defaults to the standard Kaggle locations if omitted.

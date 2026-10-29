@@ -142,7 +142,12 @@ def _fills(command: str, argv: list[str], executor: str, profile: Profile) -> li
             extra += ["--slurm-project", profile.account]
     if command == "predict" and not has_option(argv, "--slurm-queue") and profile.partition:
         extra += ["--slurm-queue", profile.partition]
-    if command in _CASA_DATA and profile.casa_data and not has_option(argv, "--casa-data-root"):
+    writes_ms = command == "simulation" and has_option(argv, "--ms-export")
+    if (
+        (command in _CASA_DATA or writes_ms)
+        and profile.casa_data
+        and not has_option(argv, "--casa-data-root")
+    ):
         extra += ["--casa-data-root", str(profile.casa_data)]
     if (
         command in _SKIP_CASA_UPDATE

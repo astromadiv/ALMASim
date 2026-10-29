@@ -203,7 +203,9 @@ almasim metadata --science-keyword Galaxies --band 6 --limit 10 \
   --save-csv output/metadata.csv --yes
 
 # Simulate the first row (a point source by default) into an ML-ready HDF5 shard;
-# add --save-mode fits --persist-standard-outputs to keep the FITS cubes as well
+# add --save-mode fits to keep the FITS cubes in --output-dir as well, and
+# --ms-export to write the simulated MeasurementSet there (needs the ms-casacore
+# or casa extra; without either it says how to get one)
 almasim simulation --metadata-path output/metadata.csv --row-idx 0 \
   --project-name demo --output-dir output/simulation --ml-shard-path output/demo.h5
 ```

@@ -386,3 +386,143 @@ def test_a_fits_input_stays_a_sky_model(monkeypatch, tmp_path):
     assert kwargs["source_type"] == "external-fits-cube"
     assert kwargs["external_skymodel_path"] == cube.resolve()
     assert kwargs["external_component_table_path"] is None
+
+
+def test_an_ms_is_written_only_with_ms_export(monkeypatch, tmp_path):
+    prepared = []
+    monkeypatch.setattr(
+        cli_simulation, "_prepare_ms_export", lambda out, casa: prepared.append((out, casa))
+    )
+    kwargs, result = _params_from_cli(monkeypatch, tmp_path)
+    assert result.exit_code == 0, result.output
+    assert not kwargs["ms_export"] and kwargs["ms_save_mode"] == "none" and not prepared
+    kwargs, result = _params_from_cli(
+        monkeypatch, tmp_path, "--ms-export", "--casa-data-root", str(tmp_path / "casa")
+    )
+    assert result.exit_code == 0, result.output
+    assert kwargs["ms_export"] and kwargs["ms_save_mode"] == "msv2"
+    assert kwargs["ms_export_dir"] is None  # <project>_<run>.ms, where the products go
+    assert prepared == [((tmp_path / "out").resolve(), tmp_path / "casa")]
+
+
+def test_runs_that_share_the_output_folder_write_their_own_ms(monkeypatch, tmp_path):
+    """Two cubes of one row share its run index: each MS takes its run's name."""
+    cubes, metadata = _imaging_run(tmp_path)
+    monkeypatch.setattr(cli_simulation, "_prepare_ms_export", lambda out, casa: None)
+    paths = []
+
+    def build(**kwargs):
+        paths.append(kwargs["ms_path"])
+        return SimpleNamespace()
+
+    monkeypatch.setattr(cli_simulation, "_build_simulation_params", build)
+    monkeypatch.setattr(cli_simulation, "_run_simulation_stages", lambda *a, **k: None)
+    monkeypatch.setattr(cli_simulation, "create_backend", lambda *a, **k: _DummyBackend())
+    out = tmp_path / "out"
+    args = ["simulation", "run", "--output-dir", str(out), "--metadata-path", metadata]
+    result = runner.invoke(cli.app, [*args, "--input", str(cubes), "--ms-export"])
+    assert result.exit_code == 0, result.output
+    eb = "uid___A002_X11a1c8d_X12c8e"
+    assert paths == [
+        out.resolve() / f"sim_demo_{eb}_SPW-39_FIELD-9_0.ms",
+        out.resolve() / f"sim_demo_{eb}_SPW-41_FIELD-9_0.ms",
+    ]
+    paths.clear()  # kept products: each run's MS goes in its own folder
+    result = runner.invoke(
+        cli.app, [*args, "--input", str(cubes), "--ms-export", "--save-mode", "fits"]
+    )
+    assert result.exit_code == 0, result.output
+    assert paths == [None, None]
+
+
+def _no_ms_writer(monkeypatch, *, tty: bool, answer: bool | None = None):
+    import importlib.util
+
+    find_spec = importlib.util.find_spec
+    installed: set[str] = set()
+    monkeypatch.setattr(
+        cli_simulation.importlib.util,
+        "find_spec",
+        lambda name, *a: (
+            (object() if name in installed else None)
+            if name in ("casatools", "casacore")
+            else find_spec(name, *a)
+        ),
+    )
+    monkeypatch.setattr(cli_simulation.sys.stdin, "isatty", lambda: tty, raising=False)
+    asked = []
+
+    def confirm(question, default=False):
+        asked.append(question)
+        return answer
+
+    monkeypatch.setattr(cli_simulation.typer, "confirm", confirm)
+    return installed, asked
+
+
+def test_without_an_ms_writer_a_job_says_how_to_get_one(monkeypatch, tmp_path, capsys):
+    import pytest
+    import typer
+
+    _, asked = _no_ms_writer(monkeypatch, tty=False)
+    with pytest.raises(typer.Exit) as exit_info:
+        cli_simulation._prepare_ms_export(tmp_path, None)
+    assert exit_info.value.exit_code == 1 and not asked
+    printed = capsys.readouterr().err
+    assert "uv sync --extra ms-casacore" in printed and "pip install python-casacore" in printed
+
+
+def test_without_an_ms_writer_a_terminal_offers_to_install_one(monkeypatch, tmp_path):
+    import pytest
+    import typer
+
+    installed, asked = _no_ms_writer(monkeypatch, tty=True, answer=False)
+    with pytest.raises(typer.Exit):
+        cli_simulation._prepare_ms_export(tmp_path, None)
+    assert asked == ["Install python-casacore into this environment now?"]
+
+    installed, asked = _no_ms_writer(monkeypatch, tty=True, answer=True)
+    commands = []
+
+    def run(command, check=False):
+        commands.append(command)
+        installed.add("casacore")
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(cli_simulation.subprocess, "run", run)
+    monkeypatch.setattr(cli_simulation.shutil, "which", lambda name: "/bin/uv")
+    cli_simulation._prepare_ms_export(tmp_path, None)  # installed: no exit
+    assert commands == [
+        ["/bin/uv", "pip", "install", "--python", cli_simulation.sys.executable, "python-casacore"]
+    ]
+
+
+def test_casatools_gets_its_runtime_data_before_any_run(monkeypatch, tmp_path):
+    """Without it casatools fails to load, and python-casacore, loaded after it
+    in the same process, aborts it (free(): invalid pointer)."""
+    import importlib.util
+
+    import almasim.services.casa.environment as environment
+    import almasim.services.casa.runtime_data as runtime_data
+
+    find_spec = importlib.util.find_spec
+    monkeypatch.setattr(
+        cli_simulation.importlib.util,
+        "find_spec",
+        lambda name, *a: object() if name == "casatools" else find_spec(name, *a),
+    )
+    configured, ensured = [], []
+    monkeypatch.setattr(
+        environment,
+        "configure_casa_environment",
+        lambda root, data: configured.append((root, data)),
+    )
+    monkeypatch.setattr(
+        runtime_data, "ensure_casa_runtime_data", lambda data, logger_fn=None: ensured.append(data)
+    )
+    cli_simulation._prepare_ms_export(tmp_path, None)
+    assert configured == [(tmp_path / ".casa-work", tmp_path / ".casa-data")]
+    assert ensured == [tmp_path / ".casa-data"]
+    configured.clear()
+    cli_simulation._prepare_ms_export(tmp_path, tmp_path / "shared")
+    assert configured == [(tmp_path / ".casa-work", (tmp_path / "shared").absolute())]
