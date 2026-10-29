@@ -46,7 +46,8 @@ def _task(path: Path, sigma: float, *, seed: int = 0, rho: float = 0.3, nchan: i
     fits.PrimaryHDU(cube[None].astype(np.float32), _header(n)).writeto(
         path / "wsclean-cube-residual.fits"
     )
-    (path / "quality.json").write_text(json.dumps({"continuum": {"snr": 30.0}, "cube": {}}))
+    quality = {"continuum": {"snr": 30.0, "peak_jy_beam": 0.03}, "cube": {}}
+    (path / "quality.json").write_text(json.dumps(quality))
     return path
 
 
@@ -151,7 +152,8 @@ def stubbed(monkeypatch, tmp_path):
     the simulated window's noise is ``ratio`` times the real one's."""
     ratio = {"value": 1.0}
 
-    def simulate(row, window, model, run, *, seed):
+    def simulate(row, window, model, run, *, seed, peak_jy=None):
+        ratio["peak"] = peak_jy
         run.mkdir(parents=True, exist_ok=True)
         (run / "sim.ms").mkdir()
         return run / "sim.ms"
@@ -210,6 +212,7 @@ def test_noise_validate_simulates_measures_and_judges(stubbed):
     base = v.validation_dir(root / "out", model)
     comparison = json.loads((base / "comparison.json").read_text())
     assert comparison["windows"] == 6 and comparison["model"]["label"] == "alma@1"
+    assert ratio["peak"] == pytest.approx(0.03)  # the real image's continuum peak
     assert not (base / "windows" / "w0" / "sim" / "sim.ms").exists()  # dropped once measured
     assert json.loads((base / "model.json").read_text())["name"] == "alma"
     # Again: nothing left to simulate; compare alone judges the same.
@@ -390,6 +393,38 @@ def test_a_window_is_simulated_with_its_own_channel_averaging(monkeypatch, tmp_p
     assert centre.value == pytest.approx(native.exposure.frequency_ghz)
     assert band.to(U.Hz).value == pytest.approx(64 * 976562.5)
     assert v.frequency_support(window) is None
+
+
+@pytest.mark.unit
+def test_the_simulated_source_is_as_bright_as_the_real_continuum():
+    """The archive row's sensitivities make the source 100-1000 times the
+    continuum's noise; scaled to the real image's peak, its cleaning residuals
+    are those of the real field."""
+    from dataclasses import dataclass
+
+    @dataclass(frozen=True)
+    class Run:
+        skymodel: np.ndarray
+
+    @dataclass
+    class Stage:
+        model_cube: np.ndarray
+        continuum_fraction: np.ndarray | None
+        interferometer_runs: list
+
+    cube = np.zeros((4, 8, 8))
+    cube[:, 4, 4] = [1.0, 1.0, 3.0, 1.0]  # a line in channel 2
+    stage = Stage(cube, np.array([1.0, 1.0, 1 / 3, 1.0]), [Run(cube), Run(cube)])
+    scaled = v.with_continuum(stage, 0.002)
+    assert np.mean(np.sum(scaled.model_cube, axis=(1, 2)) * stage.continuum_fraction) == (
+        pytest.approx(0.002)
+    )
+    assert all(run.skymodel is scaled.model_cube for run in scaled.interferometer_runs)
+    assert stage.model_cube[2, 4, 4] == 3.0  # the stage itself untouched
+    assert scaled.model_cube[2, 4, 4] / scaled.model_cube[0, 4, 4] == pytest.approx(3.0)
+    for peak in (0.0, -1.0):
+        assert v.with_continuum(stage, peak) is stage
+    assert v.with_continuum(Stage(np.zeros_like(cube), None, []), 0.002).model_cube.max() == 0
 
 
 @pytest.mark.unit

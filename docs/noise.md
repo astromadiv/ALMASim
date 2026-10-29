@@ -72,8 +72,8 @@ almasim noise components            # every component and its parameters
 almasim noise schema -o model.schema.json
 ```
 
-`--corruptions` is the option's earlier name and still works, as do the flat
-JSON objects of `CorruptionModel` fields it used to take. A model file
+`--corruptions` is an alias of the option, and it also takes flat JSON
+objects of `CorruptionModel` fields. A model file
 validates against [`noise-model.schema.json`](noise-model.schema.json):
 unknown components or parameters, and values out of range, are refused. A
 candidate model can therefore be used for a run before it is released.
@@ -156,8 +156,11 @@ follows from the observation. A 12 m visibility at 230 GHz over 15.6 MHz and
 or CASA, to the S/N a real observation of that source would reach.
 
 The exported MS's WEIGHT is `1 / mean(sigma^2)` over a row's channels, with
-sigma scaled by the gain amplitude the data were multiplied by, as the ALMA
-pipeline's `statwt` sets it. See
+sigma scaled by the gain amplitude the data were multiplied by and by the
+baseline's own noise scale (below), as the ALMA pipeline's `statwt` sets it.
+Its two hands, XX and YY, each carry their own noise at each visibility's
+sigma and with the window's channel correlation, as two real polarisations
+do; (XX + YY) / 2 is the simulated Stokes I. See
 [`radiometer`](noise_models.md#radiometer-the-thermal-noise) in the guide.
 
 ## Channels
@@ -196,9 +199,10 @@ Two more terms, also in `--noise-model alma`, come from the same 100 windows:
   the array's: about 2% of its noise variance, holding over about 120 MHz
   (the median of the 73 windows wider than 1 GHz; narrow windows show finer,
   ~1 MHz structure). A baseline's noise variance is the product of its two
-  antennas'. WEIGHT does not follow it, so it shows as antennas whose noise
-  differs from their weights and as heavier tails in the visibility noise
-  (the `antenna_ripple` component).
+  antennas'. WEIGHT follows only its mean over the window, as `statwt`'s
+  per-row weights do, so it shows as antennas whose noise differs from their
+  weights from channel to channel and as heavier tails in the visibility
+  noise (the `antenna_ripple` component).
 - On bright sources, each baseline keeps an amplitude and phase error per
   scan that does not factor into its antennas' gains, so self-calibration
   cannot remove it, and it limits the continuum's dynamic range: about 6%
@@ -291,9 +295,10 @@ A value fewer than `--min-windows` (3) windows measure keeps the base
 model's, with a note in `provenance.notes`.
 
 **`noise validate`** simulates each real window with a model (a point
-source, the window's frequency and channels, one execution block), exports
-the MS, measures it with `noise extract` and images it as the real one was
-imaged. Everything goes under `validation/<model sha256[:12]>/`, so different
+source as bright as the real image's continuum peak, the window's frequency,
+channels and channel averaging from its MS's `RESOLUTION`, one execution
+block), exports the MS, measures it with `noise extract` (in a process of
+its own) and images it as the real one was imaged. Everything goes under `validation/<model sha256[:12]>/`, so different
 models never mix. At the end, `noise compare` writes `comparison.json`: per
 metric, the median of the per-window ratio (noise levels) or difference
 (shapes), its 16-84% range, a paired Wilcoxon p and how many windows fall
