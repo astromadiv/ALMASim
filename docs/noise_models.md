@@ -753,7 +753,8 @@ almasim noise windows imaging_parameters.csv --images cubes/ \
 ```
 
 It takes the windows of the parameters CSV that the run under `--images`
-finished (`--all-tasks` takes them all) and that are science targets
+finished and `image clean-quality` assessed (their `quality.json`, which
+`noise fit` and `validate` read; `--all-tasks` takes them all) and that are science targets
 (`--all-fields`: calibrators too), each with its task folder and log. Each
 window's archive row is its observation's row in the archive search
 (`--metadata`), the row of the window's own source when the observation has

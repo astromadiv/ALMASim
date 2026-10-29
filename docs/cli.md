@@ -726,7 +726,7 @@ $ almasim noise windows [OPTIONS] {parameters}
 * `--metadata <file>`: The archive search the data came from (an almasim metadata CSV).  [required]
 * `--products <file>`: Resolved-products CSV(s) of those observations, which link each MS's execution block to its observation (default: *products*.csv beside --metadata).
 * `--out <path>`: Where windows.csv and rows.csv go.  [required]
-* `--done-only / --all-tasks`: Only windows whose imaging task finished (its .done marker).  [default: done-only]
+* `--done-only / --all-tasks`: Only windows whose imaging task finished (its .done marker) and was assessed (image clean-quality's quality.json, which fit and validate read).  [default: done-only]
 * `--science-only / --all-fields`: Only science target fields (OBSERVE_TARGET), read from each MS.  [default: science-only]
 * `--max-windows <int range>`: Keep the first N windows.  [x>=1]
 * `--help`: Show this message and exit.
