@@ -57,11 +57,11 @@ def imaging_windows(
     ``almasim metadata`` CSV), the one of its own source when the observation
     has several. With ``done_only`` a window whose imaging task has no done
     marker, or no ``quality.json`` (``image clean-quality``'s, which ``noise
-    fit`` and ``validate`` read), is left out; ``science_fields(ms)``, when given, says which fields
-    of an MS are science targets (others are left out); ``max_windows`` keeps
-    the first that many.
+    fit`` and ``validate`` read), is left out; ``science_fields(ms)``, when
+    given, says which fields of an MS are science targets (others are left
+    out); ``max_windows`` keeps the first that many.
     """
-    from ..imaging.markers import imaging_log_path, imaging_marker_path
+    from ..imaging.markers import imaging_log_path
     from ..imaging.wsclean_plan import task_directory
     from ..simulation.input_cubes import uids_in
 
@@ -78,18 +78,10 @@ def imaging_windows(
         task_dir, field_ids = task_directory(images, row)
         field_id = str(field_ids[0]) if len(field_ids) == 1 else None
         name = window_name(ms, spw, field_id)
-        if done_only and not imaging_marker_path(task_dir).is_file():
-            skipped.append((name, "its imaging task is not done"))
+        why = _left_out(task_dir, done_only) or _not_science(ms, field_id, science_fields, science)
+        if why:
+            skipped.append((name, why))
             continue
-        if done_only and not (task_dir / QUALITY_FILE).is_file():
-            skipped.append((name, f"no {QUALITY_FILE}: run image clean-quality on the images"))
-            continue
-        if science_fields is not None and field_id is not None:
-            if ms not in science:
-                science[ms] = {int(f) for f in science_fields(ms)}
-            if int(field_id) not in science[ms]:
-                skipped.append((name, f"field {field_id} is not a science target"))
-                continue
         ous = {observations[uid] for uid in uids_in(ms) if uid in observations}
         matches = [i for o in sorted(ous) for i in rows_by_ous.get(o, [])]
         if not matches:
@@ -117,6 +109,34 @@ def imaging_windows(
         rows=pd.DataFrame(rows),
         skipped=skipped,
     )
+
+
+def _left_out(task_dir: Path, done_only: bool) -> str | None:
+    """Why an imaging task is not ready to measure, or None."""
+    from ..imaging.markers import imaging_marker_path
+
+    if not done_only:
+        return None
+    if not imaging_marker_path(task_dir).is_file():
+        return "its imaging task is not done"
+    if not (task_dir / QUALITY_FILE).is_file():
+        return f"no {QUALITY_FILE}: run image clean-quality on the images"
+    return None
+
+
+def _not_science(
+    ms: str,
+    field_id: str | None,
+    science_fields: Callable[[str], Iterable[int]] | None,
+    science: dict[str, set[int]],
+) -> str | None:
+    """Why a field is left out as not a science target, or None; ``science``
+    caches each MS's science fields."""
+    if science_fields is None or field_id is None:
+        return None
+    if ms not in science:
+        science[ms] = {int(f) for f in science_fields(ms)}
+    return None if int(field_id) in science[ms] else f"field {field_id} is not a science target"
 
 
 def _pwv(value: object) -> str:
