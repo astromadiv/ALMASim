@@ -2,11 +2,20 @@
 
 Released models are the package's ``models/<name>-<version>.json`` files. A
 released file is never edited: a change is the next version, through a PR.
+
+A site can keep its own models beside them: the same ``<name>-<version>.json``
+files in the folder ``ALMASIM_NOISE_MODELS`` names, else the profile's
+``[tools] noise_models`` (the shared install's ``noise-models/``, where the
+console releases the team's models). Jobs get the profile in their
+environment, so they resolve the same names. A site model may not take a
+package model's name: ``alma`` is always the released one.
 """
 
 from __future__ import annotations
 
 import json
+import logging
+import os
 import re
 from collections.abc import Mapping
 from functools import cache
@@ -16,14 +25,18 @@ from typing import Any
 
 from .model import NoiseModel
 
+logger = logging.getLogger(__name__)
+
+SITE_ENV = "ALMASIM_NOISE_MODELS"
+PACKAGE, SITE = "package", "site"
 _RELEASED = re.compile(r"^(?P<name>[a-z][a-z0-9_-]*)-(?P<version>[1-9][0-9]*)\.json$")
 _SPEC = re.compile(r"^(?P<name>[a-z][a-z0-9_-]*)(?:@(?P<version>[1-9][0-9]*))?$")
 NONE = "none"
 
 
 @cache
-def released() -> dict[str, dict[int, NoiseModel]]:
-    """Every released model, by name and version."""
+def packaged() -> dict[str, dict[int, NoiseModel]]:
+    """The models released with the package, by name and version."""
     models: dict[str, dict[int, NoiseModel]] = {}
     for entry in resources.files(__package__).joinpath("models").iterdir():
         match = _RELEASED.match(entry.name)
@@ -34,6 +47,60 @@ def released() -> dict[str, dict[int, NoiseModel]]:
             raise ValueError(f"noise model file {entry.name} holds {model.name}@{model.version}")
         models.setdefault(model.name, {})[model.version] = model
     return models
+
+
+def site_models_dir(environ: Mapping[str, str] | None = None) -> Path | None:
+    """The site's models folder: ``ALMASIM_NOISE_MODELS``, else the profile's; or None."""
+    env = os.environ if environ is None else environ
+    if env.get(SITE_ENV):
+        return Path(env[SITE_ENV]).expanduser()
+    from almasim.jobs.profile import ProfileError, load_profile
+
+    try:
+        return load_profile(environ=env).noise_models
+    except ProfileError as exc:
+        logger.warning("noise models: cannot read the profile: %s", exc)
+        return None
+
+
+def site_models(directory: Path | None = None) -> dict[str, dict[int, NoiseModel]]:
+    """The site folder's models, by name and version. Read afresh each time: a
+    release adds one while the console runs. A file that does not load, or
+    takes a package model's name, is skipped with a warning, so one bad file
+    does not hide the others."""
+    directory = site_models_dir() if directory is None else directory
+    models: dict[str, dict[int, NoiseModel]] = {}
+    if directory is None or not directory.is_dir():
+        return models
+    for entry in sorted(directory.iterdir()):
+        match = _RELEASED.match(entry.name)
+        if not match:
+            continue
+        if match["name"] in packaged():
+            logger.warning("noise model %s ignored: %r is a package model", entry, match["name"])
+            continue
+        try:
+            model = NoiseModel.model_validate_json(entry.read_text())
+        except (OSError, ValueError) as exc:
+            logger.warning("noise model %s ignored: %s", entry, exc)
+            continue
+        if (model.name, model.version) != (match["name"], int(match["version"])):
+            logger.warning(
+                "noise model %s ignored: it holds %s@%s", entry, model.name, model.version
+            )
+            continue
+        models.setdefault(model.name, {})[model.version] = model
+    return models
+
+
+def released() -> dict[str, dict[int, NoiseModel]]:
+    """Every released model by name and version: the package's, then the site's."""
+    return {**{name: dict(v) for name, v in packaged().items()}, **site_models()}
+
+
+def model_source(name: str) -> str:
+    """Where a released model comes from: ``package`` or ``site``."""
+    return PACKAGE if name in packaged() else SITE
 
 
 def released_model(name: str, version: int | None = None) -> NoiseModel:

@@ -223,3 +223,19 @@ class Components(BaseModel):
 
 
 COMPONENT_NAMES: tuple[str, ...] = tuple(Components.model_fields)
+
+
+def component_class(name: str) -> type[NoiseComponent]:
+    """The class of the component called ``name``."""
+    info = Components.model_fields.get(name)
+    if info is None:
+        raise ValueError(f"unknown noise component {name!r}")
+    for arg in getattr(info.annotation, "__args__", ()):
+        if isinstance(arg, type) and issubclass(arg, NoiseComponent):
+            return arg
+    raise TypeError(f"not a component field: {info.annotation!r}")
+
+
+def describe_component(name: str) -> str:
+    """What the component ``name`` simulates, in one line (its class's docstring)."""
+    return " ".join((component_class(name).__doc__ or "").split())

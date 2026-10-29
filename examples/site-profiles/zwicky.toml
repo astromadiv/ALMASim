@@ -18,6 +18,9 @@ setup = ["export OPENBLAS_NUM_THREADS=1"]
 [tools]
 wsclean = "/SKAO_data/spack/opt/spack/linux-zen3/wsclean-3.7.20260424-a26g7w3hqrs4ec5ldmd4fjs4gdkg65rp/bin/wsclean"
 casa_data = "/SKAO_data/cycle11/.casa-data"
+# The team's own noise models (the console releases them here); the shared
+# install points this at its noise-models/ folder.
+noise_models = "/SKAO_data/cycle11/almasim/noise-models"
 
 [slurm]
 partition = "zwickyA-CPU"
