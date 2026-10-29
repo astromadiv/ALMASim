@@ -513,10 +513,16 @@
 						<!-- eslint-enable svelte/no-navigation-without-resolve -->
 					{/if}
 				</div>
-				<p class="m-0 text-sm text-fg-muted">
-					Each value the windows measure is their median; the range is their 16–84%.
-				</p>
-				<div class="overflow-x-auto">
+				{#if candidate.values.length}
+					<p class="m-0 text-sm text-fg-muted">
+						Each value the windows measure is their median; the range is their 16–84%.
+					</p>
+				{:else}
+					<p class="m-0 text-sm text-warn">
+						No value had enough windows ({MIN_WINDOWS} needed): the candidate is the base model.
+					</p>
+				{/if}
+				<div class="overflow-x-auto" class:hidden={!candidate.values.length}>
 					<table class="text-sm">
 						<thead>
 							<tr class="text-left text-xs font-semibold tracking-wide text-fg-muted uppercase">
@@ -531,7 +537,7 @@
 								<tr class="border-t border-sunk">
 									<td class="px-3 py-1 font-mono text-xs">{v.key}</td>
 									<td class="px-3 py-1 text-right font-mono">{sig(v.median)}</td>
-									<td class="px-3 py-1 text-right font-mono">{sig(v.q16)}–{sig(v.q84)}</td>
+									<td class="px-3 py-1 text-right font-mono">{sig(v.q16)} to {sig(v.q84)}</td>
 									<td class="px-3 py-1 text-right font-mono">{v.n}</td>
 								</tr>
 							{/each}
@@ -591,7 +597,7 @@
 										>{m.metric} <span class="text-fg-dim">({m.kind})</span></td
 									>
 									<td class="px-3 py-1 text-right font-mono">{sig(m.median)}</td>
-									<td class="px-3 py-1 text-right font-mono">{sig(m.q16)}–{sig(m.q84)}</td>
+									<td class="px-3 py-1 text-right font-mono">{sig(m.q16)} to {sig(m.q84)}</td>
 									<td class="px-3 py-1 text-right font-mono">{sig(m.p, 2)}</td>
 									<td class="px-3 py-1 text-right font-mono">{m.within10 ?? '—'}</td>
 									<td class="px-3 py-1 text-right font-mono">{m.n}</td>
