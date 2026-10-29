@@ -86,6 +86,17 @@ def test_options_the_caller_gave_are_kept():
     assert plan_job(argv, ZWICKY).argv == argv
 
 
+def test_a_simulation_that_writes_an_ms_gets_the_profiles_casa_data():
+    """casatools writes the MS only with its runtime data; a simulation
+    without --ms-export needs none."""
+    argv = ["simulation", "--metadata-path", "m.csv", "--ms-export"]
+    planned = plan_job(argv, ZWICKY).argv
+    assert planned[planned.index("--casa-data-root") + 1] == "/data/casa"
+    assert "--casa-data-root" not in plan_job(argv[:-1], ZWICKY).argv
+    mine = plan_job([*argv, "--casa-data-root", "/mine"], ZWICKY).argv
+    assert mine.count("--casa-data-root") == 1
+
+
 def test_calibration_on_slurm_does_not_download_casa_data():
     plan = plan_job(["visibilities", "calibrate", "--input-root", "/in"], ZWICKY)
     assert "--skip-casa-data-update" in plan.argv

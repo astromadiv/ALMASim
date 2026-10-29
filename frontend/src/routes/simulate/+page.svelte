@@ -72,12 +72,14 @@
 					.map((c) => ({ row: c.row_idx, cube: c }))
 			: rows.map((row) => ({ row, cube: null }))
 	);
-	// The page's own fields (the noise picker's too), and with cubes, what a cube sets itself.
+	// The page's own fields (the noise picker's too), the site's (its CASA data,
+	// for --ms-export), and with cubes, what a cube sets itself.
 	const hidden = $derived([
 		...ROW_FIELDS,
 		...NOISE_FIELDS,
 		'input_path',
 		'products_csv',
+		'casa_data_root',
 		...(usingCubes ? ['n_pix', 'n_channels', 'source_type'] : [])
 	]);
 

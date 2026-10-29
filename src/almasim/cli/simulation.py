@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+import importlib
+import importlib.util
+import shutil
+import subprocess
+import sys
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
@@ -34,7 +39,7 @@ from ..services.simulation.input_cubes import (
     products_csvs_near,
 )
 from ..skymodels.registry import SKYMODELS
-from ._shared import usage_error
+from ._shared import fail, usage_error
 
 
 class InstrumentGeometry(StrEnum):
@@ -158,6 +163,8 @@ def _build_simulation_params(
     kaggle_token: Path | None = None,
     noise_model: NoiseModel | str | None = None,
     executions: int | None = None,
+    ms_export: bool = False,
+    ms_path: Path | None = None,
 ) -> SimulationParams:
     if not 0 <= row_idx < len(metadata):
         usage_error(f"--row-idx {row_idx} is out of range for {len(metadata)} metadata rows")
@@ -207,10 +214,64 @@ def _build_simulation_params(
         kaggle_token=kaggle_token,
         noise_model=noise_model,
         executions=executions,
-        # Disable MS export by default; requires casatools or python-casacore.
-        ms_export=False,
-        ms_save_mode="none",
+        # --ms-export; ms_path: where, when the run's own name is not enough.
+        ms_export=ms_export,
+        ms_save_mode="msv2" if ms_export else "none",
+        ms_export_dir=str(ms_path) if ms_export and ms_path is not None else None,
     )
+
+
+MS_WRITER_HELP = (
+    "--ms-export needs casatools or python-casacore in the environment almasim runs in:\n"
+    "  uv sync --extra ms-casacore    (in an ALMASim checkout; --extra casa for casatools)\n"
+    "  pip install python-casacore    (an installed ALMASim)"
+)
+
+
+def _ms_writer_installed() -> bool:
+    return any(importlib.util.find_spec(name) is not None for name in ("casatools", "casacore"))
+
+
+def _install_python_casacore() -> bool:
+    """python-casacore installed into this environment (uv's pip when there is
+    uv, since uv's environments have no pip); whether it can now be imported."""
+    uv = shutil.which("uv")
+    command = (
+        [uv, "pip", "install", "--python", sys.executable, "python-casacore"]
+        if uv
+        else [sys.executable, "-m", "pip", "install", "python-casacore"]
+    )
+    typer.echo(f"Running: {' '.join(command)}")
+    if subprocess.run(command, check=False).returncode != 0:
+        return False
+    importlib.invalidate_caches()
+    return _ms_writer_installed()
+
+
+def _prepare_ms_export(output_dir: Path, casa_data_root: Path | None) -> None:
+    """Before any run: an MS writer, installed on request when there is none,
+    and casatools' runtime data. Without its data casatools fails to load, and
+    python-casacore, loaded after it in the same process, aborts it."""
+    if not _ms_writer_installed():
+        typer.echo(MS_WRITER_HELP, err=True)
+        if not sys.stdin.isatty():
+            fail("No MS writer: install one as above, or run without --ms-export.")
+        if not typer.confirm("Install python-casacore into this environment now?", default=False):
+            fail("No MS writer: install one as above, or run without --ms-export.")
+        if not _install_python_casacore():
+            fail("Installing python-casacore failed (see above); install it as above.")
+    if importlib.util.find_spec("casatools") is None:
+        return  # python-casacore writes the MS and needs no runtime data
+    from ..services.casa.environment import configure_casa_environment
+    from ..services.casa.runtime_data import ensure_casa_runtime_data
+
+    casa_data = (
+        casa_data_root.expanduser().absolute()
+        if casa_data_root is not None
+        else output_dir / ".casa-data"
+    )
+    configure_casa_environment(output_dir / ".casa-work", casa_data)
+    ensure_casa_runtime_data(casa_data, logger_fn=typer.echo)
 
 
 @dataclass(frozen=True)
@@ -240,6 +301,8 @@ class SimulationRunOptions:
     save_mode: str
     persist_standard_outputs: bool
     ml_shard_path: Path
+    ms_export: bool
+    casa_data_root: Path | None
     backend: str
     n_workers: int
     kaggle_token: Path | None
@@ -423,6 +486,27 @@ def simulation_run(
         help="Destination HDF5 shard path.",
         rich_help_panel="Output",
     ),
+    ms_export: bool = typer.Option(
+        False,
+        "--ms-export",
+        help=(
+            "Also write each run's MeasurementSet, <project-name>_<run>.ms in --output-dir "
+            "(in the run's own folder when there are several runs and products are kept), "
+            "with any --save-mode: Stokes I in both hands, with the noise model's noise "
+            "and WEIGHT. Needs casatools or python-casacore."
+        ),
+        rich_help_panel="Output",
+    ),
+    casa_data_root: Path | None = typer.Option(
+        None,
+        "--casa-data-root",
+        help=(
+            "CASA runtime data for writing the MS with casatools (default "
+            "<output-dir>/.casa-data, downloaded once when missing). python-casacore "
+            "alone needs none."
+        ),
+        rich_help_panel="Output",
+    ),
     backend: SimulationBackend = typer.Option(
         SimulationBackend("sync"),
         "--backend",
@@ -512,6 +596,9 @@ def simulation_run(
     ml_shard_resolved = o.ml_shard_path.expanduser().resolve()
     persist_outputs = o.persist_standard_outputs or o.save_mode != "memory"
     backend_kwargs = {"n_workers": o.n_workers} if o.backend == "local" else {}
+    output_dir = o.output_dir.expanduser().resolve()
+    if o.ms_export:
+        _prepare_ms_export(output_dir, o.casa_data_root)
 
     with create_backend(o.backend, **backend_kwargs) as compute_backend:
         run_number = 0
@@ -529,12 +616,17 @@ def simulation_run(
                 run_seed = o.seed + run_idx if o.seed is not None else None
                 if run_seed is not None:
                     typer.echo(f"Seed: {run_seed}")
+                run_name = (
+                    f"{o.project_name}_{run_idx}"
+                    if cube is None
+                    else f"{o.project_name}_{cube_label(cube)}_{simulation_idx}"
+                )
                 params = _build_simulation_params(
                     metadata=metadata,
                     row_idx=idx,
                     run_idx=run_idx,
                     main_dir=o.main_dir.expanduser().resolve(),
-                    output_dir=o.output_dir.expanduser().resolve(),
+                    output_dir=output_dir,
                     project_name=o.project_name,
                     source_type=o.source_type,
                     save_mode=o.save_mode,
@@ -556,19 +648,19 @@ def simulation_run(
                     seed=run_seed,
                     instrument_geometry=str(o.instrument_geometry),
                     inject_serendipitous=o.inject_serendipitous,
-                    output_subdir_name=(
-                        (
-                            f"{o.project_name}_{run_idx}"
-                            if cube is None
-                            else f"{o.project_name}_{cube_label(cube)}_{simulation_idx}"
-                        )
-                        if persist_outputs and total_runs > 1
-                        else None
-                    ),
+                    output_subdir_name=run_name if persist_outputs and total_runs > 1 else None,
                     external_input_path=cube,
                     kaggle_token=o.kaggle_token,
                     noise_model=o.noise_model,
                     executions=o.executions,
+                    ms_export=o.ms_export,
+                    # Several runs whose products are not kept share --output-dir:
+                    # each MS by its run's name (two cubes of one row share an index).
+                    ms_path=(
+                        output_dir / f"{run_name}.ms"
+                        if not persist_outputs and total_runs > 1
+                        else None
+                    ),
                 )
                 _run_simulation_stages(
                     o, params, compute_backend, label=f"Simulation {run_number}/{total_runs}"
