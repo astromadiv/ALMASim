@@ -160,7 +160,9 @@ newest version; `zwicky-alma@1`), but may not take a released model's name:
 ignored with a warning, as is a file that does not load or whose name
 disagrees with the model it holds. `almasim noise show` marks each model
 `(package)` or `(site)`. A model is released into the folder with `almasim
-noise promote … --models-dir <folder>`, only with a passing validation.
+noise promote … --site --name zwicky-alma` (the console's *Release…* on the
+Noise models page), only with a passing validation; its provenance notes
+who released it and when.
 
 ### From Python
 
@@ -981,6 +983,13 @@ baseline. The golden simulation runs one case through
 `--noise-model alma@1`, so the noise components' code path is under the
 gate.
 
+With `--site` it goes to the site's models folder instead (see
+[the team's own models](#the-teams-own-models)), under a name of its own
+(`--name zwicky-alma`; `alma` is refused), and no pull request follows:
+simulations can name it as soon as it is written. That is what the
+console's *Release…* runs; the console never writes into the installed
+package.
+
 ### All of it as one chain of jobs
 
 ```python
@@ -1056,6 +1065,8 @@ none another component sets.
 | `kept the base's` in a candidate's notes | fewer than `--min-windows` windows measured that value |
 | `... did not pass its validation` (promote) | the comparison's failed checks are listed; fix the model, validate again |
 | `the comparison is of ...` (promote) | the comparison was made for another model (or the candidate changed since); validate this one |
+| `'alma' is a model ALMASim releases` (promote --site) | a team model takes a name of its own: `--name zwicky-alma` |
+| `no site models folder` (promote --site) | set the profile's `[tools] noise_models` (or `ALMASIM_NOISE_MODELS`); `almasim update-shared` makes the shared install's |
 
 
 ## Where the code is

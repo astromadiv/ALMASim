@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
@@ -89,3 +90,58 @@ def test_noise_promote_command(tmp_path):
     refused = runner.invoke(noise_app, args)
     assert refused.exit_code == 1 and "did not pass" in refused.output
     assert json.loads((models / "alma-1.json").read_text())["version"] == 1
+
+
+@pytest.mark.unit
+def test_a_site_release_takes_its_own_name_and_records_who(tmp_path, monkeypatch):
+    monkeypatch.setattr("getpass.getuser", lambda: "astro")
+    candidate = _candidate()
+    with pytest.raises(ValueError, match="'alma' is a model ALMASim releases"):
+        promote(candidate, _comparison(candidate), models_dir=tmp_path, site=True)
+    path = promote(
+        candidate, _comparison(candidate), name="zwicky-alma", models_dir=tmp_path, site=True
+    )
+    assert path == tmp_path / "zwicky-alma-1.json"
+    notes = NoiseModel.model_validate_json(path.read_text()).provenance.notes
+    assert "passed every check" in notes and "Released to the site by astro on " in notes
+
+
+@pytest.mark.unit
+def test_a_release_never_overwrites_a_version(tmp_path, monkeypatch):
+    candidate = _candidate()
+    real_open = Path.open
+
+    def raced(self, mode="r", *args, **kwargs):
+        if mode == "x":  # another release wrote this version first
+            self.write_text("{}")
+        return real_open(self, mode, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", raced)
+    with pytest.raises(ValueError, match="alma-1.json was written meanwhile"):
+        promote(candidate, _comparison(candidate), models_dir=tmp_path)
+    assert (tmp_path / "alma-1.json").read_text() == "{}"
+
+
+@pytest.mark.unit
+def test_noise_promote_into_the_site_folder(tmp_path, monkeypatch):
+    from almasim.cli.noise import noise_app
+
+    candidate = _candidate()
+    model_path, comparison_path = tmp_path / "candidate.json", tmp_path / "comparison.json"
+    model_path.write_text(candidate.model_dump_json())
+    comparison_path.write_text(_comparison(candidate).model_dump_json())
+    site = tmp_path / "noise-models"
+    monkeypatch.setenv("ALMASIM_NOISE_MODELS", str(site))
+    runner = CliRunner()
+    args = ["promote", str(model_path), "--comparison", str(comparison_path), "--site"]
+    missing = runner.invoke(noise_app, [*args, "--name", "zwicky-alma"])
+    assert missing.exit_code == 1 and "almasim update-shared makes it" in missing.output
+    site.mkdir()
+    both = runner.invoke(noise_app, [*args, "--models-dir", str(site)])
+    assert both.exit_code == 2 and "not both" in both.output
+    reused = runner.invoke(noise_app, args)
+    assert reused.exit_code == 1 and "a name of its own" in reused.output
+    result = runner.invoke(noise_app, [*args, "--name", "zwicky-alma"])
+    assert result.exit_code == 0, result.output
+    assert "--noise-model zwicky-alma@1" in result.output and "pull request" not in result.output
+    assert (site / "zwicky-alma-1.json").is_file()

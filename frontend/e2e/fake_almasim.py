@@ -13,8 +13,10 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 import sys
 import time
+import tomllib
 from pathlib import Path
 
 import numpy as np
@@ -92,7 +94,11 @@ def resolve(argv: list[str]) -> None:
         w = csv.writer(f)
         w.writerow(columns)
         for uid in uids:
-            for kind, size in (("raw", 1_000_000_000), ("cubes", 200_000_000), ("auxiliary", 10_000)):
+            for kind, size in (
+                ("raw", 1_000_000_000),
+                ("cubes", 200_000_000),
+                ("auxiliary", 10_000),
+            ):
                 name = f"{uid.replace('/', '_')}_{kind}.tar"
                 w.writerow([f"https://example/{name}", uid, name, size, "application/x-tar",
                             kind, "#this", size / 1e6])  # fmt: skip
@@ -102,7 +108,9 @@ def resolve(argv: list[str]) -> None:
 def download(argv: list[str]) -> None:
     dest = Path(option(argv, "--destination") or "downloads")
     dest.mkdir(parents=True, exist_ok=True)
-    (dest / "download_manifest.json").write_text(json.dumps({"filter": option(argv, "--product-filter")}))
+    (dest / "download_manifest.json").write_text(
+        json.dumps({"filter": option(argv, "--product-filter")})
+    )
     say("downloading (fake)", "done")
 
 
@@ -173,6 +181,12 @@ def preview_wiener(argv: list[str]) -> None:
     say("wiener (fake)")
 
 
+CANDIDATE_SHA = "0123456789ab" + "0" * 52
+PACKAGE_MODEL = (
+    Path(__file__).resolve().parents[2] / "src/almasim/services/noise_model/models/alma-1.json"
+)
+
+
 def noise_windows(argv: list[str]) -> None:
     out = Path(option(argv, "--out") or ".")
     out.mkdir(parents=True, exist_ok=True)
@@ -187,7 +201,9 @@ def noise_windows(argv: list[str]) -> None:
         w.writerow(["ms", "spw", "field", "name", "pwv", "task_log", "task_dir"])
         for name in names:
             spw = name.split("_spw")[1].split("_")[0]
-            w.writerow(["/data/cal/uid___A002_X1_Xb670.ms.split.cal", spw, "2", name, "0.9", "", ""])
+            w.writerow(
+                ["/data/cal/uid___A002_X1_Xb670.ms.split.cal", spw, "2", name, "0.9", "", ""]
+            )
     with (out / "rows.csv").open("w", newline="") as f:
         w = csv.writer(f)
         w.writerow([*METADATA_COLUMNS, "name"])
@@ -200,25 +216,59 @@ def noise_windows(argv: list[str]) -> None:
 def noise_step(argv: list[str]) -> None:
     out = Path(option(argv, "--out") or ".")
     step = argv[1]
-    failures = {"uid___A002_X1_Xb670_spw27_field2": "ValueError: too faint"} if step == "fit" else {}
+    failures = (
+        {"uid___A002_X1_Xb670_spw27_field2": "ValueError: too faint"} if step == "fit" else {}
+    )
     name = "failures.json" if step == "extract" else f"failures-{step}.json"
     (out / name).write_text(json.dumps(failures))
     say(f"{step} (fake)", pause=0.5)
     if step == "validate":
         comparison = {
             "schema_version": 1,
-            "model": {"name": "alma-candidate", "version": 2, "label": "alma-candidate@2"},
+            "model": {
+                "name": "alma-candidate",
+                "version": 2,
+                "label": "alma-candidate@2",
+                "sha256": CANDIDATE_SHA,
+            },  # fmt: skip
             "windows": 2,
             "passed": True,
-            "metrics": {"cont.sigma": {"kind": "ratio", "n": 2, "median": 1.02, "q16": 0.97,
-                                       "q84": 1.06, "p": None, "within_10pct": 2}},  # fmt: skip
+            "metrics": {
+                "cont.sigma": {
+                    "kind": "ratio",
+                    "n": 2,
+                    "median": 1.02,
+                    "q16": 0.97,
+                    "q84": 1.06,
+                    "p": None,
+                    "within_10pct": 2,
+                }
+            },  # fmt: skip
             "groups": {},
-            "checks": [{"name": "continuum noise", "passed": True, "value": 1.02,
-                        "detail": "median 1.02 within 5%"}],  # fmt: skip
+            "checks": [
+                {
+                    "name": "continuum noise",
+                    "passed": True,
+                    "value": 1.02,
+                    "detail": "median 1.02 within 5%",
+                }
+            ],  # fmt: skip
         }
         folder = out / "validation" / "0123456789ab"
         folder.mkdir(parents=True, exist_ok=True)
         (folder / "comparison.json").write_text(json.dumps(comparison))
+
+
+def noise_promote(argv: list[str]) -> None:
+    """--site: the package's alma@1 as <name>@1, noted as the candidate's release."""
+    profile = tomllib.loads(Path(os.environ["ALMASIM_SITE_PROFILE"]).read_text())
+    name = option(argv, "--name") or "alma"
+    model = json.loads(PACKAGE_MODEL.read_text())
+    model.update(name=name, version=1)
+    model["provenance"]["notes"] = f"(sha256 {CANDIDATE_SHA[:12]}) passed every check."
+    path = Path(profile["tools"]["noise_models"]) / f"{name}-1.json"
+    path.write_text(json.dumps(model))
+    say(f"{name}@1 written to {path}")
 
 
 def noise_aggregate(argv: list[str]) -> None:
@@ -229,7 +279,9 @@ def noise_aggregate(argv: list[str]) -> None:
         "version": 2,
         "provenance": {
             "notes": "radiometer.receiver_temperature_k[9, 10]: 0 window(s), kept the base's",
-            "values": {"channel_correlation.rho1": {"n": 2, "median": 0.667, "q16": 0.66, "q84": 0.67}},
+            "values": {
+                "channel_correlation.rho1": {"n": 2, "median": 0.667, "q16": 0.66, "q84": 0.67}
+            },
         },
         "components": {},
     }
@@ -259,6 +311,7 @@ COMMANDS = {
     ("noise", "fit"): noise_step,
     ("noise", "aggregate"): noise_aggregate,
     ("noise", "validate"): noise_step,
+    ("noise", "promote"): noise_promote,
     ("doctor",): doctor,
 }
 
