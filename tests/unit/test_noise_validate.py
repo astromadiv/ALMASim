@@ -156,14 +156,14 @@ def stubbed(monkeypatch, tmp_path):
         (run / "sim.ms").mkdir()
         return run / "sim.ms"
 
-    def extract_window(ms, spw, field=None, *, name=None, **kwargs):
-        return _window(name, unit=2000 * ratio["value"]), {}
+    def measure(ms, name, run):
+        return _window(name, unit=2000 * ratio["value"])
 
     def image(run, imaging):
         return _task(run / "cubes" / "sim" / "SPW-0_FIELD-0", 1e-3 * ratio["value"], seed=7)
 
     monkeypatch.setattr(v, "simulate", simulate)
-    monkeypatch.setattr("almasim.services.noise.extract.extract_window", extract_window)
+    monkeypatch.setattr(v, "measure", measure)
     monkeypatch.setattr(v, "image", image)
     measured = tmp_path / "measured"
     rows = []
@@ -390,6 +390,52 @@ def test_a_window_is_simulated_with_its_own_channel_averaging(monkeypatch, tmp_p
     assert centre.value == pytest.approx(native.exposure.frequency_ghz)
     assert band.to(U.Hz).value == pytest.approx(64 * 976562.5)
     assert v.frequency_support(window) is None
+
+
+@pytest.mark.unit
+def test_a_simulated_window_is_measured_in_a_process_of_its_own(monkeypatch, tmp_path):
+    """casatools wrote the MS; python-casacore reads it in another process."""
+    from types import SimpleNamespace
+
+    calls = []
+
+    def run(command, capture_output, text):
+        calls.append(command)
+        out = Path(command[command.index("--out") + 1])
+        (out / "windows" / "w").mkdir(parents=True)
+        (out / "windows" / "w" / "window.json").write_text(_window("w").model_dump_json())
+        return SimpleNamespace(returncode=0, stderr="", stdout="")
+
+    monkeypatch.setattr(v.subprocess, "run", run)
+    window = v.measure(tmp_path / "sim.ms", "w", tmp_path)
+    assert window.name == "w"
+    (command,) = calls
+    assert command[command.index("noise") + 1 :][:4] == [
+        "extract",
+        str(tmp_path / "sim.ms"),
+        "--spw",
+        "0",
+    ]
+    monkeypatch.setattr(
+        v.subprocess,
+        "run",
+        lambda command, capture_output, text: SimpleNamespace(
+            returncode=134, stderr="free(): invalid pointer", stdout=""
+        ),
+    )
+    with pytest.raises(RuntimeError, match="invalid pointer"):
+        v.measure(tmp_path / "sim.ms", "w", tmp_path / "other")
+
+
+@pytest.mark.unit
+def test_windows_validated_at_once_write_through_their_own_temporary_files(tmp_path):
+    from almasim.services.noise.batch import _write_atomic
+
+    target = tmp_path / "model.json"
+    _write_atomic(target, "a")
+    _write_atomic(target, "b")
+    assert target.read_text() == "b"
+    assert [p.name for p in tmp_path.iterdir()] == ["model.json"]
 
 
 @pytest.mark.unit

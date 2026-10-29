@@ -98,9 +98,7 @@ def validate_window(
     if run.exists():
         shutil.rmtree(run)
     ms = simulate(row, real, model, run, seed=seed + zlib.crc32(task.name.encode()) % 1_000_003)
-    from .extract import extract_window
-
-    sim_window, _ = extract_window(ms, 0, name=task.name)
+    sim_window = measure(ms, task.name, run)
     _write_atomic(directory / SIM_WINDOW, sim_window.model_dump_json(indent=2) + "\n")
     task_dir = image(run, imaging)
     _write_atomic(directory / SIM_IMAGE, json.dumps(image_noise_stats(task_dir), indent=1) + "\n")
@@ -208,6 +206,21 @@ def frequency_support(window: WindowNoise) -> str | None:
     half = e.channels * e.channel_width_hz / 2e9
     low, high = e.frequency_ghz - half, e.frequency_ghz + half
     return f"[{low:.9f}..{high:.9f}GHz,{e.resolution_hz / 1e3:.6f}kHz]"
+
+
+def measure(ms: Path, name: str, run: Path) -> WindowNoise:
+    """``noise extract`` of the simulated MS, in a process of its own: the
+    simulation wrote it with casatools, and python-casacore opening it in the
+    same process can abort (free(): invalid pointer)."""
+    from ...jobs.wrapper import ALMASIM_COMMAND
+
+    out = run / "measured"
+    command = ["noise", "extract", str(ms), "--spw", "0", "--name", name, "--out", str(out)]
+    result = subprocess.run([*ALMASIM_COMMAND, *command], capture_output=True, text=True)
+    if result.returncode != 0:
+        tail = (result.stderr or result.stdout).strip()[-1500:]
+        raise RuntimeError(f"almasim noise extract failed: {tail}")
+    return WindowNoise.model_validate_json((out / "windows" / name / WINDOW_FILE).read_text())
 
 
 def image(run: Path, imaging: Imaging) -> Path:

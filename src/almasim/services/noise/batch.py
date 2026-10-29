@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -283,6 +284,8 @@ def run_on_slurm(
 
 
 def _write_atomic(path: Path, text: str) -> None:
-    tmp = path.with_name(f".{path.name}.tmp")
+    # A temporary name of its own: windows run at once write the same files
+    # (failures.json, the validation's model.json).
+    tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
     tmp.write_text(text)
     os.replace(tmp, path)
