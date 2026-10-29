@@ -196,7 +196,10 @@ def windows(
     done_only: bool = typer.Option(
         True,
         "--done-only/--all-tasks",
-        help="Only windows whose imaging task finished (its .done marker).",
+        help=(
+            "Only windows whose imaging task finished (its .done marker) and was "
+            "assessed (image clean-quality's quality.json, which fit and validate read)."
+        ),
         rich_help_panel="Inputs",
     ),
     science_only: bool = typer.Option(

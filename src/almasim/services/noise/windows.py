@@ -23,6 +23,8 @@ import pandas as pd
 from .batch import window_name
 
 WINDOW_COLUMNS = ("ms", "spw", "field", "name", "pwv", "task_log", "task_dir")
+# image clean-quality's per-task summary: noise fit and validate read it.
+QUALITY_FILE = "quality.json"
 
 
 @dataclass
@@ -55,7 +57,8 @@ def imaging_windows(
     a window's archive row is its observation's row in ``metadata`` (an
     ``almasim metadata`` CSV), the one of its own source when the observation
     has several. With ``done_only`` a window whose imaging task has no done
-    marker is left out; ``science_fields(ms)``, when given, says which fields
+    marker, or no ``quality.json`` (``image clean-quality``'s, which ``noise
+    fit`` and ``validate`` read), is left out; ``science_fields(ms)``, when given, says which fields
     of an MS are science targets (others are left out); ``max_windows`` keeps
     the first that many; ``names``, when given, keeps only the windows so named.
     """
@@ -80,6 +83,9 @@ def imaging_windows(
             continue
         if done_only and not imaging_marker_path(task_dir).is_file():
             skipped.append((name, "its imaging task is not done"))
+            continue
+        if done_only and not (task_dir / QUALITY_FILE).is_file():
+            skipped.append((name, f"no {QUALITY_FILE}: run image clean-quality on the images"))
             continue
         if science_fields is not None and field_id is not None:
             if ms not in science:
