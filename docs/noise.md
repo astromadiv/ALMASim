@@ -222,6 +222,8 @@ windows and releases it. The
 in the guide runs every step with real numbers; in short:
 
 ```
+almasim noise windows params.csv --images cubes/ --metadata results.csv \
+    --products products.csv --out noise/                                    # windows.csv, rows.csv
 almasim noise extract --windows windows.csv --out noise/ --backend slurm    # window.json
 almasim noise fit --windows windows.csv --out noise/ --backend slurm        # fit.json
 almasim noise aggregate --out noise/                                        # noise/candidate.json
@@ -235,6 +237,12 @@ almasim noise promote noise/candidate.json \
 Each command also takes a single MS (`almasim noise extract
 uid___A002_X1.ms.split.cal --spw 31 --field 2 --out noise/`). Reading MSs
 needs python-casacore (the `ms-casacore` extra).
+
+**`noise windows`** writes the windows table and the archive rows of an
+ALMASim imaging run: the finished science windows of its parameters CSV,
+each with its task folder and log, and its observation's row in the archive
+search (linked to the MS's execution block by the resolved-products CSV),
+whose PWV fills `pwv`.
 
 **The windows table** (`windows.csv`) has one row per window: the columns
 `ms` and `spw`, and optionally `field`, `name`, `syscal_ms`, `line_channels`

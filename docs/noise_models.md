@@ -716,7 +716,8 @@ from).
    the clean models; `noise validate` compares the images.
 3. **The archive rows** of the windows (`almasim metadata --save-csv
    rows.csv ...`), with a `name` column added that names each row's window.
-   `noise validate` simulates each window from its row.
+   `noise validate` simulates each window from its row. `almasim noise
+   windows` (below) writes them for an imaging run.
 4. **python-casacore** (`pip install 'almasim[ms-casacore]'`), to read the
    MSs, and WSClean and CASA data for the imaging.
 
@@ -742,6 +743,25 @@ ms,spw,field,name,pwv,task_log,task_dir
 /data/uid___A002_X114a61b_X31de.ms.split.cal,31,2,w81,1.1,/data/cubes/uid___A002_X114a61b_X31de.ms.split/SPW-31_FIELD-2.log,/data/cubes/uid___A002_X114a61b_X31de.ms.split/SPW-31_FIELD-2
 /data/uid___A002_X11cd86f_X53c7.ms.split.cal,11,2,spt0441,0.6,...,...
 ```
+
+`almasim noise windows` writes this table, and the archive rows `noise
+validate` needs, from an ALMASim imaging run:
+
+```
+almasim noise windows imaging_parameters.csv --images cubes/ \
+    --metadata results.csv --products products.csv --out noise/
+```
+
+It takes the windows of the parameters CSV that the run under `--images`
+finished (`--all-tasks` takes them all) and that are science targets
+(`--all-fields`: calibrators too), each with its task folder and log. Each
+window's archive row is its observation's row in the archive search
+(`--metadata`), the row of the window's own source when the observation has
+several; its `PWV` fills `pwv`. The resolved-products CSV (`--products`;
+default: `*products*.csv` beside the search) links each MS's execution block
+to its observation. It writes `noise/windows.csv` and `noise/rows.csv` (the
+archive rows, with a `name` column), and lists the windows it left out and
+why. The console's *Noise models* page runs it for you.
 
 ### Step 1: measure every window (`noise extract`)
 

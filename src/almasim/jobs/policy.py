@@ -53,6 +53,7 @@ KNOWN_COMMANDS = frozenset(
         "clean",
         "preview integrate",
         "preview wiener",
+        "noise windows",
         "noise extract",
         "noise fit",
         "noise aggregate",
