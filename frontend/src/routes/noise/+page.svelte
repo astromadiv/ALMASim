@@ -2,8 +2,10 @@
 	Build a noise model from real data: list an imaging run's windows
 	(`noise windows`), tick the ones to learn from, then measure them, fit
 	their calibration residuals, reduce them into a candidate model and
-	validate it against them, as one chain of jobs. The runs live in the
-	address (?windows=<id>&chain=<id>,<id>,…).
+	validate it against them, as one chain of jobs. A candidate whose
+	validation passed can be released into the site's models folder, where
+	Simulate lists it. The runs live in the address
+	(?windows=<id>&chain=<id>,<id>,…&release=<id>).
 -->
 <script lang="ts">
 	import { goto } from '$app/navigation';
@@ -12,6 +14,7 @@
 	import { api, type Run } from '#lib/api/v2/client.js';
 	import DashboardButton from '#lib/components/jobs/DashboardButton.svelte';
 	import StateChip from '#lib/components/jobs/StateChip.svelte';
+	import Dialog from '#lib/components/shared/Dialog.svelte';
 	import ErrorMessage from '#lib/components/shared/ErrorMessage.svelte';
 	import PathPicker from '#lib/components/shared/PathPicker.svelte';
 	import Spinner from '#lib/components/shared/Spinner.svelte';
@@ -32,12 +35,16 @@
 		lastImaging,
 		lastSearch,
 		newestValidation,
+		releaseArgv,
+		releaseNameProblem,
+		releasedAs,
 		resolvedProducts,
 		sig,
 		verdict,
 		windowsArgv,
 		type Verdict
 	} from '#lib/utils/noise.js';
+	import type { NoiseModelInfo } from '#lib/utils/noisePicker.js';
 
 	const MIN_WINDOWS = 3;
 
@@ -55,8 +62,10 @@
 
 	let fetched = $state<Record<string, Run>>({});
 	const runOf = (id: string | null | undefined) => (id ? (jobs.get(id) ?? fetched[id]) : undefined);
+	const releaseId = $derived(page.url.searchParams.get('release'));
 	const windowsRun = $derived(runOf(windowsId));
 	const chain = $derived(chainIds.map((id) => runOf(id)));
+	const releaseRun = $derived(runOf(releaseId));
 
 	const products = $derived(resolvedProducts(jobs.list));
 
@@ -92,7 +101,7 @@
 	}
 
 	$effect(() => {
-		for (const id of [windowsId, ...chainIds]) {
+		for (const id of [windowsId, ...chainIds, releaseId]) {
 			if (id && !jobs.get(id) && !fetched[id] && jobs.loaded) {
 				void api
 					.GET('/api/v2/jobs/{run_id}', { params: { path: { run_id: id } } })
@@ -158,6 +167,7 @@
 	let failures = $state<Record<string, Record<string, string>>>({});
 	let candidate = $state<(ReturnType<typeof candidateValues> & { label: string }) | null>(null);
 	let result = $state<Verdict | null>(null);
+	let comparisonFile = $state<string | null>(null);
 	const stepKeys = ['windows', 'extract', 'fit', 'aggregate', 'validate'] as const;
 	const titles: Record<string, string> = {
 		windows: 'Table the windows',
@@ -193,14 +203,17 @@
 				}
 			}
 			let judged: Verdict | null = null;
+			let judgedFile: string | null = null;
 			if (chain[4]?.finished) {
 				try {
 					const { data } = await api.GET('/api/v2/files/list', {
 						params: { query: { path: `${f}/validation` } }
 					});
 					const newest = newestValidation(data?.entries ?? []);
-					if (newest)
-						judged = verdict(await readJson(`${f}/validation/${newest}/${COMPARISON_JSON}`));
+					if (newest) {
+						judgedFile = `${f}/validation/${newest}/${COMPARISON_JSON}`;
+						judged = verdict(await readJson(judgedFile));
+					}
 				} catch {
 					judged = null;
 				}
@@ -209,6 +222,7 @@
 			failures = next;
 			candidate = found;
 			result = judged;
+			comparisonFile = judged ? judgedFile : null;
 		})();
 		return () => (stale = true);
 	});
@@ -234,7 +248,7 @@
 				argv: windowsArgv(source),
 				title: `Noise windows · ${source.images.split('/').pop()}`
 			});
-			if (run) go({ windows: run.id, chain: null });
+			if (run) go({ windows: run.id, chain: null, release: null });
 		} catch (err) {
 			toasts.show(`Could not start it: ${errorMessage(err)}`, 'danger');
 		} finally {
@@ -257,10 +271,53 @@
 				if (!run) throw new Error(`${step.title} was not accepted`);
 				ids.push(run.id);
 			}
-			go({ chain: ids.join(',') });
+			go({ chain: ids.join(','), release: null });
 			toasts.show('The chain started; each step runs when the one before succeeds.', 'ok');
 		} catch (err) {
 			toasts.show(`Could not start the chain: ${errorMessage(err)}`, 'danger');
+		} finally {
+			busy = false;
+		}
+	}
+
+	// 5. Release: the released models (the API reads the site folder afresh), and
+	// the candidate's own release once its job has written it.
+	let models = $state<NoiseModelInfo[]>([]);
+	let siteFolder = $state<string | null>(null);
+	let releaseName = $state('');
+	let confirmingRelease = $state(false);
+	$effect(() => {
+		void releaseRun?.state;
+		let stale = false;
+		void api
+			.GET('/api/v2/noise-models')
+			.then(({ data }) => {
+				if (stale || !data) return;
+				models = data.models;
+				siteFolder = data.site_folder ?? null;
+			})
+			.catch(() => undefined);
+		return () => (stale = true);
+	});
+	const released = $derived(result ? releasedAs(models, result.sha256) : null);
+	const nameProblem = $derived(releaseNameProblem(releaseName, models));
+	const siteNames = $derived([
+		...new Set(models.filter((m) => m.source === 'site').map((m) => m.name))
+	]);
+
+	async function release() {
+		if (!folderOfChain || !comparisonFile || nameProblem) return;
+		busy = true;
+		try {
+			const run = await submit({
+				argv: releaseArgv(folderOfChain, comparisonFile, releaseName),
+				title: `Noise · release ${releaseName.trim()}`
+			});
+			if (!run) throw new Error('the release was not accepted');
+			go({ release: run.id });
+			confirmingRelease = false;
+		} catch (err) {
+			toasts.show(`Could not release it: ${errorMessage(err)}`, 'danger');
 		} finally {
 			busy = false;
 		}
@@ -303,7 +360,7 @@
 				<button
 					type="button"
 					class="btn-ghost ml-auto px-3 py-1.5"
-					onclick={() => go({ windows: null, chain: null })}>Start over</button
+					onclick={() => go({ windows: null, chain: null, release: null })}>Start over</button
 				>
 			{/if}
 		</div>
@@ -606,8 +663,92 @@
 						</tbody>
 					</table>
 				</div>
-				<!-- Release (plan N5): a passing candidate goes to the site's models folder here. -->
+				<div class="flex flex-col gap-3 border-t border-sunk pt-4">
+					<h3 class="m-0 text-base font-semibold">Release</h3>
+					{#if released}
+						<p class="m-0 flex flex-wrap items-center gap-3 text-sm">
+							<span>Released as <code>{released}</code>: Simulate lists it for everyone.</span>
+							<!-- eslint-disable svelte/no-navigation-without-resolve -- the path is resolved; only the query string is appended -->
+							<a
+								class="btn-secondary px-3 py-1.5 no-underline"
+								href={`${resolve('/simulate')}?noise=${encodeURIComponent(released)}`}
+								>Use {released} in Simulate</a
+							>
+							<!-- eslint-enable svelte/no-navigation-without-resolve -->
+						</p>
+					{:else if !result.passed}
+						<p class="m-0 text-sm text-fg-muted">
+							Only a candidate whose validation passed can be released.
+						</p>
+					{:else if !siteFolder}
+						<p class="m-0 text-sm text-fg-muted">
+							This console has no site models folder to release into (the profile's
+							<code>[tools] noise_models</code>).
+						</p>
+					{:else}
+						<p class="m-0 text-sm text-fg-muted">
+							The candidate becomes the next version of a team model in
+							<code class="break-all">{siteFolder}</code>, where every simulation can use it. A
+							released version is never changed.
+						</p>
+						<label class="flex max-w-xs flex-col gap-1 text-sm">
+							<span class="font-medium">Model name</span>
+							<input
+								class="rounded-md border px-3 py-2 font-mono"
+								bind:value={releaseName}
+								list="site-model-names"
+								placeholder="zwicky-alma"
+								aria-invalid={releaseName !== '' && nameProblem !== ''}
+								aria-describedby="release-name-hint"
+							/>
+							<datalist id="site-model-names">
+								{#each siteNames as name (name)}<option value={name}></option>{/each}
+							</datalist>
+							<span
+								id="release-name-hint"
+								class="text-xs {releaseName && nameProblem ? 'text-danger' : 'text-fg-dim'}"
+								>{releaseName && nameProblem
+									? nameProblem
+									: "A team model's name; an existing one gets its next version."}</span
+							>
+						</label>
+						{#if releaseRun}
+							<p class="m-0 flex items-center gap-2 text-sm">
+								<StateChip state={releaseRun.state} />
+								<a href={resolve('/jobs/[id]', { id: releaseRun.id })}>job {releaseRun.short_id}</a>
+							</p>
+						{/if}
+						<div>
+							<button
+								type="button"
+								class="btn-accent"
+								disabled={busy ||
+									!!nameProblem ||
+									!comparisonFile ||
+									releaseRun?.finished === false}
+								onclick={() => (confirmingRelease = true)}>Release…</button
+							>
+						</div>
+					{/if}
+				</div>
 			</section>
 		{/if}
 	{/if}
 </div>
+
+{#if confirmingRelease}
+	<Dialog title="Release this model?" onClose={() => (confirmingRelease = false)}>
+		<p class="m-0 text-sm">
+			<strong>{result?.label}</strong> becomes the next version of
+			<code>{releaseName.trim()}</code> in <code class="break-all">{siteFolder}</code>. Everyone in
+			the group can then simulate with it, and the release records your name and the time. A
+			released version cannot be changed or taken back from the console.
+		</p>
+		{#snippet footer()}
+			<button type="button" class="btn-ghost" onclick={() => (confirmingRelease = false)}
+				>Not yet</button
+			>
+			<button type="button" class="btn-accent" disabled={busy} onclick={release}>Release</button>
+		{/snippet}
+	</Dialog>
+{/if}

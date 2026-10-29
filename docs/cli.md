@@ -905,7 +905,8 @@ $ almasim noise compare [OPTIONS]
 Write a validated candidate as the next version of a released model
 (models/<name>-<n+1>.json), refused unless its comparison passed. The pull
 request that adds the file, and with it moves the model to the new
-version, stays with a person.
+version, stays with a person. With --site it goes to the site's models
+folder instead, under a name of its own, recording who released it.
 
 **Usage**:
 
@@ -922,6 +923,7 @@ $ almasim noise promote [OPTIONS] {candidate}
 * `--comparison <path>`: noise validate's comparison.json of that very model.  [required]
 * `--name <str>`: The model it releases (default: the candidate's, less -candidate).
 * `--models-dir <path>`: Where released models live (default: this checkout's).
+* `--site`: Release into the site's models folder (ALMASIM_NOISE_MODELS, else the profile's [tools] noise_models), where simulations find it at once.
 * `--help`: Show this message and exit.
 
 ## `almasim jobs`

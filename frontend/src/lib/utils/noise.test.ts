@@ -7,6 +7,9 @@ import {
 	lastImaging,
 	lastSearch,
 	newestValidation,
+	releaseArgv,
+	releaseNameProblem,
+	releasedAs,
 	resolvedProducts,
 	sig,
 	verdict,
@@ -133,5 +136,39 @@ describe('what the chain made', () => {
 		expect(newestValidation([])).toBeNull();
 		expect(sig(0.123456)).toBe('0.123');
 		expect(sig(null)).toBe('—');
+	});
+
+	it('releases a passing candidate into the site folder under a name of its own', () => {
+		expect(
+			releaseArgv('/runs/noise/', '/runs/noise/validation/abc/comparison.json', ' zw ')
+		).toEqual([
+			'noise',
+			'promote',
+			'/runs/noise/candidate.json',
+			'--comparison',
+			'/runs/noise/validation/abc/comparison.json',
+			'--name',
+			'zw',
+			'--site'
+		]);
+		const model = (spec: string, source: 'package' | 'site', validated: string | null = null) => ({
+			spec,
+			name: spec.split('@')[0],
+			version: Number(spec.split('@')[1]),
+			newest: true,
+			source,
+			sha256: '',
+			description: '',
+			components: [],
+			provenance: { method: 'reduce', data: null, windows: 2, date: null, notes: null, validated }
+		});
+		const models = [model('alma@1', 'package'), model('zwicky-alma@1', 'site', '0123456789ab')];
+		expect(releaseNameProblem('zwicky-alma', models)).toBe('');
+		expect(releaseNameProblem('alma', models)).toMatch(/name of its own, e.g. zwicky-alma/);
+		expect(releaseNameProblem('Zwicky alma', models)).toMatch(/Lower-case/);
+		expect(releaseNameProblem(' ', models)).toMatch(/Give/);
+		expect(releasedAs(models, '0123456789abcdef')).toBe('zwicky-alma@1');
+		expect(releasedAs(models, 'ffff')).toBeNull();
+		expect(releasedAs(models, '')).toBeNull();
 	});
 });

@@ -59,6 +59,7 @@ KNOWN_COMMANDS = frozenset(
         "noise aggregate",
         "noise validate",
         "noise compare",
+        "noise promote",
         "doctor",
     }
 )
@@ -156,6 +157,15 @@ def _fills(command: str, argv: list[str], executor: str, profile: Profile) -> li
     return extra
 
 
+def _site_release(command: str, argv: list[str]) -> list[str]:
+    """A release from the console goes to the site's models folder, never the installed package."""
+    if command != "noise promote":
+        return []
+    if has_option(argv, "--models-dir"):
+        raise PolicyError("the console releases noise models into the site folder only")
+    return [] if has_option(argv, "--site") else ["--site"]
+
+
 def plan_job(
     argv: list[str], profile: Profile, resources: Mapping[str, Any] | None = None
 ) -> JobPlan:
@@ -167,7 +177,7 @@ def plan_job(
         raise PolicyError(f"unknown command {' '.join(argv[:2])!r}")
     policy = profile.policy(command)
     executor = policy.executor or profile.executor or DEFAULT_EXECUTOR
-    extra = [*_fills(command, argv, executor, profile), *policy.args]
+    extra = [*_fills(command, argv, executor, profile), *_site_release(command, argv), *policy.args]
     # Options after a "--" would be taken as positional arguments.
     cut = argv.index("--") if "--" in argv else len(argv)
     full = [*argv[:cut], *extra, *argv[cut:]]

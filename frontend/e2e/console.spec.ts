@@ -146,6 +146,20 @@ test('build a noise model from an imaging run', async ({ page }) => {
 	await expect(page.getByText('passed', { exact: true })).toBeVisible({ timeout: 60_000 });
 	await expect(page.getByRole('cell', { name: /cont\.sigma/ })).toBeVisible();
 
+	// Release it as a team model: never under a package model's name.
+	const releaseName = page.getByRole('combobox', { name: /^Model name/ });
+	await releaseName.fill('alma');
+	await expect(page.getByText('alma is a model ALMASim releases')).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Release…' })).toBeDisabled();
+	await releaseName.fill('e2e-alma');
+	await page.getByRole('button', { name: 'Release…' }).click();
+	await page.getByRole('dialog').getByRole('button', { name: 'Release', exact: true }).click();
+	await expect(page.getByText('Released as e2e-alma@1')).toBeVisible({ timeout: 60_000 });
+	await expect(page.getByRole('link', { name: 'Use e2e-alma@1 in Simulate' })).toHaveAttribute(
+		'href',
+		/simulate\?noise=e2e-alma%401$/
+	);
+
 	await page.getByRole('link', { name: 'Use in Simulate' }).click();
 	await expect(page).toHaveURL(/simulate\?noise=/);
 });

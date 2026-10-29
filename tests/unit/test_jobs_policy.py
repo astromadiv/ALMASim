@@ -127,6 +127,14 @@ def test_the_profiles_extra_args_come_last_and_overrides_win():
     assert plan.resources.cpus == 32
 
 
+def test_the_console_releases_noise_models_into_the_site_folder_only():
+    argv = ["noise", "promote", "c.json", "--comparison", "cmp.json", "--name", "zwicky-alma"]
+    assert plan_job(argv, ZWICKY).argv == [*argv, "--site"]
+    assert plan_job([*argv, "--site"], ZWICKY).argv.count("--site") == 1
+    with pytest.raises(PolicyError, match="site folder only"):
+        plan_job([*argv, "--models-dir", "/env/lib/models"], ZWICKY)
+
+
 def test_unknown_commands_are_refused():
     with pytest.raises(PolicyError, match="unknown command"):
         plan_job(["rm", "-rf"], ZWICKY)

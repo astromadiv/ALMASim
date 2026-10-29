@@ -14,11 +14,14 @@ set -euo pipefail
 root=${E2E_ROOT:-/tmp/almasim-e2e}
 here=$(cd "$(dirname "$0")" && pwd)
 rm -rf "$root"
-mkdir -p "$root/home" "$root/runs" "$root/data/cal" "$root/data/images"
+mkdir -p "$root/home" "$root/runs" "$root/data/cal" "$root/data/images" "$root/noise-models"
 cat > "$root/profile.toml" <<TOML
 executor = "server"
 runs_root = "$root/runs"
 roots = ["$root/data"]
+
+[tools]
+noise_models = "$root/noise-models"
 TOML
 
 export HOME="$root/home"

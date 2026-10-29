@@ -960,27 +960,49 @@ def promote(
     models_dir: Path | None = typer.Option(
         None, "--models-dir", help="Where released models live (default: this checkout's)."
     ),
+    site: bool = typer.Option(
+        False,
+        "--site",
+        help="Release into the site's models folder (ALMASIM_NOISE_MODELS, else the "
+        "profile's [tools] noise_models), where simulations find it at once.",
+    ),
 ) -> None:
     """Write a validated candidate as the next version of a released model
     (models/<name>-<n+1>.json), refused unless its comparison passed. The pull
     request that adds the file, and with it moves the model to the new
-    version, stays with a person."""
+    version, stays with a person. With --site it goes to the site's models
+    folder instead, under a name of its own, recording who released it."""
     from ..services.noise.compare import Comparison
     from ..services.noise.promote import MODELS_DIR
     from ..services.noise.promote import promote as release
     from ..services.noise_model import NoiseModel
+    from ..services.noise_model.registry import site_models_dir
 
+    if site and models_dir is not None:
+        usage_error("give --site or --models-dir, not both")
+    if site:
+        models_dir = site_models_dir()
+        if models_dir is None:
+            fail(
+                "no site models folder: set ALMASIM_NOISE_MODELS or the profile's "
+                "[tools] noise_models"
+            )
+        if not models_dir.is_dir():
+            fail(f"no site models folder {models_dir}: almasim update-shared makes it")
     try:
         model = NoiseModel.model_validate_json(candidate.read_text())
         result = Comparison.model_validate_json(comparison.read_text())
     except (OSError, ValueError) as exc:
         usage_error(str(exc))
     try:
-        path = release(model, result, name=name, models_dir=models_dir or MODELS_DIR)
+        path = release(model, result, name=name, models_dir=models_dir or MODELS_DIR, site=site)
     except ValueError as exc:
         fail(str(exc))
     released = NoiseModel.model_validate_json(path.read_text())
     typer.echo(f"{released.label()} written to {path}")
+    if site:
+        typer.echo(f"Simulations take it as --noise-model {released.label()}.")
+        return
     typer.echo(
         "Next: add it in a pull request; update the tests that pin the model's values, "
         "regenerate docs/noise-model.schema.json if the schema changed, and label the PR "

@@ -176,8 +176,13 @@ listed there and left out of the rest; a step fails only when all its
 windows do. When the chain ends, the page shows the candidate's values (the
 median over the windows and their 16–84% range, and the values it kept from
 the base model) and the validation's verdict, metric by metric. *Use in
-Simulate* opens *Simulate* with the candidate as the noise model. See
-[noise models](noise_models.md) for what each step measures.
+Simulate* opens *Simulate* with the candidate as the noise model. A
+candidate whose validation passed can be released for the whole team:
+give it a name of its own (`zwicky-alma`, never `alma`; an existing team
+model's name makes the next version of it) and *Release…* runs `almasim
+noise promote --site`, which writes it into the site's models folder with
+who released it and when. *Simulate* then lists it (`zwicky-alma@1`) for
+everyone. See [noise models](noise_models.md) for what each step measures.
 
 ![Noise models](images/console/noise.png)
 

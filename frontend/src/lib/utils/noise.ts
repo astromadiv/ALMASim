@@ -3,8 +3,13 @@
  * extract → fit → aggregate → validate as a chain of jobs, each after the
  * one before (almasim.jobs.pipeline.noise_model_from_windows), and what the
  * page reads back: the candidate model and the validation's comparison.
+ * A candidate whose validation passed is released into the site's models
+ * folder (`noise promote --site`).
  */
+import type { components } from '#lib/api/v2/schema.js';
 import { inRunDir, RUN_DIR } from './runDir';
+
+type NoiseModelInfo = components['schemas']['NoiseModelInfo'];
 
 export const WINDOWS_CSV = 'windows.csv';
 export const ROWS_CSV = 'rows.csv';
@@ -204,6 +209,8 @@ export interface Verdict {
 	passed: boolean;
 	windows: number;
 	label: string;
+	/** The validated model's SHA-256: what a release records. */
+	sha256: string;
 	metrics: MetricRow[];
 	checks: { name: string; passed: boolean; detail: string }[];
 }
@@ -213,7 +220,7 @@ export function verdict(comparison: unknown): Verdict | null {
 	const c = comparison as {
 		passed?: boolean;
 		windows?: number;
-		model?: { label?: string };
+		model?: { label?: string; sha256?: string };
 		metrics?: Record<string, Omit<MetricRow, 'metric' | 'within10'> & { within_10pct?: number }>;
 		checks?: { name: string; passed: boolean; detail?: string }[];
 	} | null;
@@ -222,6 +229,7 @@ export function verdict(comparison: unknown): Verdict | null {
 		passed: c.passed,
 		windows: c.windows ?? 0,
 		label: c.model?.label ?? '',
+		sha256: c.model?.sha256 ?? '',
 		metrics: Object.entries(c.metrics ?? {}).map(([metric, m]) => ({
 			metric,
 			kind: m.kind,
@@ -253,4 +261,39 @@ export function newestValidation(
 export function sig(value: number | null | undefined, digits = 3): string {
 	if (value === null || value === undefined || !Number.isFinite(value)) return '—';
 	return String(Number(value.toPrecision(digits)));
+}
+
+/** `noise promote` of the chain's candidate, with the comparison that passed, as `name`. */
+export function releaseArgv(folder: string, comparison: string, name: string): string[] {
+	const f = folder.replace(/\/+$/, '');
+	return [
+		'noise',
+		'promote',
+		`${f}/${CANDIDATE_JSON}`,
+		'--comparison',
+		comparison,
+		'--name',
+		name.trim(),
+		'--site'
+	];
+}
+
+/** Why `name` cannot be released under, or '' (the rules of noise promote --site). */
+export function releaseNameProblem(name: string, models: readonly NoiseModelInfo[]): string {
+	const text = name.trim();
+	if (!text) return 'Give the model a name.';
+	if (!/^[a-z][a-z0-9_-]*$/.test(text))
+		return 'Lower-case letters, digits, - and _, starting with a letter.';
+	if (models.some((m) => m.source === 'package' && m.name === text))
+		return `${text} is a model ALMASim releases; give the team's a name of its own, e.g. zwicky-${text}.`;
+	return '';
+}
+
+/** The site model a validated candidate (its SHA-256) was released as, or null. */
+export function releasedAs(models: readonly NoiseModelInfo[], sha256: string): string | null {
+	if (!sha256) return null;
+	const found = models.find(
+		(m) => m.source === 'site' && m.provenance?.validated === sha256.slice(0, 12)
+	);
+	return found?.spec ?? null;
 }
