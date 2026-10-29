@@ -8,6 +8,9 @@ import { RUN_DIR } from './runDir';
 /** The simulation form's fields the page sets from the chosen rows. */
 export const ROW_FIELDS = ['metadata_path', 'row_idx'];
 
+/** The fields the noise picker sets (`NoisePicker`), not shown as plain fields. */
+export const NOISE_FIELDS = ['noise_model', 'noise_only', 'noise_without'];
+
 /**
  * The console's starting values over the CLI's. The CLI writes an ML shard
  * to one file in your home and keeps nothing else; the console runs one job
