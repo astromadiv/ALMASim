@@ -99,9 +99,9 @@ almasim simulation --metadata-path rows.csv --row-idx 0 \
 | `'{"name": "x", "version": 1, "components": {...}}'` | a model written inline |
 | `none` (or leaving the option out) | no noise model: white noise set by the run's target S/N |
 
-`--corruptions` is the option's earlier name and still works. The flat JSON
-objects it used to take (`{"gain_amp_rms": 0.05}`) are still accepted and are
-turned into components.
+`--corruptions` is an alias of the option. It also takes flat JSON objects
+of `CorruptionModel` fields (`{"gain_amp_rms": 0.05}`), turned into
+components.
 
 ### Choosing components
 
@@ -350,9 +350,15 @@ radiometer equation with the window's noise bandwidth and the simulator's
 own integration time. Every visibility gets complex Gaussian noise of that
 sigma, the source keeping its modelled flux, so the S/N is what a real
 observation would reach. The exported MS's WEIGHT is
-`1 / mean over channels of (sigma^2 |g|^2)` (g: the gain errors below), as
-the ALMA pipeline's `statwt` sets it, and its two hands carry independent
-noise (XX = I + d, YY = I - d), each at half the Stokes I weight.
+`1 / mean over channels of (sigma^2 |g|^2 s)` (g: the gain errors below; s:
+the baseline's own noise scale, see `antenna_ripple`), as the ALMA
+pipeline's `statwt` sets it. Its two hands carry independent noise, XX = I + d
+and YY = I - d, each at half the Stokes I weight. The difference d is drawn
+like I's own noise: at each visibility's own sigma (its channel's Tsys, its
+baseline's noise scale) and through the same channel kernel (see
+`channel_correlation`). Each hand then has the noise level, channel profile,
+channel correlation and antenna ripple of a real polarisation, and
+(XX + YY) / 2 is I exactly.
 
 Without `radiometer`, the noise is instead scaled to the run's target S/N
 (from the archive's sensitivities; see
@@ -468,7 +474,10 @@ kernel (a, b, a) with unit norm whose output has those correlations
 (rho1 = 2ab, rho2 = a^2; when no such kernel exists, the one that matches
 rho1), and makes each channel's noise as `a w(k-1) + b w(k) + a w(k+1)` from
 white draws `w`, each keyed by its channel, so that channel tasks running
-separately share their neighbours' draws.
+separately share their neighbours' draws. The exported MS's hands get the
+same kernel: real correlators smooth each polarisation on its own, so
+`noise extract`, which measures per hand, finds the model's rho1 and rho2 in
+either one (window 61, native: rho1 0.666, the real one 0.69).
 
 | Parameter | Meaning | alma@1 |
 | --- | --- | --- |
@@ -505,8 +514,13 @@ finer structure).
 **How the simulator applies it.** For each antenna, white draws across the
 window's channels are smoothed by a Gaussian whose autocorrelation falls to
 half at `scale_mhz` and scaled to rms `rms`: `g(a, k) = 1 + rms x smooth(k)`.
-Each baseline's noise sigma is multiplied by `sqrt(g(i, k) g(j, k))`.
-WEIGHT does not follow it, as in real data.
+Each baseline's noise sigma is multiplied by `sqrt(g(i, k) g(j, k))`. The
+rows' sigma carries the same factor, so WEIGHT follows each baseline's
+ripple averaged over the window's channels, as `statwt`'s per-row weights do
+on real data, but not its shape across them: that shape stays in the data
+only, unweighted, as in real data. The exported hands carry it too, so
+`noise extract` sees it per hand (window 61: `excess_rms` 0.022, the real
+one 0.019).
 
 | Parameter | Meaning | alma@1 |
 | --- | --- | --- |
@@ -800,7 +814,9 @@ Each window becomes its own Slurm task. It writes
 `noise/windows/<name>/window.json` and `antenna.npz`. Windows already
 measured are skipped when you run it again; failures are listed in
 `noise/failures.json` and do not stop the others. Six real windows took 53 s
-and 1.4 GB in all.
+and 1.4 GB in all. Its `exposure` also records `resolution_hz`, the window's
+`RESOLUTION` as its MS gives it, from which `noise validate` simulates the
+window's own channel averaging.
 
 This is window 81 (band 6, 12 m), shortened:
 
@@ -904,8 +920,12 @@ almasim noise validate --model noise/candidate.json --windows windows.csv \
 For each window, ALMASim simulates it from its archive row with the
 candidate (a point source at the window's frequency, with its channels, up
 to 960 of them, and their averaging as its MS gives them, one execution
-block), measures the simulated MS with `noise extract`, images it as the
-real windows were imaged (`image compute-parameters`, `image image-from-ms
+block). The source is as bright as the real image's continuum peak, so its
+cleaning residuals are those of the real field (see below). ALMASim then
+measures the simulated MS with `noise extract`, in a process of its own
+(the simulation wrote the MS with casatools, and python-casacore opening it
+in the same process can abort with `free(): invalid pointer`), images it as
+the real windows were imaged (`image compute-parameters`, `image image-from-ms
 --cube --uv-contsub`, `image clean-quality`), and measures the residuals of
 both images: their noise level, skew, kurtosis and 5-sigma tails, the area
 of their noise's autocorrelation in beams, and in the cube the spread of the
@@ -939,7 +959,6 @@ alma@1: 4 window(s) compared
   cont.corr_area_beams         ratio      +1.033 (+0.959..+1.13), 3 within 10%
   cube.kurtosis                difference +0.03 (-0.00686..+0.0794)
   cube.adjacent_corr           difference -0.01894 (-0.0558..-0.0162)
-  antenna_shape.excess_rms     difference -0.02256 (-0.0284..-0.0185)
   ...
   [pass] cont.sigma median within 5%: 0.9965
   [pass] cube.sigma_median median within 5%: 1.026
@@ -953,10 +972,29 @@ Read it as: the simulated images are as noisy as the real ones (continuum
 noise their WEIGHT says (0.9999), but one simulated visibility is 7% noisier
 than a real one, mostly because of the 7 m window (1.47; the 12 m ones are
 0.96 to 1.08), so `alma@1` does not pass. With four windows no Wilcoxon p is
-computed (it needs six); a real validation uses tens. The shapes show where
-to look next: the simulated antennas' own noise ripple is weaker than the
-real one (`antenna_shape.excess_rms` 0.023 lower), which a candidate built
-by `noise aggregate` from these windows would raise.
+computed (it needs six); a real validation uses tens.
+
+Three choices keep the comparison fair, and one limit remains:
+
+- *The source.* The simulated point source is as bright as the real image's
+  continuum peak. A source as bright as the archive row's sensitivities
+  make it is some 100 to 1000 times the continuum's noise, and its cleaning
+  residuals, not the noise, then set the continuum's noise wherever the real
+  field is faint (1.8 times the real noise in the median, up to 700 times,
+  on 44 of 79 windows).
+- *The averaging.* Each window is simulated with its own channel averaging,
+  from its MS's `RESOLUTION` (`exposure.resolution_hz`), not the archive
+  row's: the row lists the whole observing unit's windows, whose averaging
+  can differ from this one's.
+- *Each hand.* `noise extract` measures the simulated MS per hand, as the
+  real one, and each simulated hand carries the model's channel correlation
+  and antenna ripple (see `channel_correlation` and `antenna_ripple`).
+- *Cleaning, the limit.* The continuum and cube are cleaned in two passes,
+  the second in a mask of the first pass's emission. On a field with no
+  line, that mask falls on noise peaks, so a change of a fraction of a
+  percent in the data can move a window's cube noise by a few percent
+  (window 61: a 0.5% change in the image moves its cube noise by 4.4%).
+  Judge the medians over many windows, not one window.
 
 Write other criteria to a JSON file and pass `--criteria file.json`. Its
 keys are `noise_tolerance` (0.05), `weight_tolerance` (0.01), `min_p`
@@ -1067,6 +1105,7 @@ none another component sets.
 | `the comparison is of ...` (promote) | the comparison was made for another model (or the candidate changed since); validate this one |
 | `'alma' is a model ALMASim releases` (promote --site) | a team model takes a name of its own: `--name zwicky-alma` |
 | `no site models folder` (promote --site) | set the profile's `[tools] noise_models` (or `ALMASIM_NOISE_MODELS`); `almasim update-shared` makes the shared install's |
+| `almasim noise extract failed: ...` (validate) | measuring the simulated MS failed; the message ends with the extract's own error |
 
 
 ## Where the code is

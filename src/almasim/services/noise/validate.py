@@ -1,14 +1,15 @@
 """Simulate real windows with a noise model and measure them as the real ones
 were (MADIV-28): what ``noise validate`` does per window.
 
-For each window: ALMASim simulates it from its archive row (a point source,
-the window's frequency and channels, one execution block, the model under
-test), exports the MS, measures it with ``noise extract`` and images it as
-the real window was imaged (``image compute-parameters``, ``image
-image-from-ms`` with the cube and continuum subtraction, ``image
-clean-quality``), then takes the image statistics of both. Everything goes
-under ``<out>/validation/<model sha256[:12]>/windows/<name>/``, so the
-results of different models never mix; :mod:`.compare` judges them.
+For each window: ALMASim simulates it from its archive row (a point source as
+bright as the real image's continuum peak, the window's frequency and
+channels, one execution block, the model under test), exports the MS,
+measures it with ``noise extract`` and images it as the real window was
+imaged (``image compute-parameters``, ``image image-from-ms`` with the cube
+and continuum subtraction, ``image clean-quality``), then takes the image
+statistics of both. Everything goes under
+``<out>/validation/<model sha256[:12]>/windows/<name>/``, so the results of
+different models never mix; :mod:`.compare` judges them.
 """
 
 from __future__ import annotations
@@ -94,10 +95,18 @@ def validate_window(
         _write_atomic(
             directory / REAL_IMAGE, json.dumps(image_noise_stats(task.task_dir), indent=1) + "\n"
         )
+    real_peak = json.loads((directory / REAL_IMAGE).read_text()).get("q.continuum.peak_jy_beam")
     run = directory / "sim"
     if run.exists():
         shutil.rmtree(run)
-    ms = simulate(row, real, model, run, seed=seed + zlib.crc32(task.name.encode()) % 1_000_003)
+    ms = simulate(
+        row,
+        real,
+        model,
+        run,
+        seed=seed + zlib.crc32(task.name.encode()) % 1_000_003,
+        peak_jy=real_peak,
+    )
     sim_window = measure(ms, task.name, run)
     _write_atomic(directory / SIM_WINDOW, sim_window.model_dump_json(indent=2) + "\n")
     task_dir = image(run, imaging)
@@ -142,11 +151,17 @@ def run_in_process(
 
 
 def simulate(
-    row: pd.Series, window: WindowNoise, model: NoiseModel, run: Path, *, seed: int
+    row: pd.Series,
+    window: WindowNoise,
+    model: NoiseModel,
+    run: Path,
+    *,
+    seed: int,
+    peak_jy: float | None = None,
 ) -> Path:
     """ALMASim's simulation of the window: its archive row, moved to the
-    window's frequency and channels, a point source, one execution block,
-    the model; the exported MS."""
+    window's frequency and channels, a point source (``peak_jy`` of
+    continuum, when given), one execution block, the model; the exported MS."""
     import almasim
     from almasim.services import astro
     from almasim.services.astro.spectral import with_redshifts
@@ -189,9 +204,33 @@ def simulate(
     )
     with create_backend("sync") as backend:
         clean = generate_clean_cube(params, logger=print, compute_backend=backend)
+        if peak_jy is not None:
+            clean = with_continuum(clean, peak_jy)
         results = simulate_observation(clean, compute_backend=backend)
         exported = export_results(params, clean, results, logger=print)
     return Path(exported["ms_path"])
+
+
+def with_continuum(clean: Any, peak_jy: float) -> Any:
+    """The clean-cube stage with its source scaled to ``peak_jy`` of continuum
+    (its continuum's mean flux over the channels), the real image's continuum
+    peak. The archive row's sensitivities make the source some 100-1000 times
+    the continuum's noise; its cleaning residuals then dominate the simulated
+    continuum's noise where the real field is faint. Unchanged without a
+    positive peak or a source."""
+    from dataclasses import replace
+
+    import numpy as np
+
+    flux = np.sum(clean.model_cube, axis=(1, 2))
+    if clean.continuum_fraction is not None:
+        flux = flux * clean.continuum_fraction
+    level = float(np.mean(flux))
+    if not (peak_jy > 0 and level > 0):
+        return clean
+    model = clean.model_cube * (peak_jy / level)
+    runs = [replace(run, skymodel=model) for run in clean.interferometer_runs]
+    return replace(clean, model_cube=model, interferometer_runs=runs)
 
 
 def frequency_support(window: WindowNoise) -> str | None:

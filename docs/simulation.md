@@ -186,7 +186,7 @@ On disk, each product is named `<product>_<idx>` with the save mode's extension,
 | `both` | both |
 | `none` | nothing (unless `ms_export=True`, which writes an MS) |
 
-Writing an MS needs `casatools` or `python-casacore`. The MS records the `OBSERVE_TARGET#ON_SOURCE` intent, each antenna's dish diameter, one observation per execution block, and Stokes I in both hands: XX and YY each carry their own noise, and (XX + YY) / 2 is the simulated Stokes I. With a noise model, its identity is recorded in the `HISTORY` table. `almasim simulation` does not export an MS.
+Writing an MS needs `casatools` or `python-casacore`. The MS records the `OBSERVE_TARGET#ON_SOURCE` intent, each antenna's dish diameter, one observation per execution block, and Stokes I in both hands: XX and YY each carry their own noise, at each visibility's own sigma and with the window's channel correlation (as two real polarisations, each smoothed by the correlator on its own), and (XX + YY) / 2 is the simulated Stokes I. WEIGHT is `1 / mean(sigma^2)` over a row's channels, half of Stokes I's per hand, with each baseline's own noise scale when the noise model has `antenna_ripple`. With a noise model, its identity is recorded in the `HISTORY` table. `almasim simulation` does not export an MS.
 
 ## Persistence Modes
 
