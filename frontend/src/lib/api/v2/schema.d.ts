@@ -393,6 +393,26 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	'/api/v2/noise-models': {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * List Noise Models
+		 * @description Every released noise model and version, the package's first, newest version first.
+		 */
+		get: operations['list_noise_models_api_v2_noise_models_get'];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	'/api/v2/profile': {
 		parameters: {
 			query?: never;
@@ -541,6 +561,15 @@ export interface components {
 			resources?: {
 				[key: string]: unknown;
 			};
+		};
+		/** Component */
+		Component: {
+			/** Description */
+			description: string;
+			/** Enabled */
+			enabled: boolean;
+			/** Name */
+			name: string;
 		};
 		/**
 		 * Configured
@@ -801,6 +830,51 @@ export interface components {
 			size: number;
 			/** Text */
 			text: string;
+		};
+		/** ModelProvenance */
+		ModelProvenance: {
+			/** Data */
+			data: string | null;
+			/** Date */
+			date: string | null;
+			/** Method */
+			method: string;
+			/** Notes */
+			notes: string | null;
+			/** Validated */
+			validated: string | null;
+			/** Windows */
+			windows: number | null;
+		};
+		/** NoiseModelInfo */
+		NoiseModelInfo: {
+			/** Components */
+			components: components['schemas']['Component'][];
+			/** Description */
+			description: string;
+			/** Name */
+			name: string;
+			/** Newest */
+			newest: boolean;
+			provenance: components['schemas']['ModelProvenance'] | null;
+			/** Sha256 */
+			sha256: string;
+			/**
+			 * Source
+			 * @enum {string}
+			 */
+			source: 'package' | 'site';
+			/** Spec */
+			spec: string;
+			/** Version */
+			version: number;
+		};
+		/** NoiseModels */
+		NoiseModels: {
+			/** Models */
+			models: components['schemas']['NoiseModelInfo'][];
+			/** Site Folder */
+			site_folder: string | null;
 		};
 		/**
 		 * Param
@@ -1826,6 +1900,26 @@ export interface operations {
 				};
 				content: {
 					'application/json': components['schemas']['HTTPValidationError'];
+				};
+			};
+		};
+	};
+	list_noise_models_api_v2_noise_models_get: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					'application/json': components['schemas']['NoiseModels'];
 				};
 			};
 		};

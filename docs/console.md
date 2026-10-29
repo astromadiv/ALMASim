@@ -135,6 +135,13 @@ start one job per observation. As you choose, the page estimates each
 simulation's cube and the disk space its outputs take, and says what each
 job will ask Slurm for.
 
+*Noise* chooses the [noise model](noise_models.md): none (white thermal
+noise only, the default), a released one (ALMASim's `alma` versions and the
+team's own, from the shared install's `noise-models/` folder), or a model
+file. For a released model it says what the model was measured on and lists
+its components, one tick each: untick one to simulate without it (the page
+writes `--noise-only` or `--noise-without`, whichever is shorter).
+
 To simulate your own sky models, give a *Sky-model cubes* path beside the
 metadata CSV: a cube, or a folder of them (an imaging run's gives each
 window's `wsclean-cube-model.fits`). The page ticks the rows of the
@@ -260,7 +267,12 @@ It makes `env/` (the environment), `site.toml` (the template with that
 environment's Python filled in), `almasim.sh` and `install.env` (the repo,
 commit and template it was built from) under the prefix, all
 group-writable. WSClean and the CASA data are not part of it: the site
-profile names the shared ones (`[tools]`).
+profile names the shared ones (`[tools]`). When the template has a
+`[tools] noise_models` line (zwicky's does), it also makes `noise-models/`,
+setgid and group-writable, and points that line at it: the team's own
+[noise models](noise_models.md#the-teams-own-models), which every user's
+simulations can name and the console lists. An update leaves that folder
+and its models as they are.
 
 **Updating:** from the login node, with the install sourced:
 

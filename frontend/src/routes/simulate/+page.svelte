@@ -12,6 +12,7 @@
 	import ResultsTable from '#lib/components/archive/ResultsTable.svelte';
 	import StateChip from '#lib/components/jobs/StateChip.svelte';
 	import CommandSections from '#lib/components/run/CommandSections.svelte';
+	import NoisePicker from '#lib/components/simulate/NoisePicker.svelte';
 	import ErrorMessage from '#lib/components/shared/ErrorMessage.svelte';
 	import PathPicker from '#lib/components/shared/PathPicker.svelte';
 	import Spinner from '#lib/components/shared/Spinner.svelte';
@@ -21,6 +22,7 @@
 	import type { Command, Values } from '#lib/utils/commandForm.js';
 	import { errorMessage } from '#lib/utils/errors.js';
 	import {
+		NOISE_FIELDS,
 		ROW_FIELDS,
 		batchGb,
 		cubeVolume,
@@ -70,9 +72,10 @@
 					.map((c) => ({ row: c.row_idx, cube: c }))
 			: rows.map((row) => ({ row, cube: null }))
 	);
-	// The page's own fields, and with cubes, what a cube sets itself.
+	// The page's own fields (the noise picker's too), and with cubes, what a cube sets itself.
 	const hidden = $derived([
 		...ROW_FIELDS,
+		...NOISE_FIELDS,
 		'input_path',
 		'products_csv',
 		...(usingCubes ? ['n_pix', 'n_channels', 'source_type'] : [])
@@ -386,6 +389,7 @@
 			it). By default every simulation keeps its FITS products and its ML shard there; a folder you
 			choose instead gets one folder per run (<code>row-&lt;n&gt;</code>, or the cube's name).
 		</p>
+		<NoisePicker bind:values />
 		<CommandSections command={simulation} bind:values hide={hidden} />
 
 		<section class="alma-panel flex flex-col gap-3 rounded-lg p-5" aria-labelledby="e-h">

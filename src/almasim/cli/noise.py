@@ -17,7 +17,6 @@ from typing import Any
 
 import typer
 
-from ..services.noise_model.components import NoiseComponent
 from ._options import (
     Backend,
     PostprocessBackend,
@@ -72,15 +71,22 @@ def show(
     as_json: bool = typer.Option(False, "--json", help="Print the model's JSON."),
 ) -> None:
     """List the released noise models, or show one."""
-    from ..services.noise_model import released, resolve_noise_model
+    from ..services.noise_model import (
+        model_source,
+        released,
+        resolve_noise_model,
+        site_models_dir,
+    )
 
     if model is None:
         for name, versions in sorted(released().items()):
             newest = versions[max(versions)]
             typer.echo(
-                f"{name}: versions {', '.join(map(str, sorted(versions)))}; "
+                f"{name} ({model_source(name)}): versions {', '.join(map(str, sorted(versions)))}; "
                 f"newest applies {', '.join(newest.enabled()) or 'nothing'}"
             )
+        folder = site_models_dir()
+        typer.echo(f"site models: {folder}" if folder else "site models: none set up")
         return
     try:
         resolved = resolve_noise_model(model)
@@ -111,11 +117,12 @@ def show(
 @noise_app.command("components")
 def components() -> None:
     """The components a noise model can hold, and their parameters."""
-    from ..services.noise_model import Components
+    from ..services.noise_model import COMPONENT_NAMES
+    from ..services.noise_model.components import component_class, describe_component
 
-    for name, info in Components.model_fields.items():
-        cls = _component_class(info.annotation)
-        typer.echo(f"{name}: {' '.join((cls.__doc__ or '').split())}")
+    for name in COMPONENT_NAMES:
+        cls = component_class(name)
+        typer.echo(f"{name}: {describe_component(name)}")
         for field, spec in cls.model_fields.items():
             if field == "enabled":
                 continue
@@ -138,14 +145,6 @@ def schema(
     else:
         output.write_text(text)
         typer.echo(f"wrote {output}")
-
-
-def _component_class(annotation: object) -> type[NoiseComponent]:
-    """The component class of a ``Components`` field (``X | None``)."""
-    for arg in getattr(annotation, "__args__", ()):
-        if isinstance(arg, type) and issubclass(arg, NoiseComponent):
-            return arg
-    raise TypeError(f"not a component field: {annotation!r}")
 
 
 def _values(values: dict) -> str:
