@@ -314,7 +314,7 @@
 					label="Imaging parameters CSV"
 					kind="file"
 					required
-					hint="The windows to learn from: those the imaging run finished, science targets only."
+					hint="The windows to learn from: the science targets the imaging run finished and clean-quality assessed."
 				/>
 				<PathPicker
 					bind:value={images}
