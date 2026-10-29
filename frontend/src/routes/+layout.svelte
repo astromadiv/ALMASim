@@ -16,6 +16,7 @@
 		{ href: '/archive', label: 'Archive' },
 		{ href: '/simulate', label: 'Simulate' },
 		{ href: '/imaging', label: 'Imaging' },
+		{ href: '/noise', label: 'Noise models' },
 		{ href: '/products', label: 'Products' },
 		{ href: '/settings', label: 'Settings' }
 	] as const;

@@ -45,6 +45,7 @@ def imaging_windows(
     done_only: bool = True,
     science_fields: Callable[[str], Iterable[int]] | None = None,
     max_windows: int | None = None,
+    names: set[str] | None = None,
 ) -> ImagingWindows:
     """One window per (MS, spectral window, field) row of ``parameters`` (an
     ``image compute-parameters`` CSV) imaged under ``images``.
@@ -56,7 +57,7 @@ def imaging_windows(
     has several. With ``done_only`` a window whose imaging task has no done
     marker is left out; ``science_fields(ms)``, when given, says which fields
     of an MS are science targets (others are left out); ``max_windows`` keeps
-    the first that many.
+    the first that many; ``names``, when given, keeps only the windows so named.
     """
     from ..imaging.markers import imaging_log_path, imaging_marker_path
     from ..imaging.wsclean_plan import task_directory
@@ -75,6 +76,8 @@ def imaging_windows(
         task_dir, field_ids = task_directory(images, row)
         field_id = str(field_ids[0]) if len(field_ids) == 1 else None
         name = window_name(ms, spw, field_id)
+        if names is not None and name not in names:
+            continue
         if done_only and not imaging_marker_path(task_dir).is_file():
             skipped.append((name, "its imaging task is not done"))
             continue

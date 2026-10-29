@@ -27,7 +27,7 @@ async function shoot(page: Page, name: string) {
 }
 
 test('the console, page by page', async ({ page }) => {
-	test.setTimeout(240_000);
+	test.setTimeout(420_000);
 
 	await page.goto('run?command=image%20image-from-ms');
 	await settle(page);
@@ -61,6 +61,20 @@ test('the console, page by page', async ({ page }) => {
 	await expect(page.getByLabel(/wsclean-residual\.fits, channel 1/)).toBeVisible();
 	await page.waitForTimeout(1000);
 	await shoot(page, 'products');
+
+	// Filled in from the imaging run and the archive search above.
+	await page.goto('noise');
+	await settle(page);
+	await page.getByRole('button', { name: 'List the windows' }).click();
+	await expect(page.locator('table tbody tr')).toHaveCount(2, { timeout: 60_000 });
+	await page.getByRole('button', { name: /^Measure 2 windows and build/ }).click();
+	await expect(page.getByText('passed', { exact: true })).toBeVisible({ timeout: 150_000 });
+	// The chain at the top, the candidate and its validation below it.
+	await page
+		.getByRole('heading', { name: 'The chain' })
+		.evaluate((h) => window.scrollTo(0, h.getBoundingClientRect().top + window.scrollY - 110));
+	await page.waitForTimeout(1000);
+	await shoot(page, 'noise');
 
 	await page.goto('jobs');
 	await settle(page);

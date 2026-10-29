@@ -729,6 +729,7 @@ $ almasim noise windows [OPTIONS] {parameters}
 * `--done-only / --all-tasks`: Only windows whose imaging task finished (its .done marker).  [default: done-only]
 * `--science-only / --all-fields`: Only science target fields (OBSERVE_TARGET), read from each MS.  [default: science-only]
 * `--max-windows <int range>`: Keep the first N windows.  [x>=1]
+* `--names <str>`: Only these windows (comma-separated names, as a previous run listed them).
 * `--help`: Show this message and exit.
 
 ### `almasim noise extract`
@@ -760,6 +761,7 @@ $ almasim noise extract [OPTIONS] [ms]
 * `--windows <path>`: A CSV of windows (columns ms, spw; optional field, name, pwv, syscal_ms, line_channels, task_log), measured one per task.
 * `--max-visibilities <int range>`: Rows are sampled evenly over the observation up to about this many visibilities.  [default: 40000000; x>=1000]
 * `--overwrite`: Measure windows again even when measured.
+* `--allow-partial`: Succeed when some windows fail and at least one did not (failures stay listed).
 * `--backend, --postprocess-backend <sync|slurm>`: Where the tasks run: sync (this process, one at a time) or slurm (Slurm jobs).  [default: sync]
 * `--slurm-queue <str>`: Slurm queue/partition.  [default: normal]
 * `--slurm-project <str>`: Slurm project/account.
@@ -802,6 +804,7 @@ $ almasim noise fit [OPTIONS] [ms]
 * `--realizations <int range>`: Draws of the noise-only references.  [default: 3; x>=1]
 * `--seed <int>`: Seed of the references' draws.  [default: 0]
 * `--overwrite`: Fit windows again even when fitted.
+* `--allow-partial`: Succeed when some windows fail and at least one did not (failures stay listed).
 * `--backend, --postprocess-backend <sync|slurm>`: Where the tasks run: sync (this process, one at a time) or slurm (Slurm jobs).  [default: sync]
 * `--slurm-queue <str>`: Slurm queue/partition.  [default: normal]
 * `--slurm-project <str>`: Slurm project/account.
@@ -863,6 +866,7 @@ $ almasim noise validate [OPTIONS]
 * `--imaging-timeout <float range>`: [default: 10800.0; x>=60]
 * `--criteria <path>`: A JSON file of comparison criteria (noise compare's).
 * `--overwrite`: Validate windows again.
+* `--allow-partial`: Succeed when some windows fail and at least one did not (failures stay listed).
 * `--judge / --no-judge`: Compare the validated windows at the end.  [default: judge]
 * `--backend, --postprocess-backend <sync|slurm>`: Where the tasks run: sync (this process, one at a time) or slurm (Slurm jobs).  [default: sync]
 * `--slurm-queue <str>`: Slurm queue/partition.  [default: normal]

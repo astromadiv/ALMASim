@@ -33,6 +33,21 @@ from ._options import (
 )
 from ._shared import fail, usage_error
 
+# A chain of steps (the console's Noise models page) runs each after the one
+# before succeeded; one window failing would stop it for all the others.
+AllowPartial = typer.Option(
+    False,
+    "--allow-partial",
+    help="Succeed when some windows fail and at least one did not (failures stay listed).",
+    rich_help_panel="Outputs",
+)
+
+
+def _failed(failures: dict[str, str], tasks: list, allow_partial: bool) -> bool:
+    """Whether the step failed: any window, or all of them with ``allow_partial``."""
+    return bool(failures) and (not allow_partial or len(failures) >= len(tasks))
+
+
 noise_app = typer.Typer(
     help="Noise models: released versions, components, schema; measuring real data's noise.",
     no_args_is_help=True,
@@ -193,6 +208,12 @@ def windows(
     max_windows: int | None = typer.Option(
         None, "--max-windows", min=1, help="Keep the first N windows.", rich_help_panel="Inputs"
     ),
+    names: str | None = typer.Option(
+        None,
+        "--names",
+        help="Only these windows (comma-separated names, as a previous run listed them).",
+        rich_help_panel="Inputs",
+    ),
 ) -> None:
     """Write the windows table (windows.csv) and archive rows (rows.csv) of an
     imaging run, for noise extract, fit and validate."""
@@ -220,6 +241,7 @@ def windows(
         done_only=done_only,
         science_fields=(lambda ms: science_selection(Path(ms))[1]) if science_only else None,
         max_windows=max_windows,
+        names={n.strip() for n in names.split(",") if n.strip()} if names else None,
     )
     for name, why in found.skipped:
         typer.echo(f"  left out {name}: {why}")
@@ -301,6 +323,7 @@ def extract(
         help="Measure windows again even when measured.",
         rich_help_panel="Outputs",
     ),
+    allow_partial: bool = AllowPartial,
     backend: PostprocessBackend = Backend.sync,
     slurm_queue: SlurmQueue = "normal",
     slurm_project: SlurmProject = None,
@@ -356,7 +379,7 @@ def extract(
     typer.echo(
         f"{measured} of {len(tasks)} window(s) measured; failures in {out / 'failures.json'}"
     )
-    if failures:
+    if _failed(failures, tasks, allow_partial):
         raise typer.Exit(code=1)
 
 
@@ -464,6 +487,7 @@ def fit(
     overwrite: bool = typer.Option(
         False, "--overwrite", help="Fit windows again even when fitted.", rich_help_panel="Outputs"
     ),
+    allow_partial: bool = AllowPartial,
     backend: PostprocessBackend = Backend.sync,
     slurm_queue: SlurmQueue = "normal",
     slurm_project: SlurmProject = None,
@@ -566,7 +590,7 @@ def fit(
         f"{len(tasks) - len(failures)} of {len(tasks)} window(s) fitted; "
         f"failures in {out / 'failures-fit.json'}"
     )
-    if failures:
+    if _failed(failures, tasks, allow_partial):
         raise typer.Exit(code=1)
 
 
@@ -717,6 +741,7 @@ def validate(
     overwrite: bool = typer.Option(
         False, "--overwrite", help="Validate windows again.", rich_help_panel="Outputs"
     ),
+    allow_partial: bool = AllowPartial,
     judge: bool = typer.Option(
         True,
         "--judge/--no-judge",
@@ -825,7 +850,7 @@ def validate(
     failures = run_tasks(todo, out, runner, step="validate", overwrite=True, echo=typer.echo)
     if judge:
         _print_comparison(v.judge(read_windows(windows), out, noise_model, measured, rules))
-    if failures:
+    if _failed(failures, todo, allow_partial):
         raise typer.Exit(code=1)
 
 

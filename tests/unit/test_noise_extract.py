@@ -209,6 +209,12 @@ def test_windows_are_measured_once_and_failures_kept(fake_ms, tmp_path):
     assert (out / "windows" / f"b_spw{SPW}" / "antenna.npz").is_file()
     again = runner.invoke(noise_app, ["extract", "--windows", str(table), "--out", str(out)])
     assert "2 window(s) already measured; 1 to go" in again.output
+    # In a chain of steps, a failed window need not stop the others.
+    partial = runner.invoke(
+        noise_app, ["extract", "--windows", str(table), "--out", str(out), "--allow-partial"]
+    )
+    assert partial.exit_code == 0, partial.output
+    assert "b_spw9" in json.loads((out / "failures.json").read_text())
 
     single = runner.invoke(
         noise_app, ["extract", str(first), "--spw", str(SPW), "--out", str(tmp_path / "one")]

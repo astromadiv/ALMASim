@@ -44,7 +44,7 @@ def positional(argv: list[str], skip: int) -> list[str]:
 
 BOOLEAN_FLAGS = {"--yes", "--cube", "--slurm", "--extract-tar", "--unpack-ms",
                  "--generate-calibrated-visibilities", "--persist-standard-outputs",
-                 "--skip-casa-data-update", "--all-spws"}  # fmt: skip
+                 "--skip-casa-data-update", "--all-spws", "--allow-partial"}  # fmt: skip
 
 
 def say(*lines: str, pause: float = 0.2) -> None:
@@ -173,6 +173,70 @@ def preview_wiener(argv: list[str]) -> None:
     say("wiener (fake)")
 
 
+def noise_windows(argv: list[str]) -> None:
+    out = Path(option(argv, "--out") or ".")
+    out.mkdir(parents=True, exist_ok=True)
+    names = ["uid___A002_X1_Xb670_spw25_field2", "uid___A002_X1_Xb670_spw27_field2"]
+    wanted = option(argv, "--names")
+    if wanted:
+        names = [n for n in names if n in wanted.split(",")]
+    else:
+        say("  left out uid___A002_X1_Xb670_spw29_field0: field 0 is not a science target")
+    with (out / "windows.csv").open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["ms", "spw", "field", "name", "pwv", "task_log", "task_dir"])
+        for name in names:
+            spw = name.split("_spw")[1].split("_")[0]
+            w.writerow(["/data/cal/uid___A002_X1_Xb670.ms.split.cal", spw, "2", name, "0.9", "", ""])
+    with (out / "rows.csv").open("w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow([*METADATA_COLUMNS, "name"])
+        for name in names:
+            w.writerow(["2023.1.00133.S", "H-ATLAS J113526", 3, "12m", 1.5, "2025-03-18",
+                        "uid://A001/X1/X0", 95.6, name])  # fmt: skip
+    say(f"{len(names)} window(s) -> {out / 'windows.csv'}")
+
+
+def noise_step(argv: list[str]) -> None:
+    out = Path(option(argv, "--out") or ".")
+    step = argv[1]
+    failures = {"uid___A002_X1_Xb670_spw27_field2": "ValueError: too faint"} if step == "fit" else {}
+    name = "failures.json" if step == "extract" else f"failures-{step}.json"
+    (out / name).write_text(json.dumps(failures))
+    say(f"{step} (fake)", pause=0.5)
+    if step == "validate":
+        comparison = {
+            "schema_version": 1,
+            "model": {"name": "alma-candidate", "version": 2, "label": "alma-candidate@2"},
+            "windows": 2,
+            "passed": True,
+            "metrics": {"cont.sigma": {"kind": "ratio", "n": 2, "median": 1.02, "q16": 0.97,
+                                       "q84": 1.06, "p": None, "within_10pct": 2}},  # fmt: skip
+            "groups": {},
+            "checks": [{"name": "continuum noise", "passed": True, "value": 1.02,
+                        "detail": "median 1.02 within 5%"}],  # fmt: skip
+        }
+        folder = out / "validation" / "0123456789ab"
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / "comparison.json").write_text(json.dumps(comparison))
+
+
+def noise_aggregate(argv: list[str]) -> None:
+    out = Path(option(argv, "--output") or "candidate.json")
+    model = {
+        "schema_version": 1,
+        "name": "alma-candidate",
+        "version": 2,
+        "provenance": {
+            "notes": "radiometer.receiver_temperature_k[9, 10]: 0 window(s), kept the base's",
+            "values": {"channel_correlation.rho1": {"n": 2, "median": 0.667, "q16": 0.66, "q84": 0.67}},
+        },
+        "components": {},
+    }
+    out.write_text(json.dumps(model))
+    say(f"2 window(s), 1 fitted -> alma-candidate@2 in {out}")
+
+
 def doctor(argv: list[str]) -> None:
     say("ok    python     fake", "ok    slurm      fake")
     if "--slurm" in argv:  # long enough to cancel
@@ -190,6 +254,11 @@ COMMANDS = {
     ("simulation",): simulation,
     ("preview", "integrate"): preview_integrate,
     ("preview", "wiener"): preview_wiener,
+    ("noise", "windows"): noise_windows,
+    ("noise", "extract"): noise_step,
+    ("noise", "fit"): noise_step,
+    ("noise", "aggregate"): noise_aggregate,
+    ("noise", "validate"): noise_step,
     ("doctor",): doctor,
 }
 
