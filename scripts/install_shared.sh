@@ -8,6 +8,9 @@
 #                 casatools/casatasks, python-casacore and bokeh (for the
 #                 Dask dashboard): the Python every job runs
 #   site.toml     the site profile: the template, with that Python filled in
+#                 (and its noise_models line, if any, pointing at noise-models/)
+#   noise-models/ the team's own noise models, group-writable: the console
+#                 releases them here (when the template has a noise_models line)
 #   almasim.sh    what users source: puts almasim on PATH, names the profile
 #   install.env   where it came from (repo, commit, template), which
 #                 `almasim update-shared` builds the next version from
@@ -45,8 +48,15 @@ uv pip install --python "$prefix/env/bin/python" --constraints "$prefix/constrai
   --reinstall-package almasim "$wheel[web,casa,ms-casacore,dashboard]"
 
 python_line="executable = \"$prefix/env/bin/python\""
-sed "s|^executable = .*|$python_line|" "$template" > "$prefix/site.toml"
+noise_line="noise_models = \"$prefix/noise-models\""
+sed -e "s|^executable = .*|$python_line|" -e "s|^noise_models = .*|$noise_line|" \
+  "$template" > "$prefix/site.toml"
 grep -q "^$python_line" "$prefix/site.toml" || { echo "$template has no [python] executable line" >&2; exit 1; }
+# Released into by anyone in the group (setgid: new files stay the group's);
+# made once, never changed afterwards: its files belong to whoever released them.
+if grep -q "^$noise_line" "$prefix/site.toml" && [ ! -d "$prefix/noise-models" ]; then
+  install -d -m 2775 "$prefix/noise-models"
+fi
 
 cat > "$prefix/almasim.sh" <<SH
 # ALMASim, shared install: source this file (e.g. from ~/.bashrc).

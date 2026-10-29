@@ -241,7 +241,12 @@ It makes `env/` (the environment), `site.toml` (the template with that
 environment's Python filled in), `almasim.sh` and `install.env` (the repo,
 commit and template it was built from) under the prefix, all
 group-writable. WSClean and the CASA data are not part of it: the site
-profile names the shared ones (`[tools]`).
+profile names the shared ones (`[tools]`). When the template has a
+`[tools] noise_models` line (zwicky's does), it also makes `noise-models/`,
+setgid and group-writable, and points that line at it: the team's own
+[noise models](noise_models.md#the-teams-own-models), which every user's
+simulations can name and the console lists. An update leaves that folder
+and its models as they are.
 
 **Updating:** from the login node, with the install sourced:
 

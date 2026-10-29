@@ -17,6 +17,7 @@ it. Tables merge key by key, the user's value winning; lists are replaced.
     [tools]
     wsclean = "/SKAO_data/spack/.../bin/wsclean"
     casa_data = "/SKAO_data/cycle11/.casa-data"
+    noise_models = "/SKAO_data/cycle11/almasim/noise-models"  # the team's own models
 
     [slurm]
     partition = "zwickyA-CPU"
@@ -89,6 +90,7 @@ class Profile:
     setup: tuple[str, ...] = ()
     wsclean: str | None = None
     casa_data: Path | None = None
+    noise_models: Path | None = None
     partition: str | None = None
     account: str | None = None
     partitions: Mapping[str, Partition] = field(default_factory=dict)
@@ -130,7 +132,7 @@ def _merge(base: dict[str, Any], top: Mapping[str, Any]) -> dict[str, Any]:
 
 _TOP = {"runs_root", "roots", "executor", "python", "tools", "slurm", "commands"}
 _PYTHON = {"executable", "setup"}
-_TOOLS = {"wsclean", "casa_data"}
+_TOOLS = {"wsclean", "casa_data", "noise_models"}
 _SLURM = {"partition", "account", "partitions"}
 _PARTITION = {"cpus", "memory", "max_time"}
 _COMMAND = {"executor", "partition", "cpus", "memory", "time", "args"}
@@ -170,6 +172,8 @@ def _paths(data: Mapping[str, Any], where: str) -> dict[str, Any]:
         out["wsclean"] = str(_expand(tools["wsclean"]))
     if "casa_data" in tools:
         out["casa_data"] = _expand(tools["casa_data"])
+    if "noise_models" in tools:
+        out["noise_models"] = _expand(tools["noise_models"])
     return out
 
 

@@ -37,7 +37,7 @@ from almasim.__version__ import __version__
 from almasim.jobs.profile import Profile, load_profile
 from almasim.jobs.service import find_run
 
-from .api import cluster, commands, files, jobs, simulation
+from .api import cluster, commands, files, jobs, noise_models, simulation
 from .api import profile as profile_api
 from .dashboard import DashboardRelay
 from .events import EventHub
@@ -249,6 +249,7 @@ def create_app(
     app.include_router(files.router)
     app.include_router(cluster.router)
     app.include_router(simulation.router)
+    app.include_router(noise_models.router)
     app.include_router(profile_api.router)
     app.include_router(events_router)
 
