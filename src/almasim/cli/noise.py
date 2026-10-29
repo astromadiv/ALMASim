@@ -3,8 +3,9 @@
 ``noise show`` lists the released models, or prints one (a released name, a
 candidate file) with the components it applies; ``noise components`` lists
 the components a model can hold and their parameters; ``noise schema``
-writes the JSON Schema model files validate against. ``noise extract``
-measures real windows' noise, one window or a table of them, on Slurm.
+writes the JSON Schema model files validate against. ``noise windows`` makes
+the table of an imaging run's windows; ``noise extract`` measures real
+windows' noise, one window or a table of them, on Slurm.
 """
 
 from __future__ import annotations
@@ -134,6 +135,107 @@ def _component_class(annotation: object) -> type[NoiseComponent]:
 
 def _values(values: dict) -> str:
     return ", ".join(f"{k}={v}" for k, v in values.items())
+
+
+@noise_app.command("windows")
+def windows(
+    parameters: Path = typer.Argument(
+        ...,
+        exists=True,
+        dir_okay=False,
+        help="The imaging run's parameters CSV (image compute-parameters').",
+    ),
+    images: Path = typer.Option(
+        ...,
+        "--images",
+        exists=True,
+        file_okay=False,
+        help="The imaging run's output folder (image image-from-ms').",
+        rich_help_panel="Inputs",
+    ),
+    metadata: Path = typer.Option(
+        ...,
+        "--metadata",
+        exists=True,
+        dir_okay=False,
+        help="The archive search the data came from (an almasim metadata CSV).",
+        rich_help_panel="Inputs",
+    ),
+    products: list[Path] | None = typer.Option(
+        None,
+        "--products",
+        exists=True,
+        dir_okay=False,
+        help=(
+            "Resolved-products CSV(s) of those observations, which link each MS's "
+            "execution block to its observation (default: *products*.csv beside --metadata)."
+        ),
+        rich_help_panel="Inputs",
+    ),
+    out: Path = typer.Option(
+        ...,
+        "--out",
+        help="Where windows.csv and rows.csv go.",
+        rich_help_panel="Outputs",
+    ),
+    done_only: bool = typer.Option(
+        True,
+        "--done-only/--all-tasks",
+        help=(
+            "Only windows whose imaging task finished (its .done marker) and was "
+            "assessed (image clean-quality's quality.json, which fit and validate read)."
+        ),
+        rich_help_panel="Inputs",
+    ),
+    science_only: bool = typer.Option(
+        True,
+        "--science-only/--all-fields",
+        help="Only science target fields (OBSERVE_TARGET), read from each MS.",
+        rich_help_panel="Inputs",
+    ),
+    max_windows: int | None = typer.Option(
+        None, "--max-windows", min=1, help="Keep the first N windows.", rich_help_panel="Inputs"
+    ),
+) -> None:
+    """Write the windows table (windows.csv) and archive rows (rows.csv) of an
+    imaging run, for noise extract, fit and validate."""
+    import pandas as pd
+
+    from ..services.imaging.ms_geometry import science_selection
+    from ..services.noise.windows import imaging_windows
+    from ..services.simulation.input_cubes import (
+        observations_by_execution_block,
+        products_csvs_near,
+    )
+
+    product_csvs = list(products or products_csvs_near(metadata))
+    observations = observations_by_execution_block(product_csvs)
+    if not observations:
+        usage_error(
+            "--products: no resolved-products CSV links the MSs to their observations "
+            "(give the products CSV of the download)"
+        )
+    found = imaging_windows(
+        pd.read_csv(parameters),
+        images.expanduser().resolve(),
+        pd.read_csv(metadata, dtype=str, keep_default_na=False),
+        observations,
+        done_only=done_only,
+        science_fields=(lambda ms: science_selection(Path(ms))[1]) if science_only else None,
+        max_windows=max_windows,
+    )
+    for name, why in found.skipped:
+        typer.echo(f"  left out {name}: {why}")
+    if found.windows.empty:
+        fail("No window to measure; see the reasons above.")
+    out = out.expanduser().resolve()
+    out.mkdir(parents=True, exist_ok=True)
+    found.windows.to_csv(out / "windows.csv", index=False)
+    found.rows.to_csv(out / "rows.csv", index=False)
+    typer.echo(
+        f"{len(found.windows)} window(s) -> {out / 'windows.csv'}, their archive rows -> "
+        f"{out / 'rows.csv'}"
+    )
 
 
 @noise_app.command("extract")

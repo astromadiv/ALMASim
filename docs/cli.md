@@ -647,6 +647,7 @@ $ almasim noise [OPTIONS] COMMAND [ARGS]...
 * `show`: List the released noise models, or show one.
 * `components`: The components a noise model can hold, and...
 * `schema`: The JSON Schema of a noise model file.
+* `windows`: Write the windows table (windows.csv) and...
 * `extract`: Measure real windows' noise: the level...
 * `fit`: Fit real windows' calibration residuals...
 * `aggregate`: Reduce the windows' measurements into a...
@@ -702,6 +703,32 @@ $ almasim noise schema [OPTIONS]
 **Options**:
 
 * `-o, --output <path>`: Write it here (default: print).
+* `--help`: Show this message and exit.
+
+### `almasim noise windows`
+
+Write the windows table (windows.csv) and archive rows (rows.csv) of an
+imaging run, for noise extract, fit and validate.
+
+**Usage**:
+
+```console
+$ almasim noise windows [OPTIONS] {parameters}
+```
+
+**Arguments**:
+
+* `parameters`: The imaging run's parameters CSV (image compute-parameters').  [required]
+
+**Options**:
+
+* `--images <directory>`: The imaging run's output folder (image image-from-ms').  [required]
+* `--metadata <file>`: The archive search the data came from (an almasim metadata CSV).  [required]
+* `--products <file>`: Resolved-products CSV(s) of those observations, which link each MS's execution block to its observation (default: *products*.csv beside --metadata).
+* `--out <path>`: Where windows.csv and rows.csv go.  [required]
+* `--done-only / --all-tasks`: Only windows whose imaging task finished (its .done marker) and was assessed (image clean-quality's quality.json, which fit and validate read).  [default: done-only]
+* `--science-only / --all-fields`: Only science target fields (OBSERVE_TARGET), read from each MS.  [default: science-only]
+* `--max-windows <int range>`: Keep the first N windows.  [x>=1]
 * `--help`: Show this message and exit.
 
 ### `almasim noise extract`
