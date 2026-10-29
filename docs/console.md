@@ -135,6 +135,13 @@ start one job per observation. As you choose, the page estimates each
 simulation's cube and the disk space its outputs take, and says what each
 job will ask Slurm for.
 
+*Noise* chooses the [noise model](noise_models.md): none (white thermal
+noise only, the default), a released one (ALMASim's `alma` versions and the
+team's own, from the shared install's `noise-models/` folder), or a model
+file. For a released model it says what the model was measured on and lists
+its components, one tick each: untick one to simulate without it (the page
+writes `--noise-only` or `--noise-without`, whichever is shorter).
+
 To simulate your own sky models, give a *Sky-model cubes* path beside the
 metadata CSV: a cube, or a folder of them (an imaging run's gives each
 window's `wsclean-cube-model.fits`). The page ticks the rows of the
