@@ -619,3 +619,31 @@ def test_the_two_hands_carry_independent_noise_and_average_to_stokes_i():
     assert np.all(np.abs(corr) < 0.03)
     np.testing.assert_allclose(weight, 0.5)
     np.testing.assert_allclose(row_sigma, np.sqrt(2), rtol=1e-6)
+
+
+def test_each_hand_keeps_the_channels_correlation():
+    """Stokes I with Hanning-correlated channels (rho1 2/3, rho2 1/6): each hand's
+    own noise is correlated the same way, not diluted by white noise (0.33)."""
+    from almasim.services.interferometry.corruptions import spectral_kernel
+    from almasim.services.ms.subtables import _channel_noise, _hands
+
+    kernel = spectral_kernel(2 / 3, 1 / 6)
+    rng = np.random.default_rng(5)
+    n, nchan = 4000, 32
+    sigma = np.full((n, 1, nchan), 1.5, np.float32)
+    stokes = _channel_noise(rng, (n, 1, nchan), kernel) * sigma
+    vt = {
+        "data": stokes.astype(np.complex64),
+        "sigma_spectrum": sigma,
+        "channel_kernel": kernel,
+        "weight": np.ones((n, 1), np.float32),
+        "sigma": np.ones((n, 1), np.float32),
+    }
+    hands, _, _ = _hands(vt, np.random.default_rng(6))
+    np.testing.assert_allclose(hands.mean(axis=1), vt["data"][:, 0], atol=1e-5)
+    for hand in (hands[:, 0], hands[:, 1]):
+        power = np.mean(np.abs(hand) ** 2)
+        rho1 = np.real(np.mean(hand[:, 1:] * np.conj(hand[:, :-1]))) / power
+        rho2 = np.real(np.mean(hand[:, 2:] * np.conj(hand[:, :-2]))) / power
+        assert rho1 == pytest.approx(2 / 3, abs=0.02) and rho2 == pytest.approx(1 / 6, abs=0.02)
+        assert power / 2 == pytest.approx(2 * 1.5**2, rel=0.03)  # sqrt(2) times I's

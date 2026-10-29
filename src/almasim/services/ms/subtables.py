@@ -66,15 +66,35 @@ def _as_xx_yy(values: Any, dtype: Any, axis: int) -> np.ndarray:
     return np.repeat(array, len(MS_CORR_TYPES), axis=axis)
 
 
+def _channel_noise(
+    rng: np.random.Generator, shape: tuple[int, ...], kernel: Any | None
+) -> np.ndarray:
+    """Unit complex noise of ``shape`` (rows, correlations, channels), its
+    channels correlated through the 3-tap ``kernel`` (unit norm, so the level
+    stays 1); white when None."""
+    if kernel is None:
+        return rng.standard_normal(shape) + 1j * rng.standard_normal(shape)
+    taps = np.asarray(kernel, dtype=np.float64)
+    nchan = shape[-1]
+    wide = (*shape[:-1], nchan + len(taps) - 1)
+    white = rng.standard_normal(wide) + 1j * rng.standard_normal(wide)
+    out = np.zeros(shape, dtype=np.complex128)
+    for k, w in enumerate(taps):
+        out += w * white[..., k : k + nchan]
+    return out
+
+
 def _hands(
     vt: Mapping[str, Any], rng: np.random.Generator | None
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """DATA, WEIGHT and SIGMA of the two hands from Stokes I.
 
     XX = I + d and YY = I - d, with d independent noise at each visibility's
-    own level (``sigma_spectrum``, else its row's SIGMA): each hand then
-    carries independent noise of sqrt(2) times Stokes I's, as two real
-    polarisations do, and (XX + YY) / 2 is still I. Each hand's WEIGHT is half
+    own level (``sigma_spectrum``, else its row's SIGMA), its channels
+    correlated as I's (``channel_kernel``, the correlator's smoothing, which
+    each hand has on its own): each hand then carries independent noise of
+    sqrt(2) times Stokes I's, as two real polarisations do, and (XX + YY) / 2
+    is still I. Each hand's WEIGHT is half
     Stokes I's, so that the two together weigh what I does; copying I into
     both hands at I's weight made an imager expect sqrt(2) less noise than the
     data carry. Without ``rng`` the hands are copies of I, at half its weight.
@@ -88,8 +108,7 @@ def _hands(
         noise = np.asarray(
             noise if noise is not None else np.asarray(vt["sigma"])[:, :, None], dtype=np.float32
         )
-        shape = data.shape
-        delta = (rng.standard_normal(shape) + 1j * rng.standard_normal(shape)) * noise
+        delta = _channel_noise(rng, data.shape, vt.get("channel_kernel")) * noise
         hands[:, :1] += delta.astype(np.complex64)
         hands[:, 1:] -= delta.astype(np.complex64)
     weight = _as_xx_yy(np.asarray(vt["weight"], dtype=np.float32) / 2, np.float32, axis=1)

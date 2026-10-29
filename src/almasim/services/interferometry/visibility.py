@@ -44,6 +44,10 @@ class VisibilityTable:
     # Each visibility's own noise (nrows, ncorr, nchan), per real and imaginary
     # part; the MS writer gives the two hands independent noise from it.
     sigma_spectrum: np.ndarray | None = None
+    # The 3-tap kernel correlating neighbouring channels' noise
+    # (corruptions.spectral_kernel); the hands' own noise goes through it too.
+    # None: channels independent.
+    channel_kernel: np.ndarray | None = None
 
     def as_dict(self) -> dict[str, Any]:
         """Convert to a plain dict for serialization."""
@@ -71,6 +75,8 @@ class VisibilityTable:
             "array_type": self.array_type,
             **({"scan_number": self.scan_number} if self.scan_number is not None else {}),
             **({"observation_id": self.observation_id} if self.observation_id is not None else {}),
+            **({"sigma_spectrum": self.sigma_spectrum} if self.sigma_spectrum is not None else {}),
+            **({"channel_kernel": self.channel_kernel} if self.channel_kernel is not None else {}),
         }
 
 
@@ -88,8 +94,14 @@ def build_channel_visibility_rows(
     uv_pixsize: float,
     noise_std: float,
     mean_wavelength_m: float,
+    noise_scale: np.ndarray | None = None,
 ) -> dict[str, np.ndarray]:
-    """Build per-channel row-wise visibility samples before UV gridding."""
+    """Build per-channel row-wise visibility samples before UV gridding.
+
+    ``noise_scale`` (baselines): each baseline's noise over the channel's, as
+    in ``noise_samples`` (its antennas' own noise shape); the rows' sigma
+    carries it too. None: 1.
+    """
     nbas = int(antnum.shape[0])
     nrows = int(nbas * nH)
     antenna1 = np.repeat(antnum[:, 0].astype(np.int32), nH)
@@ -117,8 +129,11 @@ def build_channel_visibility_rows(
         data[valid] = sampled * gains_flat[valid] + noise_flat[valid] * np.abs(gains_flat[valid])
 
     # Each row's noise as calibrated data's weights carry it: the channel's noise
-    # times the gain amplitude the data were scaled by (1 without corruptions).
+    # times the gain amplitude the data were scaled by (1 without corruptions)
+    # and the baseline's own noise scale.
     sigma = (max(float(noise_std), 1e-12) * np.abs(gains_flat)).astype(np.float32)
+    if noise_scale is not None:
+        sigma *= np.repeat(np.asarray(noise_scale, dtype=np.float32), nH)
     weight = (1.0 / np.square(np.maximum(sigma, 1e-12))).astype(np.float32)
     uvw_m = np.stack(
         [
@@ -158,11 +173,13 @@ def assemble_visibility_table(
     antenna_diameters_m: np.ndarray | None = None,
     scan_length_s: float = 0.0,
     observation_id: int | None = None,
+    channel_kernel: np.ndarray | None = None,
 ) -> VisibilityTable:
     """Assemble channel-wise row samples into an MS-like visibility table.
 
     ``scan_length_s`` > 0 numbers the rows' scans, blocks of that length;
-    ``observation_id`` marks every row as that execution block's.
+    ``observation_id`` marks every row as that execution block's;
+    ``channel_kernel`` is the kernel the channels' noise was correlated with.
     """
     if not channel_rows:
         raise ValueError("channel_rows must not be empty")
@@ -202,6 +219,7 @@ def assemble_visibility_table(
         scan_number = (time_offsets_s // float(scan_length_s)).astype(np.int32) + 1
     return VisibilityTable(
         sigma_spectrum=sigma_spectrum,
+        channel_kernel=None if channel_kernel is None else np.asarray(channel_kernel, np.float64),
         scan_number=scan_number,
         observation_id=(
             None if observation_id is None else np.full(nrows, int(observation_id), np.int32)
@@ -294,6 +312,7 @@ def concatenate_visibility_tables(tables: list[Mapping[str, Any]]) -> dict[str, 
         **_scan_numbers(tables),
         **_observation_ids(tables),
         **_sigma_spectra(tables),
+        **_channel_kernel(tables),
     }
 
 
@@ -345,6 +364,17 @@ def _sigma_spectra(tables: list[Mapping[str, Any]]) -> dict[str, np.ndarray]:
     if any(t.get("sigma_spectrum") is None for t in tables):
         return {}
     return {"sigma_spectrum": np.concatenate([np.asarray(t["sigma_spectrum"]) for t in tables])}
+
+
+def _channel_kernel(tables: list[Mapping[str, Any]]) -> dict[str, np.ndarray]:
+    """The tables' channel kernel, when they all share one (one window's channels)."""
+    kernels = [t.get("channel_kernel") for t in tables]
+    if any(k is None for k in kernels):
+        return {}
+    first = np.asarray(kernels[0], dtype=np.float64)
+    if not all(np.allclose(np.asarray(k, dtype=np.float64), first) for k in kernels[1:]):
+        return {}
+    return {"channel_kernel": first}
 
 
 def _observation_ids(tables: list[Mapping[str, Any]]) -> dict[str, np.ndarray]:

@@ -311,6 +311,8 @@ def test_channel_scales_each_baselines_noise_by_its_antennas():
     valid = plain["valid"]
     assert np.allclose(scaled["data"][valid], plain["data"][valid] * factor[valid], atol=1e-5)
     assert not np.allclose(factor, 1)
+    # Its rows' sigma carries the same factor: the MS writer's hands draw at it.
+    np.testing.assert_allclose(scaled["sigma"], plain["sigma"] * factor, rtol=1e-6)
 
 
 @pytest.mark.unit

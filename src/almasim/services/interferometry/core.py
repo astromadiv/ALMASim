@@ -19,7 +19,12 @@ from ..instrument.constants import ALMA_LATITUDE_DEG, SPEED_OF_LIGHT_M_S
 from ..instrument.spectral_window import SpectralWindow
 from ..products.cube_export import write_interferometry_products
 from .antenna import read_array_layout
-from .corruptions import CorruptionModel, antenna_ripple, draw_antenna_corruptions
+from .corruptions import (
+    CorruptionModel,
+    antenna_ripple,
+    draw_antenna_corruptions,
+    spectral_kernel,
+)
 from .observing import alma_location, clip_to_horizon, hour_angle_coverage, hour_angle_samples
 from .simulator import ChannelImagingConfig, image_channels, picklable_header, stack_channels
 from .utils import get_channel_wavelength
@@ -393,6 +398,11 @@ class Interferometer:
             antenna_diameters_m=np.full(len(self.antNames), self.antenna_diameter_m),
             scan_length_s=self.corruptions.scan_length_s if self.corruptions is not None else 0.0,
             observation_id=self.execution,
+            channel_kernel=(
+                spectral_kernel(*self.corruptions.channel_correlation())
+                if self.corruptions is not None and self.corruptions.correlates_channels
+                else None
+            ),
         ).as_dict()
 
         # Save the results only when explicitly requested.
