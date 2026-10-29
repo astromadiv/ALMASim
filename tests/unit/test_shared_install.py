@@ -136,3 +136,45 @@ def test_the_install_script_installs_every_extra_jobs_need():
     for extra in ("web", "casa", "ms-casacore", "dashboard"):
         assert f"--extra {extra}" in script
     assert '"$wheel[web,casa,ms-casacore,dashboard]"' in script
+
+
+def test_the_install_makes_the_teams_noise_models_folder(tmp_path):
+    """The site profile points at <prefix>/noise-models, made group-writable and
+    setgid; run with a stand-in uv, whose environment's Python only says its version."""
+    import os
+    import stat
+    from pathlib import Path
+
+    repo = Path(__file__).parents[2]
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    uv = bin_dir / "uv"
+    uv.write_text(
+        "#!/bin/bash\n"
+        'if [ "$1" = venv ]; then mkdir -p "${@: -1}/bin"; '
+        "printf '#!/bin/bash\\necho 0.0\\n' > \"${@: -1}/bin/python\"; "
+        'chmod +x "${@: -1}/bin/python"; fi\n'
+    )
+    uv.chmod(0o755)
+    prefix = tmp_path / "almasim"
+    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"}
+    template = repo / "examples" / "site-profiles" / "zwicky.toml"
+    for _ in range(2):  # an update leaves the folder as it is
+        subprocess.run(
+            [
+                "bash",
+                str(repo / "scripts" / "install_shared.sh"),
+                str(prefix),
+                str(template),
+                "w.whl",
+            ],
+            env=env,
+            check=True,
+            capture_output=True,
+        )
+    folder = prefix / "noise-models"
+    mode = folder.stat().st_mode
+    assert folder.is_dir() and mode & stat.S_ISGID and mode & stat.S_IWGRP
+    site = (prefix / "site.toml").read_text()
+    assert f'noise_models = "{folder}"' in site
+    assert f'executable = "{prefix}/env/bin/python"' in site

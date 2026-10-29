@@ -157,6 +157,29 @@
         "title": "CommandLine",
         "type": "object"
       },
+      "Component": {
+        "properties": {
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "enabled",
+          "description"
+        ],
+        "title": "Component",
+        "type": "object"
+      },
       "Configured": {
         "description": "A partition's limits as the site profile states them.",
         "properties": {
@@ -973,6 +996,173 @@
           "size"
         ],
         "title": "LogSlice",
+        "type": "object"
+      },
+      "ModelProvenance": {
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data"
+          },
+          "date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date"
+          },
+          "method": {
+            "title": "Method",
+            "type": "string"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "validated": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Validated"
+          },
+          "windows": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Windows"
+          }
+        },
+        "required": [
+          "method",
+          "data",
+          "windows",
+          "date",
+          "notes",
+          "validated"
+        ],
+        "title": "ModelProvenance",
+        "type": "object"
+      },
+      "NoiseModelInfo": {
+        "properties": {
+          "components": {
+            "items": {
+              "$ref": "#/components/schemas/Component"
+            },
+            "title": "Components",
+            "type": "array"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "newest": {
+            "title": "Newest",
+            "type": "boolean"
+          },
+          "provenance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelProvenance"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sha256": {
+            "title": "Sha256",
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "package",
+              "site"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "spec": {
+            "title": "Spec",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "spec",
+          "name",
+          "version",
+          "newest",
+          "source",
+          "sha256",
+          "description",
+          "components",
+          "provenance"
+        ],
+        "title": "NoiseModelInfo",
+        "type": "object"
+      },
+      "NoiseModels": {
+        "properties": {
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/NoiseModelInfo"
+            },
+            "title": "Models",
+            "type": "array"
+          },
+          "site_folder": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Site Folder"
+          }
+        },
+        "required": [
+          "models",
+          "site_folder"
+        ],
+        "title": "NoiseModels",
         "type": "object"
       },
       "Param": {
@@ -3062,6 +3252,28 @@
         "summary": "Resubmit Job",
         "tags": [
           "jobs"
+        ]
+      }
+    },
+    "/api/v2/noise-models": {
+      "get": {
+        "description": "Every released noise model and version, the package's first, newest version first.",
+        "operationId": "list_noise_models_api_v2_noise_models_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoiseModels"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Noise Models",
+        "tags": [
+          "noise models"
         ]
       }
     },

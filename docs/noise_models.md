@@ -131,13 +131,36 @@ and in the exported MS's `HISTORY` table.
 ### Looking at models
 
 ```
-almasim noise show                    # the released models and their versions
+almasim noise show                    # the released models and their versions, and where each comes from
 almasim noise show alma               # one model: each component, on or off, with its values
 almasim noise show alma --json        # the model's JSON
 almasim noise show my-candidate.json --noise-without slow_phase
 almasim noise components              # every component and every parameter, with its meaning
 almasim noise schema -o schema.json   # the JSON Schema a model file must satisfy
 ```
+
+### The team's own models
+
+Besides the models released with ALMASim (`alma`), a site can keep its own:
+the same `<name>-<version>.json` files in one folder, which every user's
+simulations and the console's Simulate page see. The folder is the site
+profile's
+
+```toml
+[tools]
+noise_models = "/SKAO_data/cycle11/almasim/noise-models"
+```
+
+(the shared install makes it, group-writable), or the folder
+`ALMASIM_NOISE_MODELS` names, which wins. Jobs get the profile in their
+environment, so a Slurm job resolves `--noise-model zwicky-alma@1` as the
+console does. A model there is named like a released one (`zwicky-alma`, the
+newest version; `zwicky-alma@1`), but may not take a released model's name:
+`alma` is always ALMASim's own, and a file `alma-2.json` in the folder is
+ignored with a warning, as is a file that does not load or whose name
+disagrees with the model it holds. `almasim noise show` marks each model
+`(package)` or `(site)`. A model is released into the folder with `almasim
+noise promote … --models-dir <folder>`, only with a passing validation.
 
 ### From Python
 

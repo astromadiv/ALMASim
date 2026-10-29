@@ -174,7 +174,7 @@ def test_noise_commands_show_models_components_and_schema(tmp_path):
 
     runner = CliRunner()
     result = runner.invoke(noise_app, ["show"])
-    assert result.exit_code == 0 and "alma: versions 1" in result.output
+    assert result.exit_code == 0 and "alma (package): versions 1" in result.output
     result = runner.invoke(noise_app, ["show", "alma", "--noise-without", "fast_phase"])
     assert result.exit_code == 0
     assert "[off] fast_phase" in result.output and "[on ] radiometer" in result.output

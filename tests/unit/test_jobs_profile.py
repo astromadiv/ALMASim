@@ -146,3 +146,10 @@ def test_the_profile_files_are_kept_as_absolute_paths(tmp_path, monkeypatch):
     profile = load_profile(site="site.toml", user="me.toml", environ={})
     assert profile.site_file == tmp_path / "site.toml"
     assert profile.user_file == tmp_path / "me.toml"
+
+
+def test_the_site_names_the_teams_noise_models_folder(tmp_path, monkeypatch):
+    monkeypatch.setenv("HOME", str(tmp_path))  # no user profile
+    site = _write(tmp_path / "site.toml", '[tools]\nnoise_models = "~/team-models"\n')
+    assert load_profile(site=site, environ={}).noise_models == tmp_path / "team-models"
+    assert load_profile(environ={}).noise_models is None
