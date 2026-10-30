@@ -51,11 +51,14 @@ from ..services.download import (
     MAX_PARALLEL_TOTAL,
     PRODUCT_TYPES,
     download_products,
+    expand_archives,
     filter_products,
     format_bytes,
+    is_expandable,
     load_products_csv,
     resolve_products,
     save_products_csv,
+    select_files,
 )
 from ._options import (
     Backend,
@@ -195,6 +198,7 @@ def _resolve_products_from_inputs(
     member_ous_uid: list[str] | None,
     member_limit: int | None,
     save_products_csv_path: Path | None,
+    expand_archives: bool = False,
 ) -> list[Any]:
     if products_csv is not None:
         loaded = load_products_csv(products_csv)
@@ -223,11 +227,29 @@ def _resolve_products_from_inputs(
     typer.echo(f"Resolved DataLink rows: {len(resolved)}")
     if not resolved:
         fail("No products were resolved for the requested member_ous_uid values.")
+    if expand_archives:
+        resolved = _expand_archives(resolved)
 
     if save_products_csv_path is not None:
         saved = save_products_csv(resolved, save_products_csv_path)
         typer.echo(f"Saved resolved products CSV: {saved}")
     return resolved
+
+
+def _expand_archives(products: list[Any]) -> list[Any]:
+    """The products with each product and auxiliary tar replaced by the files inside it."""
+    archives = sum(1 for product in products if is_expandable(product))
+    typer.echo(f"Listing the files inside {archives} archive(s)...")
+    expanded = expand_archives(products)
+    typer.echo(f"Listed rows: {len(expanded)}")
+    return expanded
+
+
+_EXPAND_ARCHIVES_HELP = (
+    "List the files inside each member's product and auxiliary tars, one row per file, "
+    "so single files can be picked with --include/--exclude (for example the "
+    "'*.pbcor.fits' images). One more DataLink request per tar."
+)
 
 
 @products_app.command("resolve")
@@ -258,6 +280,7 @@ def products_resolve(
         "--save-products-csv",
         help="Destination CSV for resolved DataLink products.",
     ),
+    expand_archives: bool = typer.Option(False, "--expand-archives", help=_EXPAND_ARCHIVES_HELP),
 ) -> None:
     """Extract member_ous_uid values and resolve ALMA DataLink products."""
     member_uids = _parse_uid_options(member_ous_uid)
@@ -282,6 +305,7 @@ def products_resolve(
         member_ous_uid=member_uids,
         member_limit=None,
         save_products_csv_path=save_products_csv_path,
+        expand_archives=expand_archives,
     )
     typer.echo(f"Resolved products: {len(products)}")
 
@@ -344,6 +368,9 @@ class DownloadOptions:
     member_ous_uid: list[str] | None
     member_limit: int | None
     product_filter: str
+    expand_archives: bool
+    include: list[str] | None
+    exclude: list[str] | None
     skip_qa0_semipass: bool
     qa0_report_root: Path | None
     save_products_csv_path: Path | None
@@ -401,6 +428,27 @@ def products_download(
         "--product-filter",
         help="Subset of resolved products to download.",
         case_sensitive=False,
+        rich_help_panel="Selection",
+    ),
+    expand_archives: bool = typer.Option(
+        False,
+        "--expand-archives",
+        help=_EXPAND_ARCHIVES_HELP + " Runs after --product-filter, on the selected tars only.",
+        rich_help_panel="Selection",
+    ),
+    include: list[str] | None = typer.Option(
+        None,
+        "--include",
+        help=(
+            "Download only files whose name matches this glob, for example '*.pbcor.fits'. "
+            "Repeat or pass comma-separated globs; a file matching any of them is kept."
+        ),
+        rich_help_panel="Selection",
+    ),
+    exclude: list[str] | None = typer.Option(
+        None,
+        "--exclude",
+        help="Skip files whose name matches this glob. Repeat or pass comma-separated globs.",
         rich_help_panel="Selection",
     ),
     skip_qa0_semipass: bool = typer.Option(
@@ -549,6 +597,22 @@ def products_download(
         )
 
 
+def _pick_files(o: DownloadOptions, products: list[Any]) -> list[Any]:
+    """The filtered products, their tars listed file by file, picked by name (exits on none)."""
+    if o.expand_archives:
+        products = _expand_archives(products)
+    include, exclude = split_csv_values(o.include) or [], split_csv_values(o.exclude) or []
+    if include or exclude:
+        products = select_files(products, include, exclude)
+    if not products:
+        fail(
+            f"No products matched --product-filter={o.product_filter.lower()}"
+            + "".join(f" --include={p}" for p in include)
+            + "".join(f" --exclude={p}" for p in exclude)
+        )
+    return products
+
+
 def _select_download_products(o: DownloadOptions) -> list[Any]:
     """Validate the options and return the products to download (exits when there are none)."""
     product_filter = o.product_filter.lower()  # click checked the choice (MADIV-28 S2.2)
@@ -564,9 +628,7 @@ def _select_download_products(o: DownloadOptions) -> list[Any]:
         member_limit=o.member_limit,
         save_products_csv_path=o.save_products_csv_path,
     )
-    filtered = filter_products(products, product_filter)
-    if not filtered:
-        fail(f"No products matched --product-filter={product_filter}")
+    filtered = _pick_files(o, filter_products(products, product_filter))
 
     typer.echo(f"Resolved products: {len(products)}")
     if o.skip_qa0_semipass:

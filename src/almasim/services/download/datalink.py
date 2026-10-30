@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
+from fnmatch import fnmatchcase
 from xml.etree import ElementTree
 
 import httpx
@@ -154,28 +157,78 @@ def _fetch_datalink(uid: str, mirror_base: str = _DATALINK_MIRRORS[0]) -> list[D
     return _parse_votable_results(response.content, uid)
 
 
+def _fetch_with_fallback(uid: str, mirror: str) -> list[DataProduct] | None:
+    """DataLink rows for one ID from the first mirror that answers; None when all fail."""
+    last_error: Exception | None = None
+    for base in [mirror] + [candidate for candidate in _DATALINK_MIRRORS if candidate != mirror]:
+        try:
+            return _fetch_datalink(uid, base)
+        except Exception as exc:  # noqa: BLE001 - the next mirror is tried  # pragma: no cover
+            last_error = exc
+            logger.warning("DataLink fetch failed for %s on %s: %s", uid, base, exc)
+    logger.error("All DataLink mirrors failed for %s: %s", uid, last_error)
+    return None
+
+
 def resolve_products(
     member_ous_uids: Iterable[str],
     mirror: str = _DATALINK_MIRRORS[0],
 ) -> list[DataProduct]:
     """Resolve downloadable data products through ALMA DataLink."""
     products: list[DataProduct] = []
-    member_uids = [str(uid) for uid in member_ous_uids]
-    for uid in member_uids:
-        last_error: Exception | None = None
-        for base in [mirror] + [
-            candidate for candidate in _DATALINK_MIRRORS if candidate != mirror
-        ]:
-            try:
-                products.extend(_fetch_datalink(uid, base))
-                last_error = None
-                break
-            except Exception as exc:  # noqa: BLE001 - the next mirror is tried  # pragma: no cover
-                last_error = exc
-                logger.warning("DataLink fetch failed for %s on %s: %s", uid, base, exc)
-        if last_error:
-            logger.error("All DataLink mirrors failed for %s: %s", uid, last_error)
+    for uid in member_ous_uids:
+        products.extend(_fetch_with_fallback(str(uid), mirror) or [])
     return products
+
+
+# The member's pipeline products tar (#this) and its auxiliary tar list their files
+# through a DataLink of their own; the raw ASDM tars are downloaded whole.
+_EXPANDABLE_SEMANTICS = {"#this", "#auxiliary"}
+
+
+def is_expandable(product: DataProduct) -> bool:
+    """Whether the archive lists the files inside this product's tar."""
+    return product.semantics in _EXPANDABLE_SEMANTICS and product.filename.endswith(".tar")
+
+
+def _archive_files(product: DataProduct, mirror: str) -> list[DataProduct]:
+    """The files inside one tar, typed like the tar; the tar itself if the listing fails."""
+    rows = _fetch_with_fallback(product.filename, mirror)
+    if not rows:
+        logger.warning("No file listing for %s; it is kept whole", product.filename)
+        return [product]
+    return [replace(row, uid=product.uid, product_type=product.product_type) for row in rows]
+
+
+def expand_archives(
+    products: Iterable[DataProduct],
+    mirror: str = _DATALINK_MIRRORS[0],
+    max_workers: int = 4,
+) -> list[DataProduct]:
+    """Replace each product and auxiliary tar by the files inside it, one row per file.
+
+    The files keep the tar's ``product_type``, so ``--product-filter`` selects them as
+    it selects the tar. Raw ASDM tars and other files are kept as they are. A file
+    listed twice (the member README is in its auxiliary tar too) is kept once.
+    """
+    rows = list(products)
+    with ThreadPoolExecutor(max_workers=max(1, max_workers)) as pool:
+        listings = list(
+            pool.map(
+                lambda product: (
+                    _archive_files(product, mirror) if is_expandable(product) else [product]
+                ),
+                rows,
+            )
+        )
+    expanded: list[DataProduct] = []
+    seen: set[str] = set()
+    for listing in listings:
+        for row in listing:
+            if row.filename not in seen:
+                seen.add(row.filename)
+                expanded.append(row)
+    return expanded
 
 
 def filter_products(products: list[DataProduct], product_filter: str = "all") -> list[DataProduct]:
@@ -183,6 +236,25 @@ def filter_products(products: list[DataProduct], product_filter: str = "all") ->
     if product_filter == "all":
         return list(products)
     return [product for product in products if product.product_type == product_filter]
+
+
+def select_files(
+    products: Iterable[DataProduct],
+    include: Iterable[str] = (),
+    exclude: Iterable[str] = (),
+) -> list[DataProduct]:
+    """Products whose filename matches an ``include`` glob (any, when none) and no ``exclude`` glob.
+
+    Globs are shell patterns (``*``, ``?``, ``[seq]``, ``[!seq]``), matched case-sensitively
+    against the whole filename, for example ``*.pbcor.fits``.
+    """
+    include, exclude = list(include), list(exclude)
+    return [
+        product
+        for product in products
+        if (not include or any(fnmatchcase(product.filename, p) for p in include))
+        and not any(fnmatchcase(product.filename, p) for p in exclude)
+    ]
 
 
 def count_executions(products: Iterable[DataProduct]) -> dict[str, int]:

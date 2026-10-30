@@ -2,10 +2,13 @@
 
 from almasim.services.download import (
     DataProduct,
+    datalink,
     download_products,
+    expand_archives,
     filter_products,
     load_products_csv,
     save_products_csv,
+    select_files,
 )
 
 
@@ -34,6 +37,91 @@ def test_filter_products():
 
     assert len(filtered) == 1
     assert filtered[0].filename == "a.fits"
+
+
+def _row(filename, semantics="#this", product_type="fits", uid="uid://A001/X1/X1"):
+    return DataProduct(
+        access_url=f"https://example.org/{filename}",
+        uid=uid,
+        filename=filename,
+        content_length=10,
+        content_type="application/octet-stream",
+        product_type=product_type,
+        semantics=semantics,
+    )
+
+
+def test_select_files_matches_globs_on_the_filename():
+    """Include globs keep any match (all files when none); exclude globs drop matches."""
+    products = [
+        _row("m.spw23.cube.I.pbcor.fits"),
+        _row("m.spw23.cube.I.pb.fits.gz"),
+        _row("m.spw23.mfs.I.pbcor.fits"),
+        _row("m.spw23.mfs.I.mask.fits.gz"),
+    ]
+    names = lambda rows: [row.filename for row in rows]  # noqa: E731
+
+    assert names(select_files(products, ["*.pbcor.fits"])) == [
+        "m.spw23.cube.I.pbcor.fits",
+        "m.spw23.mfs.I.pbcor.fits",
+    ]
+    assert names(select_files(products, ["*.pbcor.fits"], ["*.cube.*"])) == [
+        "m.spw23.mfs.I.pbcor.fits"
+    ]
+    assert names(select_files(products, exclude=["*.gz"])) == names(products)[::2]
+    assert names(select_files(products, ["*.PBCOR.fits"])) == []  # case-sensitive
+    assert names(select_files(products)) == names(products)
+
+
+def test_expand_archives_lists_the_files_inside_the_tars(monkeypatch):
+    """Product and auxiliary tars become their files, typed like the tar and kept on the member."""
+    listings = {
+        "P_001_of_001.tar": [
+            _row("m.cube.I.pbcor.fits", uid="P_001_of_001.tar", product_type="other"),
+            _row("m.cube.I.pb.fits.gz", uid="P_001_of_001.tar", product_type="cubes"),
+        ],
+        "P_auxiliary.tar": [
+            _row("m.s1.caltables.tgz", "#auxiliary", "calibration", "P_auxiliary.tar"),
+            _row("m.README.txt", "#documentation", "auxiliary", "P_auxiliary.tar"),
+        ],
+    }
+    requested: list[str] = []
+
+    def fake_fetch(uid, mirror_base):
+        requested.append(uid)
+        return listings[uid]
+
+    monkeypatch.setattr(datalink, "_fetch_datalink", fake_fetch)
+    products = [
+        _row("m.README.txt", "#documentation", "auxiliary"),
+        _row("P_001_of_001.tar"),
+        _row("P_auxiliary.tar", "#auxiliary", "auxiliary"),
+        _row("P_uid___A002_X1_X1.asdm.sdm.tar", "#progenitor", "raw"),
+    ]
+
+    expanded = expand_archives(products)
+
+    assert sorted(requested) == ["P_001_of_001.tar", "P_auxiliary.tar"]
+    assert [(row.filename, row.product_type) for row in expanded] == [
+        ("m.README.txt", "auxiliary"),
+        ("m.cube.I.pbcor.fits", "fits"),
+        ("m.cube.I.pb.fits.gz", "fits"),
+        ("m.s1.caltables.tgz", "auxiliary"),
+        ("P_uid___A002_X1_X1.asdm.sdm.tar", "raw"),
+    ]
+    assert {row.uid for row in expanded} == {"uid://A001/X1/X1"}
+
+
+def test_expand_archives_keeps_a_tar_it_cannot_list(monkeypatch):
+    """A tar whose listing fails on every mirror is kept whole, so nothing is lost."""
+
+    def failing_fetch(uid, mirror_base):
+        raise OSError("mirror down")
+
+    monkeypatch.setattr(datalink, "_fetch_datalink", failing_fetch)
+    tar = _row("P_001_of_001.tar")
+
+    assert expand_archives([tar]) == [tar]
 
 
 def test_products_csv_roundtrip(tmp_path):

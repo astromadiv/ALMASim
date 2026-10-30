@@ -6,7 +6,8 @@ This page describes ALMASim's data-download workflow.
 
 The download service lives in
 [`src/almasim/services/download`](../src/almasim/services/download):
-`datalink.py` (resolve and filter products), `catalog_io.py` (products CSV),
+`datalink.py` (resolve products, list the files inside their tars, filter
+and select them), `catalog_io.py` (products CSV),
 `transfer.py` (single files, retries, mirrors) and `orchestrate.py`
 (`download_products`). The QA0 filter and the unpack and calibrate stages live
 in [`src/almasim/services/archive`](../src/almasim/services/archive).
@@ -19,6 +20,9 @@ ALMASim can:
 - save resolved products to CSV and reload them
 - filter them by type (`raw`, `calibration`, `auxiliary`, `qa_reports`,
   `scripts`, `weblog`, `cubes`, `continuum`, `fits`, `other`, or `all`)
+- list the files inside each member's product and auxiliary tars, and pick
+  single files by name, for example only the cleaned `*.pbcor.fits` images
+  ([below](#choosing-single-files))
 - skip the raw ASDMs of execution blocks ALMA never calibrated (below)
 - download them across the ESO, NRAO and NAOJ mirrors, at most 10 transfers
   per mirror (`--max-parallel`, default 3, capped at 30)
@@ -55,6 +59,42 @@ MeasurementSets go under `--archive-output-root` (default
 visibilities extract`, `unpack` and `calibrate`. See
 [`almasim products download`](cli.md#almasim-products-download) for every
 option.
+
+## Choosing single files
+
+DataLink offers each member OUS as separate tars:
+
+| Product type | DataLink semantics | File | Contents |
+|---|---|---|---|
+| `fits` | `#this` | `<project>_<member>_001_of_001.tar` (a large delivery is split into `_001_of_002.tar` and so on) | `product/`: the pipeline's images, each as `.pbcor.fits` (primary-beam corrected), `.pb.fits.gz` (primary beam) and `.mask.fits.gz` (clean mask), per spw cube, mfs and continuum image, for the science targets (`<field>_sci`) and the calibrators (for example `<field>_bp`, `<field>_ph`) |
+| `auxiliary` | `#auxiliary` | `<project>_<member>_auxiliary.tar` | `calibration/`, `log/`, `qa/` and `script/` |
+| `auxiliary` | `#documentation` | `member.<member>.README.txt` | the delivery's README |
+| `raw` | `#progenitor`, `#package` | `<project>_<eb>.asdm.sdm.tar` | one execution block's raw ASDM |
+
+`--product-filter` picks whole tars. `--expand-archives` replaces each
+selected product and auxiliary tar by the files inside it, one row per file,
+which keeps the tar's product type; ALMA lists those files through a DataLink
+of the tar's own, one request per tar. `--include` and `--exclude` then pick
+files by name with shell globs (`*`, `?`, `[seq]`, `[!seq]`, matched
+case-sensitively against the whole filename). Repeat them or pass
+comma-separated globs: a file is kept when it matches any `--include` (every
+file, when there is none) and no `--exclude`.
+
+```bash
+# the science targets' cleaned, primary-beam-corrected cubes and continuum
+# images, without the per-spw mfs images
+almasim products download --products-csv resolved.csv \
+  --product-filter fits --expand-archives \
+  --include '*_sci.*.pbcor.fits' --exclude '*.mfs.*' \
+  --destination images --yes
+```
+
+`almasim products resolve --expand-archives` saves the files instead of the
+tars in the products CSV, so the list shows each file's size before anything is
+downloaded. The files land in `--destination` as they are named, flat:
+each name starts with `member.<member uid>.`, so it still says which
+observation it belongs to. The QA0 filter below reads the reports from an
+extracted auxiliary tar, so download that tar whole when you use it.
 
 ## Skipping execution blocks ALMA never calibrated
 
@@ -100,14 +140,20 @@ auxiliary products were not downloaded) still fails.
 ```python
 from almasim.services.download import (
     download_products,
+    expand_archives,
     filter_products,
     resolve_products,
     save_products_csv,
+    select_files,
 )
 
 products = resolve_products(metadata["member_ous_uid"].tolist())
 save_products_csv(products, "resolved.csv")
 summary = download_products(filter_products(products, "auxiliary"), "downloads", extract_tar=True)
+
+# only the primary-beam-corrected images inside the product tars
+images = select_files(expand_archives(filter_products(products, "fits")), ["*.pbcor.fits"])
+download_products(images, "images")
 ```
 
 ## Web console

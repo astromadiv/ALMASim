@@ -12,9 +12,12 @@ export function queryArgv(filters: string[]): string[] {
 	return [...filters, '--save-csv', `${RUN_DIR}/${RESULTS_CSV}`, '--yes'];
 }
 
-/** Resolve the chosen observations' products into the run's folder. */
-export function resolveArgv(memberOusUids: string[]): string[] {
-	return [
+/**
+ * Resolve the chosen observations' products into the run's folder; with
+ * `expandArchives`, one row per file inside each product and auxiliary tar.
+ */
+export function resolveArgv(memberOusUids: string[], expandArchives = false): string[] {
+	const argv = [
 		'products',
 		'resolve',
 		'--member-ous-uid',
@@ -22,6 +25,8 @@ export function resolveArgv(memberOusUids: string[]): string[] {
 		'--save-products-csv',
 		`${RUN_DIR}/${PRODUCTS_CSV}`
 	];
+	if (expandArchives) argv.push('--expand-archives');
+	return argv;
 }
 
 export interface DownloadChoice {
@@ -30,6 +35,10 @@ export interface DownloadChoice {
 	/** Where the raw and calibrated MeasurementSets go; empty: <destination>/archive_ms. */
 	msFolder?: string;
 	productFilter: string;
+	/** Filename globs: only files matching one of them (all files when empty). */
+	include?: string[];
+	/** Filename globs: files matching one of them are skipped. */
+	exclude?: string[];
 	extract: boolean;
 	unpack: boolean;
 	calibrate: boolean;
@@ -47,6 +56,8 @@ export function downloadArgv(choice: DownloadChoice): string[] {
 		'--product-filter',
 		choice.productFilter
 	];
+	for (const pattern of choice.include ?? []) argv.push('--include', pattern);
+	for (const pattern of choice.exclude ?? []) argv.push('--exclude', pattern);
 	// Each step needs the one before it.
 	if (choice.extract || choice.unpack || choice.calibrate) argv.push('--extract-tar');
 	if (choice.unpack || choice.calibrate) argv.push('--unpack-ms');
@@ -112,9 +123,59 @@ export function productTotals(records: Record<string, string>[]): ProductTotals[
 	return [...byType.values()].sort((a, b) => b.bytes - a.bytes);
 }
 
-/** Bytes a filter downloads ("all", or one product type). */
-export function filteredBytes(totals: ProductTotals[], filter: string): number {
-	return totals
-		.filter((t) => filter === 'all' || t.type === filter)
-		.reduce((sum, t) => sum + t.bytes, 0);
+/** The comma-separated globs of a pattern field, trimmed, without empty ones. */
+export function parsePatterns(text: string): string[] {
+	return text
+		.split(',')
+		.map((p) => p.trim())
+		.filter(Boolean);
+}
+
+/** A shell glob as a regular expression, as Python's fnmatch reads it (`*`, `?`, `[seq]`, `[!seq]`). */
+function globRegExp(pattern: string): RegExp {
+	let out = '';
+	for (let i = 0; i < pattern.length; i++) {
+		const c = pattern[i];
+		if (c === '*') out += '.*';
+		else if (c === '?') out += '.';
+		else if (c === '[') {
+			let j = i + 1;
+			if (pattern[j] === '!') j++;
+			if (pattern[j] === ']') j++;
+			while (j < pattern.length && pattern[j] !== ']') j++;
+			if (j >= pattern.length) out += '\\[';
+			else {
+				let body = pattern.slice(i + 1, j).replace(/\\/g, '\\\\');
+				if (body.startsWith('!')) body = '^' + body.slice(1);
+				else if (body.startsWith('^')) body = '\\' + body;
+				out += `[${body}]`;
+				i = j;
+			}
+		} else out += c.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+	}
+	return new RegExp(`^${out}$`, 's');
+}
+
+/** Whether a filename passes the include globs (any; all files when none) and no exclude glob. */
+export function matchesPatterns(name: string, include: string[], exclude: string[]): boolean {
+	const hit = (patterns: string[]) => patterns.some((p) => globRegExp(p).test(name));
+	return (include.length === 0 || hit(include)) && !hit(exclude);
+}
+
+/** The files and bytes a download picks: its product filter, then the filename globs. */
+export function selection(
+	records: Record<string, string>[],
+	filter: string,
+	include: string[] = [],
+	exclude: string[] = []
+): { count: number; bytes: number } {
+	let count = 0;
+	let bytes = 0;
+	for (const record of records) {
+		if (filter !== 'all' && (record.product_type || 'other') !== filter) continue;
+		if (!matchesPatterns(record.filename ?? '', include, exclude)) continue;
+		count += 1;
+		bytes += Number(record.content_length) || 0;
+	}
+	return { count, bytes };
 }

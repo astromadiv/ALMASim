@@ -23,11 +23,12 @@
 		RESULTS_CSV,
 		defaultMsFolder,
 		downloadArgv,
-		filteredBytes,
 		memberOusUids,
+		parsePatterns,
 		productTotals,
 		queryArgv,
 		resolveArgv,
+		selection,
 		toRecords
 	} from '#lib/utils/archive.js';
 	import { buildArgv, initialValues, type Command, type Values } from '#lib/utils/commandForm.js';
@@ -63,6 +64,9 @@
 	let msFolder = $state('');
 	let msFolderDefault = '';
 	let productFilter = $state('all');
+	let listFiles = $state(false);
+	let includeText = $state('');
+	let excludeText = $state('');
 	let extract = $state(true);
 	let unpack = $state(true);
 	let calibrate = $state(true);
@@ -76,7 +80,12 @@
 	);
 	const uids = $derived(results ? memberOusUids(results.records, selected) : []);
 	const totals = $derived(products ? productTotals(products) : []);
-	const downloadBytes = $derived(filteredBytes(totals, productFilter));
+	const include = $derived(parsePatterns(includeText));
+	const exclude = $derived(parsePatterns(excludeText));
+	const picked = $derived(
+		products ? selection(products, productFilter, include, exclude) : { count: 0, bytes: 0 }
+	);
+	const downloadBytes = $derived(picked.bytes);
 	/** The ticked rows, opened on the Simulate page instead. */
 	const simulateHref = $derived(
 		`${resolve('/simulate')}?metadata=${encodeURIComponent(resultsCsv ?? '')}&rows=${[...selected]
@@ -212,7 +221,7 @@
 	}
 
 	async function resolveProducts() {
-		const run = await submit(resolveArgv(uids), `Resolve ${uids.length} observations`);
+		const run = await submit(resolveArgv(uids, listFiles), `Resolve ${uids.length} observations`);
 		if (run) go({ resolve: run.id });
 	}
 
@@ -223,6 +232,8 @@
 			destination: destination.trim(),
 			msFolder,
 			productFilter,
+			include,
+			exclude,
 			extract,
 			unpack,
 			calibrate
@@ -335,6 +346,10 @@
 				<p class="m-0 text-sm text-fg-muted">The query found nothing. Try fewer filters.</p>
 			{:else}
 				<ResultsTable records={results.records} columns={results.columns} bind:selected />
+				<label class="flex items-center gap-2 text-sm"
+					><input type="checkbox" bind:checked={listFiles} /> List the files inside each archive, to pick
+					single files such as the cleaned images</label
+				>
 				<div class="flex flex-wrap items-center gap-3">
 					<button
 						type="button"
@@ -409,9 +424,30 @@
 								{#each totals as t (t.type)}<option value={t.type}>{t.type} only</option>{/each}
 							</select>
 						</label>
+						<label class="flex flex-col gap-1 text-sm">
+							<span class="font-medium">Only files named</span>
+							<input
+								class="rounded-md border px-3 py-2 font-mono"
+								placeholder="*.pbcor.fits"
+								bind:value={includeText}
+							/>
+						</label>
+						<label class="flex flex-col gap-1 text-sm">
+							<span class="font-medium">Except files named</span>
+							<input
+								class="rounded-md border px-3 py-2 font-mono"
+								placeholder="*_bp.*"
+								bind:value={excludeText}
+							/>
+							<span class="text-xs text-fg-muted"
+								>Comma-separated name patterns: <code>*</code> any text, <code>?</code> one character.
+								They pick among the files inside the archives when the products were found with “list
+								the files inside each archive”, and among whole archives otherwise.</span
+							>
+						</label>
 						<PathPicker bind:value={destination} label="Destination" allowCreate required />
 						<p class="m-0 text-sm" class:text-danger={space && space.free_bytes < downloadBytes}>
-							{formatBytes(downloadBytes)} to download{space
+							{picked.count} file{picked.count === 1 ? '' : 's'}, {formatBytes(downloadBytes)} to download{space
 								? ` · ${formatBytes(space.free_bytes)} free there`
 								: ''}.
 							{#if space && space.free_bytes < downloadBytes}<strong>Not enough space.</strong>{/if}
