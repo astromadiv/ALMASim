@@ -91,10 +91,32 @@ almasim products download --products-csv resolved.csv \
 
 `almasim products resolve --expand-archives` saves the files instead of the
 tars in the products CSV, so the list shows each file's size before anything is
-downloaded. The files land in `--destination` as they are named, flat:
-each name starts with `member.<member uid>.`, so it still says which
-observation it belongs to. The QA0 filter below reads the reports from an
-extracted auxiliary tar, so download that tar whole when you use it.
+downloaded.
+
+The files go where the tars would put them (`--layout delivery`, the default):
+
+```text
+<destination>/<project>/science_goal.<uid>/group.<uid>/member.<uid>/
+    member.<uid>.README.txt
+    product/        the images
+    calibration/    the auxiliary tar's calibration tables and calapply files
+    qa/             the QA0 and QA2 reports and the weblog
+    script/         the pipeline scripts
+    log/            the pipeline's casa_commands.log
+```
+
+Each listed file's folder is the type its DataLink description names
+(`product`, `calibration`, `qa`, `script`), and the log goes in `log/`. The
+project, science goal and group are read from the first header of one tar
+per member: a short read that stops after 16 KB. When that read fails, the
+member's files go in a `member.<uid>` folder in the destination. The products
+CSV records each file's folder in its `path` column. `--layout flat` puts
+every file in `--destination` itself; each name starts with
+`member.<member uid>.`. The member's tars, the raw ASDM tars and any file
+that is not listed go in `--destination`, and `--extract-tar` unpacks a tar
+into the same tree. The QA0 filter below reads the reports from the `qa/`
+folders under `--qa0-report-root`, so the delivery layout serves it whether
+the auxiliary tar was extracted or listed file by file.
 
 ## Skipping execution blocks ALMA never calibrated
 

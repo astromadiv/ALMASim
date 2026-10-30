@@ -47,6 +47,7 @@ def load_products_csv(input_path: Path | str) -> list[DataProduct]:
                 content_type=str(row.get("content_type", "") or ""),
                 product_type=str(row.get("product_type", "other") or "other"),
                 semantics=str(row.get("semantics", "") or ""),
+                path=str(row.get("path", "") or ""),
             )
         )
     return products

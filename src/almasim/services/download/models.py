@@ -19,10 +19,17 @@ class DataProduct:
     content_type: str
     product_type: str
     semantics: str = ""
+    path: str = ""
+    """The folder under the download destination the file goes in; empty: the destination."""
 
     @property
     def size_mb(self) -> float:
         return self.content_length / (1024 * 1024)
+
+    @property
+    def relative_path(self) -> str:
+        """Where the file lands, relative to the download destination."""
+        return f"{self.path}/{self.filename}" if self.path else self.filename
 
 
 @dataclass

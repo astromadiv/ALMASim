@@ -1,5 +1,8 @@
 """Unit tests for the library-first download service."""
 
+import io
+import tarfile
+
 from almasim.services.download import (
     DataProduct,
     datalink,
@@ -99,7 +102,7 @@ def test_expand_archives_lists_the_files_inside_the_tars(monkeypatch):
         _row("P_uid___A002_X1_X1.asdm.sdm.tar", "#progenitor", "raw"),
     ]
 
-    expanded = expand_archives(products)
+    expanded = expand_archives(products, layout="flat")
 
     assert sorted(requested) == ["P_001_of_001.tar", "P_auxiliary.tar"]
     assert [(row.filename, row.product_type) for row in expanded] == [
@@ -110,6 +113,101 @@ def test_expand_archives_lists_the_files_inside_the_tars(monkeypatch):
         ("P_uid___A002_X1_X1.asdm.sdm.tar", "raw"),
     ]
     assert {row.uid for row in expanded} == {"uid://A001/X1/X1"}
+    assert {row.path for row in expanded} == {""}
+
+
+_MEMBER = (
+    "2023.1.00882.S/science_goal.uid___A001_X3621_X1f9b/group.uid___A001_X3621_X1f9c/"
+    "member.uid___A001_X3621_X1f9d"
+)
+
+
+def _tar_start(first_name: str) -> bytes:
+    """The start of a tar whose first file is ``first_name`` (a GNU long name when long)."""
+    buffer = io.BytesIO()
+    with tarfile.open(fileobj=buffer, mode="w", format=tarfile.GNU_FORMAT) as archive:
+        info = tarfile.TarInfo(first_name)
+        info.size = 4096
+        archive.addfile(info, io.BytesIO(b"x" * 4096))
+    return buffer.getvalue()[:2048]  # the transfer stops early: the file data is cut off
+
+
+def test_member_dir_is_read_from_the_tar_start():
+    """The member folder comes from the tar's first path, long names and cut-off data included."""
+    first = f"{_MEMBER}/product/member.uid___A001_X3621_X1f9d.J1037-2934_bp.spw23.mfs.I.pb.fits.gz"
+    assert len(first) > 100
+    assert datalink._member_dir_from_tar_head(_tar_start(first)) == _MEMBER
+    assert datalink._member_dir_from_tar_head(_tar_start("../member.x/a.fits")) is None
+    assert datalink._member_dir_from_tar_head(_tar_start("README.txt")) is None
+    assert datalink._member_dir_from_tar_head(b"<html>maintenance</html>") is None
+
+
+def test_listing_descriptions_name_the_delivery_folders():
+    """A listed file's folder is the type its description names; logs go in log/."""
+    folder = datalink._listing_folder
+    assert folder("Download dataset of type: product, and class: SCIENCE.", "a.fits") == "product"
+    assert folder("Download dataset of type: calibration, and class: CALIBRATION.", "a.tgz") == (
+        "calibration"
+    )
+    assert folder("Download dataset of type: qa, and class: QA0.", "a.pdf") == "qa"
+    assert folder("Download dataset of type: script, and class: PPR.", "a.xml") == "script"
+    assert folder("", "member.x.hifa_calimage.casa_commands.log") == "log"
+    assert folder("Download dataset of type: null, and class: N/A.", "x.tar") == ""
+
+
+def test_expand_archives_puts_the_files_in_the_delivery_tree(monkeypatch):
+    """layout="delivery": each file in its member folder, read once per member from a tar."""
+    pbcor = _row("m.cube.I.pbcor.fits", uid="P_001_of_001.tar")
+    qa2 = _row("m.qa2_report.pdf", "#auxiliary", "auxiliary", "P_auxiliary.tar")
+    log = _row("m.casa_commands.log", "#documentation", "auxiliary", "P_auxiliary.tar")
+    pbcor.path, qa2.path, log.path = "product", "qa", "log"
+    listings = {"P_001_of_001.tar": [pbcor], "P_auxiliary.tar": [qa2, log]}
+    heads: list[str] = []
+
+    def fake_head(url):
+        heads.append(url)
+        return _tar_start(f"{_MEMBER}/product/m.cube.I.pbcor.fits")
+
+    monkeypatch.setattr(datalink, "_fetch_datalink", lambda uid, mirror_base: listings[uid])
+    monkeypatch.setattr(datalink, "_tar_head", fake_head)
+    products = [
+        _row("m.README.txt", "#documentation", "auxiliary"),
+        _row("P_001_of_001.tar"),
+        _row("P_auxiliary.tar", "#auxiliary", "auxiliary"),
+        _row("P.asdm.sdm.tar", "#progenitor", "raw"),
+    ]
+
+    expanded = expand_archives(products)
+
+    assert heads == ["https://example.org/P_001_of_001.tar"]
+    assert [row.relative_path for row in expanded] == [
+        f"{_MEMBER}/m.README.txt",
+        f"{_MEMBER}/product/m.cube.I.pbcor.fits",
+        f"{_MEMBER}/qa/m.qa2_report.pdf",
+        f"{_MEMBER}/log/m.casa_commands.log",
+        "P.asdm.sdm.tar",
+    ]
+
+
+def test_expand_archives_names_the_member_folder_when_the_tar_is_unreadable(monkeypatch):
+    """Without a readable tar start, the files still go in a folder named after their member."""
+    listed = _row("m.pbcor.fits", uid="P_001_of_001.tar")
+    listed.path = "product"
+    monkeypatch.setattr(datalink, "_fetch_datalink", lambda uid, mirror_base: [listed])
+    monkeypatch.setattr(datalink, "_tar_head", lambda url: b"")
+
+    (row,) = expand_archives([_row("P_001_of_001.tar")])
+
+    assert row.relative_path == "member.uid___A001_X1_X1/product/m.pbcor.fits"
+
+
+def test_resolved_tars_land_in_the_destination(monkeypatch):
+    """A member's own DataLink rows (its tars, its README) keep no folder."""
+    listed = _row("P_001_of_001.tar")
+    listed.path = "product"
+    monkeypatch.setattr(datalink, "_fetch_datalink", lambda uid, mirror_base: [listed])
+
+    assert [row.path for row in datalink.resolve_products(["uid://A001/X1/X1"])] == [""]
 
 
 def test_expand_archives_keeps_a_tar_it_cannot_list(monkeypatch):
@@ -121,7 +219,7 @@ def test_expand_archives_keeps_a_tar_it_cannot_list(monkeypatch):
     monkeypatch.setattr(datalink, "_fetch_datalink", failing_fetch)
     tar = _row("P_001_of_001.tar")
 
-    assert expand_archives([tar]) == [tar]
+    assert expand_archives([tar], layout="flat") == [tar]
 
 
 def test_products_csv_roundtrip(tmp_path):
@@ -135,6 +233,7 @@ def test_products_csv_roundtrip(tmp_path):
             content_type="application/fits",
             product_type="fits",
             semantics="alma#imagecube",
+            path="P/member.uid___A001_X1_X1/product",
         )
     ]
     csv_path = tmp_path / "products.csv"
@@ -148,6 +247,7 @@ def test_products_csv_roundtrip(tmp_path):
     assert loaded[0].filename == products[0].filename
     assert loaded[0].product_type == products[0].product_type
     assert loaded[0].semantics == products[0].semantics
+    assert loaded[0].path == products[0].path
 
 
 def test_download_products_skips_existing_file(tmp_path):
@@ -177,12 +277,25 @@ def test_download_products_skips_existing_file(tmp_path):
     assert summary.files[0].bytes_downloaded == file_path.stat().st_size
 
 
+def test_download_products_puts_a_file_in_its_folder(tmp_path):
+    """A product with a path lands in that folder under the destination."""
+    folder = tmp_path / "downloads" / "P" / "member.uid___A001_X1_X1" / "product"
+    folder.mkdir(parents=True)
+    (folder / "m.pbcor.fits").write_bytes(b"image")
+    product = _row("m.pbcor.fits")
+    product.path = "P/member.uid___A001_X1_X1/product"
+    product.content_length = 5
+
+    summary = download_products([product], tmp_path / "downloads")
+
+    assert summary.files_completed == 1
+    assert summary.files[0].filename == "P/member.uid___A001_X1_X1/product/m.pbcor.fits"
+
+
 # ---------------------------------------------------------------------------
 # Truncated / short downloads must never be reported as completed
 # ---------------------------------------------------------------------------
 
-import io  # noqa: E402
-import tarfile  # noqa: E402
 from contextlib import contextmanager  # noqa: E402
 
 import pytest  # noqa: E402

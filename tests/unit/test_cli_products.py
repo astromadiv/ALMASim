@@ -234,7 +234,8 @@ def test_products_download_picks_files_inside_the_archives(tmp_path, monkeypatch
     ]
     expanded: list[list[str]] = []
 
-    def fake_expand(products):
+    def fake_expand(products, layout):
+        assert layout == "delivery"
         expanded.append([p.filename for p in products])
         return files
 
@@ -288,7 +289,7 @@ def test_products_resolve_saves_the_expanded_listing(tmp_path, monkeypatch):
     tar = DataProduct("https://example.org/P.tar", "uid://A", "P.tar", 9, "", "fits", "#this")
     inner = DataProduct("https://example.org/m.fits", "uid://A", "m.pbcor.fits", 4, "", "fits")
     monkeypatch.setattr(cli_products, "resolve_products", lambda uids: [tar])
-    monkeypatch.setattr(cli_products, "expand_archives", lambda products: [inner])
+    monkeypatch.setattr(cli_products, "expand_archives", lambda products, layout: [inner])
     products_csv = tmp_path / "products.csv"
 
     result = runner.invoke(

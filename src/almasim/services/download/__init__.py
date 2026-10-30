@@ -8,6 +8,7 @@ the files inside tars, filter and select), ``catalog_io`` (products CSV),
 
 from .catalog_io import load_products_csv, products_to_dataframe, save_products_csv
 from .datalink import (
+    LAYOUTS,
     expand_archives,
     filter_products,
     is_expandable,
@@ -29,6 +30,7 @@ __all__ = [
     "resolve_products",
     "filter_products",
     "expand_archives",
+    "LAYOUTS",
     "is_expandable",
     "select_files",
     "products_to_dataframe",

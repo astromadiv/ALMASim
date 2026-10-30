@@ -199,6 +199,7 @@ def _resolve_products_from_inputs(
     member_limit: int | None,
     save_products_csv_path: Path | None,
     expand_archives: bool = False,
+    layout: str = "delivery",
 ) -> list[Any]:
     if products_csv is not None:
         loaded = load_products_csv(products_csv)
@@ -228,7 +229,7 @@ def _resolve_products_from_inputs(
     if not resolved:
         fail("No products were resolved for the requested member_ous_uid values.")
     if expand_archives:
-        resolved = _expand_archives(resolved)
+        resolved = _expand_archives(resolved, layout)
 
     if save_products_csv_path is not None:
         saved = save_products_csv(resolved, save_products_csv_path)
@@ -236,11 +237,16 @@ def _resolve_products_from_inputs(
     return resolved
 
 
-def _expand_archives(products: list[Any]) -> list[Any]:
+class Layout(StrEnum):
+    delivery = "delivery"
+    flat = "flat"
+
+
+def _expand_archives(products: list[Any], layout: str) -> list[Any]:
     """The products with each product and auxiliary tar replaced by the files inside it."""
     archives = sum(1 for product in products if is_expandable(product))
     typer.echo(f"Listing the files inside {archives} archive(s)...")
-    expanded = expand_archives(products)
+    expanded = expand_archives(products, layout=layout)
     typer.echo(f"Listed rows: {len(expanded)}")
     return expanded
 
@@ -249,6 +255,12 @@ _EXPAND_ARCHIVES_HELP = (
     "List the files inside each member's product and auxiliary tars, one row per file, "
     "so single files can be picked with --include/--exclude (for example the "
     "'*.pbcor.fits' images). One more DataLink request per tar."
+)
+_LAYOUT_HELP = (
+    "Where --expand-archives puts the files it lists: 'delivery' in the folders of the "
+    "ALMA delivery tree, <project>/science_goal.*/group.*/member.*/product/ (or "
+    "calibration/, qa/, script/, log/), read from the start of one tar per member; "
+    "'flat' in --destination itself."
 )
 
 
@@ -281,6 +293,7 @@ def products_resolve(
         help="Destination CSV for resolved DataLink products.",
     ),
     expand_archives: bool = typer.Option(False, "--expand-archives", help=_EXPAND_ARCHIVES_HELP),
+    layout: Layout = typer.Option(Layout.delivery, "--layout", help=_LAYOUT_HELP),
 ) -> None:
     """Extract member_ous_uid values and resolve ALMA DataLink products."""
     member_uids = _parse_uid_options(member_ous_uid)
@@ -306,6 +319,7 @@ def products_resolve(
         member_limit=None,
         save_products_csv_path=save_products_csv_path,
         expand_archives=expand_archives,
+        layout=layout,
     )
     typer.echo(f"Resolved products: {len(products)}")
 
@@ -369,6 +383,7 @@ class DownloadOptions:
     member_limit: int | None
     product_filter: str
     expand_archives: bool
+    layout: Layout
     include: list[str] | None
     exclude: list[str] | None
     skip_qa0_semipass: bool
@@ -435,6 +450,9 @@ def products_download(
         "--expand-archives",
         help=_EXPAND_ARCHIVES_HELP + " Runs after --product-filter, on the selected tars only.",
         rich_help_panel="Selection",
+    ),
+    layout: Layout = typer.Option(
+        Layout.delivery, "--layout", help=_LAYOUT_HELP, rich_help_panel="Selection"
     ),
     include: list[str] | None = typer.Option(
         None,
@@ -600,7 +618,7 @@ def products_download(
 def _pick_files(o: DownloadOptions, products: list[Any]) -> list[Any]:
     """The filtered products, their tars listed file by file, picked by name (exits on none)."""
     if o.expand_archives:
-        products = _expand_archives(products)
+        products = _expand_archives(products, o.layout)
     include, exclude = split_csv_values(o.include) or [], split_csv_values(o.exclude) or []
     if include or exclude:
         products = select_files(products, include, exclude)
