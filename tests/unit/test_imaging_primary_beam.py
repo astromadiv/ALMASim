@@ -401,7 +401,7 @@ def test_run_and_mark_keeps_the_cause_of_a_cube_continuum_failure(tmp_path, monk
     monkeypatch.setattr(
         task,
         "stack_channel_images",
-        lambda out, prefix, keep: (
+        lambda out, prefix, keep, provenance=None: (
             (out / imaging_products.CUBE_IMAGE_FILENAME).write_bytes(b"x") and {}
         ),
     )

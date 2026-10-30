@@ -733,7 +733,7 @@ def _noise_run(tmp_path, monkeypatch, *, fit, single_channel=False, write=True):
         lambda f, kw, **_: children.append((f, kw)) or {},
     )
 
-    def stack(out_dir, prefix, keep):
+    def stack(out_dir, prefix, keep, provenance=None):
         if single_channel:
             return {}
         (out_dir / f"{prefix}-0000-dirty.fits").rename(out_dir / f"{prefix}-dirty.fits")

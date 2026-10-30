@@ -128,6 +128,7 @@ def run_imaging_tasks(  # noqa: C901
                         field_ids=list(task.field_ids),
                         cube_command=task.cube_command,
                         pb_dish_diameter=task.dish_diameter if imaging.pbcor else None,
+                        provenance=task.provenance,
                         **shared_kwargs,
                     )
                 )
@@ -181,6 +182,7 @@ def run_imaging_tasks(  # noqa: C901
                 field_ids=list(task.field_ids),
                 cube_command=task.cube_command,
                 pb_dish_diameter=task.dish_diameter if imaging.pbcor else None,
+                provenance=task.provenance,
                 **shared_kwargs,
             )
 

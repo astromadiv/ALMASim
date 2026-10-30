@@ -534,6 +534,7 @@ $ almasim image image-from-ms [OPTIONS] {imaging_parameters} {output_directory}
 * `--cube-line-mask / --no-cube-line-mask`: Clean the cube a second time (-continue) inside the moment-0 mask of the first pass: a line's faint parts, below each channel's own auto-mask but clear in the sum, are cleaned too (default; with --cube and --single-window-ms; ~2x the cube time).  [default: cube-line-mask]
 * `--cube-reorder / --cube-no-reorder`: Let WSClean reorder the single-window MS per channel for the cube (default). Without it WSClean re-reads the whole MS for every cube channel: ~25x slower.  [default: cube-reorder]
 * `--plan-only`: Print the channel plan and the projected cube volume, then exit without imaging.
+* `--ous-index <path>`: The delivery tree's ous_index.csv, for the project, science goal, group and member OUS in every FITS header (default: the ous_index.csv nearest above each MS).
 * `--help`: Show this message and exit.
 
 ### `almasim image clean-quality`

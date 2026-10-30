@@ -15,6 +15,7 @@ from ..continuum import line_free_channels
 from ..fits_io import write_fits_atomic
 from ..fits_wcs import beam_pixels, velocity_axis
 from ..products import LINE_MASK_FILENAME, cube_product
+from ..provenance import copy_provenance
 from ..stats import moment_mask, robust_sigma
 from .continuum import _plane, _ratio, _source_geometry
 
@@ -284,14 +285,17 @@ def _write_moments(task_dir: Path, header, *, line_any: bool, **maps: np.ndarray
     ):
         if key in header:
             plane_header[key] = header[key]
+    copy_provenance(header, plane_header)
     written = []
     for name, data in maps.items():
         if name in ("mom0", "mom1", "mom8", "residual_line") and not line_any:
             continue
-        plane_header["BUNIT"] = units[name]
         path = out / f"cube-{name.replace('_', '-')}.fits"
+        map_header = plane_header.copy()
+        map_header["BUNIT"] = units[name]
+        map_header.add_history(f"ALMASim: clean-quality map {path.name}")
         write_fits_atomic(
-            path, [fits.PrimaryHDU(np.asarray(data, dtype=np.float32), header=plane_header)]
+            path, [fits.PrimaryHDU(np.asarray(data, dtype=np.float32), header=map_header)]
         )
         written.append(path.name)
     return written

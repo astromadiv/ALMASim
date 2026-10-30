@@ -284,6 +284,12 @@ def test_run_wsclean_task_makes_continuum_cube_and_contsub(tmp_path, monkeypatch
     assert "stacked channel images into cubes: image (8 channels)" in (
         imaging_markers.imaging_log_path(out).read_text()
     )
+    continuum_history = [str(h) for h in fits.getheader(out / "wsclean-image.fits")["HISTORY"]]
+    assert continuum_history[0].startswith("ALMASim: wsclean -name wsclean -j 2 ")
+    for name in ("wsclean-cube-image.fits", "wsclean-cube-image.contsub.fits"):
+        header = fits.getheader(out / name)
+        assert header["SPW"] == "25" and header["MSNAM01"] == "x.ms.split.cal"
+        assert any("-name wsclean-cube" in str(h) for h in header["HISTORY"])
 
 
 @pytest.mark.unit

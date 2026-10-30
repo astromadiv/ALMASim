@@ -9,9 +9,13 @@ import os
 import re
 from collections.abc import Sequence
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from almasim.services.imaging.products import CUBE_NAME, LINE_MASK_FILENAME
 from almasim.services.imaging.wsclean.command import WSCleanCommand
+
+if TYPE_CHECKING:
+    from astropy.io import fits
 
 _CHANNEL_FILE = re.compile(r"^(?P<prefix>.+)-(?P<channel>\d{4})-(?P<product>[a-z-]+)\.fits$")
 
@@ -21,6 +25,7 @@ def stack_channel_images(  # noqa: C901
     *,
     prefix: str = "wsclean",
     keep: Sequence[str] | None = None,
+    provenance: fits.Header | None = None,
 ) -> dict[str, int]:
     """Stack WSClean's per-channel FITS (``-channels-out``) into one cube per product.
 
@@ -36,12 +41,16 @@ def stack_channel_images(  # noqa: C901
     CASA and spectral-cube read; the primary header keeps the middle
     channel's beam.
 
+    Each cube's header also gets the cards of ``provenance``
+    (:func:`~almasim.services.imaging.provenance.copy_provenance`).
+
     Returns ``{product: n_channels}`` of the cubes written.
     """
     import numpy as np
     from astropy.io import fits
 
     from almasim.services.imaging.fits_io import ChannelBeam, read_image, write_cube
+    from almasim.services.imaging.provenance import copy_provenance
 
     out = Path(output_dir)
     groups: dict[str, list[tuple[int, Path]]] = {}
@@ -74,6 +83,8 @@ def stack_channel_images(  # noqa: C901
         header["CRVAL3"] = frequencies[0]
         if steps.size:
             header["CDELT3"] = float(steps[0])
+        if provenance is not None:
+            copy_provenance(provenance, header)
         beams = None
         if all("BMAJ" in h for h in headers):
             beams = [ChannelBeam.from_header(h) for h in headers]

@@ -36,6 +36,7 @@ __all__ = [
     "folder_uid",
     "member_folders",
     "organize_delivery",
+    "read_ous_index",
 ]
 
 CALIBRATED_FOLDER = "calibrated"
@@ -106,6 +107,12 @@ def member_folders(root: str | os.PathLike[str]) -> dict[str, MemberFolder]:
                 logger.warning("%s is listed by %s and %s", eb, members[eb].path, path)
             members.setdefault(eb, member)
     return members
+
+
+def read_ous_index(path: str | os.PathLike[str]) -> dict[str, dict[str, str]]:
+    """An ``ous_index.csv`` as ``{eb_uid: row}``."""
+    with Path(path).open(newline="", encoding="utf-8") as handle:
+        return {row["eb_uid"]: row for row in csv.DictReader(handle)}
 
 
 def _link(target: Path, link: Path) -> bool:

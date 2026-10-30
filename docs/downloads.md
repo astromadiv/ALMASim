@@ -156,7 +156,10 @@ almasim visibilities organize --delivery-root downloads \
   --raw-ms-root downloads/archive_ms/raw_ms
 ```
 
-The library entry point is `almasim.services.archive.organize_delivery`.
+The library entry point is `almasim.services.archive.organize_delivery`, and
+`read_ous_index` reads the index back as `{eb_uid: row}`.
+`image image-from-ms` takes the OUSs of every FITS header it writes from it
+(see [Provenance in the FITS headers](imaging.md#provenance-in-the-fits-headers)).
 
 ## Skipping execution blocks ALMA never calibrated
 
