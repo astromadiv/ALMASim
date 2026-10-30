@@ -849,7 +849,11 @@ measured are skipped when you run it again; failures are listed in
 `noise/failures.json` and do not stop the others. Six real windows took 53 s
 and 1.4 GB in all. Its `exposure` also records `resolution_hz`, the window's
 `RESOLUTION` as its MS gives it, from which `noise validate` simulates the
-window's own channel averaging.
+window's own channel averaging, and `high_weight_fraction`, the share of its
+rows whose WEIGHT exceeds 10^4, the most `image image-from-ms --max-weight`
+images by default. Those are rows the archive pipeline flagged and
+calibration left unflagged, with garbage amplitudes; the image leaves them
+out, and `noise validate` simulates the window without as much of its data.
 
 This is window 81 (band 6, 12 m), shortened:
 
@@ -860,7 +864,7 @@ This is window 81 (band 6, 12 m), shortened:
     "antennas": 43, "baselines": 903, "integrations": 55, "integration_s": 6.048,
     "time_on_source_s": 332.6, "channels": 240, "channel_width_hz": 7812500.0,
     "noise_bandwidth_hz": 8196777.3, "frequency_ghz": 267.73,
-    "flagged_fraction": 0.0033, "elevation_deg": 60.0
+    "flagged_fraction": 0.0033, "high_weight_fraction": 0.0, "elevation_deg": 60.0
   },
   "thermal": {
     "scale": 1.297,        // the noise is 1.3 x what WEIGHT says (in variance)
@@ -955,6 +959,11 @@ candidate (a point source at the window's frequency, with its channels, up
 to 960 of them, and their averaging as its MS gives them, one execution
 block). The source is as bright as the real image's continuum peak, so its
 cleaning residuals are those of the real field (see below). ALMASim then
+flags whole rows of the simulated MS, drawn at random, until it misses as
+large a share of its data as the real image does: the window's
+`flagged_fraction` plus its `high_weight_fraction`, at most 95%. The image
+noise follows the data imaged, so a simulated window with all its data would
+be quieter than the real one by the square root of the share it kept. It
 measures the simulated MS with `noise extract`, in a process of its own
 (the simulation wrote the MS with casatools, and python-casacore opening it
 in the same process can abort with `free(): invalid pointer`), images it as

@@ -268,7 +268,8 @@ task on a Slurm worker.
 
 **`noise extract`** measures, from differences of channels (three apart they
 remove the sky; one and two apart they show the correlation of neighbours),
-so no sky model is needed: the window's exposure, its noise against WEIGHT
+so no sky model is needed: the window's exposure (with its flagged share and
+the share of rows whose WEIGHT exceeds 10^4, which the imaging leaves out), its noise against WEIGHT
 (`scale`, 1 when WEIGHT is right), its channel correlation (`rho1`, `rho2`)
 and noise profile, ALMA's Tsys across the window from `SYSCAL`, one Stokes I
 visibility's noise at unit time and bandwidth and the efficiency it implies
@@ -306,7 +307,9 @@ model's, with a note in `provenance.notes`.
 source as bright as the real image's continuum peak, the window's frequency,
 channels and channel averaging from its MS's `RESOLUTION`, one execution
 block of the MS's time on source by as many antennas as the MS, through the
-window's PWV or, without one, the PWV its SYSCAL Tsys implies), exports the MS, measures it with `noise extract` (in a process of
+window's PWV or, without one, the PWV its SYSCAL Tsys implies), exports the MS, flags as large a share of its rows as the real
+image misses (the window's flagged data and its rows over the imaging's
+maximum WEIGHT, `exposure.high_weight_fraction`), measures it with `noise extract` (in a process of
 its own) and images it as the real one was imaged. Everything goes under `validation/<model sha256[:12]>/`, so different
 models never mix. At the end, `noise compare` writes `comparison.json`: per
 metric, the median of the per-window ratio (noise levels) or difference

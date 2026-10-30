@@ -22,6 +22,7 @@ from typing import Any
 import numpy as np
 
 from ..imaging.ms_geometry import import_casacore_tables
+from ..instrument.constants import DEFAULT_MAX_WEIGHT
 from .measurements import (
     AntennaShape,
     Exposure,
@@ -56,6 +57,7 @@ class _Sums:
     antenna_sum: np.ndarray = field(init=False)
     antenna_count: np.ndarray = field(init=False)
     rows: int = 0
+    high_rows: int = 0
     flagged: float = 0.0
     values: float = 0.0
 
@@ -78,10 +80,13 @@ def extract_window(
     max_visibilities: int = 40_000_000,
     chunk_values: int = 20_000_000,
     pwv_mm: float | None = None,
+    max_weight: float | None = DEFAULT_MAX_WEIGHT,
 ) -> tuple[WindowNoise, dict[str, np.ndarray]]:
     """Measure one window. Returns the measurements and the arrays to keep
     beside them (``antenna_g`` (nant, nchan, nhand) and ``antenna_h``: each
-    antenna's and hand's noise shape, empty when it could not be measured)."""
+    antenna's and hand's noise shape, empty when it could not be measured).
+    Rows whose WEIGHT exceeds ``max_weight`` (the imaging's maximum) are
+    counted as the exposure's ``high_weight_fraction``."""
     from almasim.__version__ import __version__
 
     table = import_casacore_tables()
@@ -128,11 +133,21 @@ def extract_window(
                 ant1=a1[first : first + count * step : step],
                 ant2=a2[first : first + count * step : step],
                 hands=hands[:2],
+                max_weight=max_weight,
             )
 
     thermal = _thermal(sums, lines, step)
     exposure = _exposure(
-        table, ms, window, exposure_cols, a1, a2, fields, ncorr, sums.flagged / max(sums.values, 1)
+        table,
+        ms,
+        window,
+        exposure_cols,
+        a1,
+        a2,
+        fields,
+        ncorr,
+        sums.flagged / max(sums.values, 1),
+        sums.high_rows / max(sums.rows, 1),
     )
     tsys = None
     try:
@@ -221,8 +236,11 @@ def _accumulate(
     ant1: np.ndarray,
     ant2: np.ndarray,
     hands: list[int],
+    max_weight: float | None = None,
 ) -> None:
     """Add one chunk of rows (nrow, nchan, ncorr) to the sums."""
+    if max_weight:
+        sums.high_rows += int((weight.max(axis=1) > max_weight).sum())
     if weight.shape[1] != data.shape[2]:
         weight = np.repeat(weight.mean(axis=1, keepdims=True), data.shape[2], axis=1)
     good = ~flag & (weight[:, None, :] > 0)
@@ -314,6 +332,7 @@ def _exposure(
     fields: list[int] | None,
     ncorr: int,
     flagged: float,
+    high_weight: float = 0.0,
 ) -> Exposure:
     times, interval = cols["TIME"], cols["INTERVAL"]
     unique, first = np.unique(times, return_index=True)
@@ -336,6 +355,7 @@ def _exposure(
         frequency_ghz=float(np.mean(window["freq"]) / 1e9),
         correlations=int(ncorr),
         flagged_fraction=float(flagged),
+        high_weight_fraction=float(high_weight),
         elevation_deg=_elevation(table, ms, unique, fields),
     )
 

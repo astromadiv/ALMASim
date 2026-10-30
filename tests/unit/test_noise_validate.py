@@ -24,6 +24,8 @@ from almasim.services.noise.measurements import (
 )
 from almasim.services.noise_model import released_model
 
+from ._fakes import FakeTable
+
 
 def _header(n: int) -> fits.Header:
     header = fits.Header()
@@ -569,3 +571,91 @@ def test_a_window_is_observed_as_long_and_by_as_many_antennas_as_its_ms():
     # One antenna per pad; a unit with no more antennas than the MS keeps them all.
     shared = pd.Series({"Int.Time": 600.0, "antenna_arrays": "A1:DA41 A1:DA42 A2:DV01 A3:DV02"})
     assert v.with_exposure(shared, window, seed=3)["antenna_arrays"] == "A1:DA41 A2:DV01 A3:DV02"
+
+
+def _lossy(window: WindowNoise, flagged: float, high_weight: float) -> WindowNoise:
+    e = window.exposure.model_copy(
+        update={"flagged_fraction": flagged, "high_weight_fraction": high_weight}
+    )
+    return window.model_copy(update={"exposure": e})
+
+
+@pytest.mark.unit
+def test_a_simulated_window_misses_as_much_data_as_the_real_image():
+    assert v.unimaged_fraction(_window("w0")) == 0.0
+    assert v.unimaged_fraction(_lossy(_window("w0"), 0.1, 0.2)) == pytest.approx(0.3)
+    assert v.unimaged_fraction(_lossy(_window("w0"), 0.6, 0.5)) == v.MAX_UNIMAGED
+
+
+def _flaggable(ncross: int = 1000, nauto: int = 10, nchan: int = 8) -> FakeTable:
+    """A simulated MS's flags: a tenth of its cross-correlation rows flagged,
+    the next 50 rows half flagged, and autocorrelations after them."""
+    flag = np.zeros((ncross + nauto, nchan, 2), dtype=bool)
+    flag[:100] = True
+    flag[100:150, : nchan // 2] = True
+    return FakeTable(
+        {
+            "ANTENNA1": np.r_[np.zeros(ncross, int), np.arange(nauto)],
+            "ANTENNA2": np.r_[np.ones(ncross, int), np.arange(nauto)],
+            "FLAG": flag,
+            "FLAG_ROW": np.zeros(ncross + nauto, dtype=bool),
+        }
+    )
+
+
+@pytest.mark.unit
+def test_rows_are_flagged_until_the_share_is_reached(monkeypatch):
+    from almasim.services.imaging import ms_geometry
+
+    tables = [_flaggable(), _flaggable()]
+    opened = iter(tables)
+    monkeypatch.setattr(ms_geometry, "import_casacore_tables", lambda: lambda *a, **k: next(opened))
+    monkeypatch.setattr(v, "FLAG_CHUNK_ROWS", 64)
+    # 0.4 of 1000 rows of data: 100 + 25 flagged already, 275 rows more.
+    assert v.flag_rows("sim.ms", 0.4, seed=3) == {"flagged_rows": 275}
+    flag, flag_row = tables[0].columns["FLAG"], tables[0].columns["FLAG_ROW"]
+    assert flag[:1000].mean() == pytest.approx(0.4)
+    assert flag_row[:1000].sum() == 275 and not flag_row[1000:].any()
+    assert not flag[1000:].any()  # autocorrelations untouched
+    assert not flag[100:150, 4:].any()  # rows with flags already are not drawn
+    v.flag_rows("sim.ms", 0.4, seed=3)
+    assert (tables[1].columns["FLAG_ROW"] == flag_row).all()  # the seed draws the rows
+
+
+@pytest.mark.unit
+def test_the_simulated_ms_is_flagged_in_a_process_of_its_own(monkeypatch, tmp_path):
+    from almasim.services.runtime import child
+
+    calls = []
+
+    def call_in_child(target, kwargs, **options):
+        calls.append((target, kwargs))
+        return {"flagged_rows": 12}
+
+    monkeypatch.setattr(child, "call_in_child", call_in_child)
+    real = _window("w0")
+    assert v.flag_as_imaged(tmp_path / "sim.ms", real, seed=5) == 0 and calls == []
+    assert v.flag_as_imaged(tmp_path / "sim.ms", _lossy(real, 0.0, 0.25), seed=5) == 12
+    assert calls == [
+        (
+            "almasim.services.noise.validate:flag_rows",
+            {"ms_path": str(tmp_path / "sim.ms"), "fraction": 0.25, "seed": 5},
+        )
+    ]
+
+
+@pytest.mark.unit
+def test_each_simulated_window_is_flagged_as_its_real_image(stubbed, monkeypatch):
+    from almasim.cli.noise import noise_app
+
+    root, _ = stubbed
+    flagged = []
+    monkeypatch.setattr(
+        v, "flag_as_imaged", lambda ms, window, *, seed: flagged.append((ms.name, window.name))
+    )
+    args = ["validate", "--model", "alma@1", "--windows", str(root / "windows.csv"),
+            "--metadata", str(root / "rows.csv"), "--measured", str(root / "measured"),
+            "--out", str(root / "out")]  # fmt: skip
+    result = CliRunner().invoke(noise_app, args)
+    assert result.exit_code == 0, result.output
+    assert sorted(flagged) == [("sim.ms", f"w{k}") for k in range(6)]
