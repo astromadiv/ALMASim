@@ -24,7 +24,9 @@ NANT, NTIME, NCHAN, SIGMA = 6, 200, 128, 0.5
 SPW, TSYS_SPW = 2, 3
 
 
-def _fake_ms(seed: int = 0, ripple_antenna: int | None = 0) -> dict[str, FakeTable]:
+def _fake_ms(
+    seed: int = 0, ripple_antenna: int | None = 0, high_weight_every: int | None = None
+) -> dict[str, FakeTable]:
     rng = np.random.default_rng(seed)
     a1, a2 = np.triu_indices(NANT, 1)
     nbl = a1.size
@@ -49,6 +51,9 @@ def _fake_ms(seed: int = 0, ripple_antenna: int | None = 0) -> dict[str, FakeTab
     flag = np.zeros(data.shape, dtype=bool)
     flag[::17, 5:9] = True
     weight = np.full((nrow, 2), 1.0 / SIGMA**2, dtype=np.float32)
+    if high_weight_every:
+        # Rows the archive pipeline flagged and calibration left unflagged.
+        weight[::high_weight_every, 0] = 1e6
     ddid = np.zeros(nrow, dtype=int)
     field = np.zeros(nrow, dtype=int)
     # One more window and an autocorrelation per time, which must not count.
@@ -137,6 +142,7 @@ def test_the_noise_level_correlation_and_tsys_are_measured(fake_ms):
     assert e.resolution_hz == pytest.approx(2 * 15.625e6)
     assert e.elevation_deg is not None and -90 <= e.elevation_deg <= 90
     assert 0 < e.flagged_fraction < 0.02
+    assert e.high_weight_fraction == 0.0
     # Stokes I from independent hands: sigma / sqrt(2) per component.
     assert record.visibility.sigma_jy == pytest.approx(SIGMA / np.sqrt(2), rel=0.05)
     assert record.visibility.unit_jy == pytest.approx(
@@ -153,6 +159,17 @@ def test_the_noise_level_correlation_and_tsys_are_measured(fake_ms):
     assert arrays["antenna_g"].shape == (NANT, NCHAN, 2)
     assert np.ptp(arrays["antenna_g"][0, :, 0]) > np.ptp(arrays["antenna_g"][3, :, 0])
     assert record.notes == []
+
+
+@pytest.mark.unit
+def test_rows_over_the_imagings_maximum_weight_are_counted(fake_ms):
+    ms = fake_ms("w.ms", high_weight_every=4)
+    record, _ = extract.extract_window(ms, SPW, "target", max_visibilities=10**9)
+    assert record.exposure.high_weight_fraction == pytest.approx(0.25, abs=0.01)
+    # Their noise is not the data's: the measured level stays the others'.
+    assert record.visibility.sigma_jy == pytest.approx(SIGMA / np.sqrt(2), rel=0.05)
+    kept, _ = extract.extract_window(ms, SPW, "target", max_visibilities=10**9, max_weight=0)
+    assert kept.exposure.high_weight_fraction == 0.0
 
 
 @pytest.mark.unit

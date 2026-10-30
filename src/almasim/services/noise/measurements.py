@@ -48,6 +48,11 @@ class Exposure(_Record):
     frequency_ghz: float
     correlations: int
     flagged_fraction: float
+    high_weight_fraction: float = Field(
+        default=0.0,
+        description="The share of rows whose WEIGHT exceeds the imaging's maximum "
+        "(image image-from-ms --max-weight), which the image leaves out.",
+    )
     elevation_deg: float | None = Field(default=None, description="The target's median elevation.")
 
 

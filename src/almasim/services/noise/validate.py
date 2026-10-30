@@ -3,8 +3,10 @@ were (MADIV-28): what ``noise validate`` does per window.
 
 For each window: ALMASim simulates it from its archive row (a point source as
 bright as the real image's continuum peak, the window's frequency, channels
-and PWV, one execution block, the model under test), exports the MS,
-measures it with ``noise extract`` and images it as the real window was
+and PWV, one execution block, the model under test), exports the MS, flags
+as large a share of its rows as the real image is missing (the window's
+flagged data and the rows imaging leaves out for their WEIGHT), measures it
+with ``noise extract`` and images it as the real window was
 imaged (``image compute-parameters``, ``image image-from-ms`` with the cube
 and continuum subtraction, ``image clean-quality``), then takes the image
 statistics of both. Everything goes under
@@ -35,6 +37,8 @@ SIM_WINDOW = "sim_window.json"
 SIM_IMAGE = "sim_image.json"
 REAL_IMAGE = "real_image.json"
 MAX_CHANNELS = 960
+MAX_UNIMAGED = 0.95  # the most of a simulated window's data flag_as_imaged flags
+FLAG_CHUNK_ROWS = 10_000
 
 
 @dataclass(frozen=True)
@@ -107,6 +111,7 @@ def validate_window(
         seed=seed + zlib.crc32(task.name.encode()) % 1_000_003,
         peak_jy=real_peak,
     )
+    flag_as_imaged(ms, real, seed=seed + zlib.crc32(task.name.encode()) % 1_000_003)
     sim_window = measure(ms, task.name, run)
     _write_atomic(directory / SIM_WINDOW, sim_window.model_dump_json(indent=2) + "\n")
     task_dir = image(run, imaging)
@@ -331,6 +336,66 @@ def pwv_from_tsys(window: WindowNoise, model: NoiseModel) -> float | None:
     if excess(high) <= 0:
         return high
     return float(brentq(excess, low, high, xtol=1e-3))
+
+
+def unimaged_fraction(window: WindowNoise) -> float:
+    """The share of the real window's data its image does without: its flagged
+    data and its rows whose WEIGHT exceeds the imaging's maximum (rows the
+    archive pipeline flagged and calibration left unflagged, so the two are
+    apart). At most ``MAX_UNIMAGED``."""
+    e = window.exposure
+    return float(min(max(e.flagged_fraction + e.high_weight_fraction, 0.0), MAX_UNIMAGED))
+
+
+def flag_as_imaged(ms: Path, window: WindowNoise, *, seed: int) -> int:
+    """Flag rows of the simulated MS, drawn with ``seed``, until it misses as
+    large a share of its data as the real window's image (``unimaged_fraction``);
+    the rows newly flagged. In a process of its own, as ``measure`` is."""
+    from ..runtime.child import call_in_child
+    from ..runtime.env import wsclean_environment
+
+    fraction = unimaged_fraction(window)
+    if fraction <= 0:
+        return 0
+    result = call_in_child(
+        "almasim.services.noise.validate:flag_rows",
+        {"ms_path": str(ms), "fraction": fraction, "seed": int(seed)},
+        what="flagging the simulated MS",
+        env=wsclean_environment(1),
+    )
+    return int(result["flagged_rows"])
+
+
+def flag_rows(ms_path: str, fraction: float, seed: int) -> dict[str, int]:
+    """Flag whole cross-correlation rows of ``ms_path``, drawn with ``seed``
+    from those with no flag, until ``fraction`` of its cross-correlation data
+    is flagged (counting what already is)."""
+    import numpy as np
+
+    from ..imaging.ms_geometry import import_casacore_tables
+
+    table = import_casacore_tables()
+    with table(ms_path, readonly=False, ack=False) as main:
+        nrow = main.nrows()
+        cross = main.getcol("ANTENNA1") != main.getcol("ANTENNA2")
+        share = np.zeros(nrow)
+        for start in range(0, nrow, FLAG_CHUNK_ROWS):
+            flag = main.getcol("FLAG", start, FLAG_CHUNK_ROWS)
+            share[start : start + len(flag)] = flag.mean(axis=(1, 2))
+        already = float(share[cross].sum())
+        free = np.flatnonzero(cross & (share == 0))
+        count = int(np.clip(round(fraction * cross.sum() - already), 0, free.size))
+        picked = np.zeros(nrow, dtype=bool)
+        picked[np.random.default_rng(seed).choice(free, size=count, replace=False)] = True
+        for start in range(0, nrow, FLAG_CHUNK_ROWS):
+            chunk = picked[start : start + FLAG_CHUNK_ROWS]
+            if chunk.any():
+                flag = main.getcol("FLAG", start, chunk.size)
+                flag[chunk] = True
+                main.putcol("FLAG", flag, start, chunk.size)
+                flag_row = main.getcol("FLAG_ROW", start, chunk.size)
+                main.putcol("FLAG_ROW", flag_row | chunk, start, chunk.size)
+    return {"flagged_rows": count}
 
 
 def measure(ms: Path, name: str, run: Path) -> WindowNoise:
