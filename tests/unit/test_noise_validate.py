@@ -341,6 +341,7 @@ def test_a_window_is_simulated_from_its_row_with_the_model(monkeypatch, tmp_path
     assert params.freq == pytest.approx(window.exposure.frequency_ghz)
     assert params.n_channels == 64 and params.ms_export
     assert params.freq_support == row["Freq.sup."]  # no resolution measured: the row's
+    assert params.int_time == pytest.approx(600.0) and params.n_executions == 1
 
 
 @pytest.mark.unit
@@ -511,3 +512,23 @@ def test_a_simulated_window_is_imaged_as_the_real_ones(monkeypatch, tmp_path):
     with pytest.raises(ValueError, match="name column"):
         (tmp_path / "rows.csv").write_text("Freq\n230\n")
         v.metadata_rows(tmp_path / "rows.csv")
+
+
+@pytest.mark.unit
+def test_a_window_is_observed_as_long_and_by_as_many_antennas_as_its_ms():
+    """The row's Int.Time and antennas are the observing unit's; the MS is one block."""
+    import pandas as pd
+
+    pads = [f"A{i:03d}:DA{i}" for i in range(50)]
+    row = pd.Series({"Int.Time": 3000.0, "n_executions": 5, "antenna_arrays": " ".join(pads)})
+    window = _window("w")  # 600 s by 40 antennas
+    record = v.with_exposure(row, window, seed=3)
+    antennas = record["antenna_arrays"].split()
+    assert record["Int.Time"] == 600.0 and record["n_executions"] == 1
+    assert len(antennas) == 40 and set(antennas) <= set(pads)
+    assert antennas == v.with_exposure(row, window, seed=3)["antenna_arrays"].split()
+    assert row["Int.Time"] == 3000.0, "the row itself is left alone"
+
+    # One antenna per pad; a unit with no more antennas than the MS keeps them all.
+    shared = pd.Series({"Int.Time": 600.0, "antenna_arrays": "A1:DA41 A1:DA42 A2:DV01 A3:DV02"})
+    assert v.with_exposure(shared, window, seed=3)["antenna_arrays"] == "A1:DA41 A2:DV01 A3:DV02"

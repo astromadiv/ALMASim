@@ -974,7 +974,7 @@ than a real one, mostly because of the 7 m window (1.47; the 12 m ones are
 0.96 to 1.08), so `alma@1` does not pass. With four windows no Wilcoxon p is
 computed (it needs six); a real validation uses tens.
 
-Three choices keep the comparison fair, and one limit remains:
+Four choices keep the comparison fair, and one limit remains:
 
 - *The source.* The simulated point source is as bright as the real image's
   continuum peak. A source as bright as the archive row's sensitivities
@@ -986,6 +986,13 @@ Three choices keep the comparison fair, and one limit remains:
   from its MS's `RESOLUTION` (`exposure.resolution_hz`), not the archive
   row's: the row lists the whole observing unit's windows, whose averaging
   can differ from this one's.
+- *The exposure.* Each window is observed as long, and by as many antennas,
+  as its MS: one execution block of the MS's time on source
+  (`exposure.time_on_source_s`), by `exposure.antennas` of the row's
+  antennas, one per pad. The row's `Int.Time` is the whole observing
+  unit's, often several blocks, and its antennas are the union over them;
+  observing the row as it is would give a window up to five times the
+  MS's time, and its images a half to a third of the real noise.
 - *Each hand.* `noise extract` measures the simulated MS per hand, as the
   real one, and each simulated hand carries the model's channel correlation
   and antenna ripple (see `channel_correlation` and `antenna_ripple`).

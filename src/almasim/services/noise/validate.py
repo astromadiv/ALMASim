@@ -160,7 +160,8 @@ def simulate(
     peak_jy: float | None = None,
 ) -> Path:
     """ALMASim's simulation of the window: its archive row, moved to the
-    window's frequency and channels, a point source (``peak_jy`` of
+    window's frequency and channels and observed as long and by as many
+    antennas as the window's MS, a point source (``peak_jy`` of
     continuum, when given), one execution block, the model; the exported MS."""
     import almasim
     from almasim.services import astro
@@ -178,6 +179,7 @@ def simulate(
     record["Freq"] = window.exposure.frequency_ghz
     if support := frequency_support(window):
         record["Freq.sup."] = support
+    record = with_exposure(record, window, seed)
     rest_frequency, _ = astro.get_line_info(main_dir)
     record = with_redshifts(pd.DataFrame([record]), rest_frequency).iloc[0]
     run.mkdir(parents=True, exist_ok=True)
@@ -245,6 +247,30 @@ def frequency_support(window: WindowNoise) -> str | None:
     half = e.channels * e.channel_width_hz / 2e9
     low, high = e.frequency_ghz - half, e.frequency_ghz + half
     return f"[{low:.9f}..{high:.9f}GHz,{e.resolution_hz / 1e3:.6f}kHz]"
+
+
+def with_exposure(record: pd.Series, window: WindowNoise, seed: int) -> pd.Series:
+    """The archive row observed as the window's MS was: its time on source in
+    one execution block, by as many of the observing unit's antennas (one per
+    pad, drawn with ``seed``) as the MS has. The row's Int.Time is the whole
+    observing unit's, which may be several of the MS's blocks, and its
+    antennas are the union over them."""
+    import numpy as np
+
+    e = window.exposure
+    record = record.copy()
+    record["Int.Time"] = e.time_on_source_s
+    record["n_executions"] = 1
+    pads: dict[str, str] = {}
+    for token in str(record.get("antenna_arrays", "")).split():
+        pads.setdefault(token.split(":")[0], token)
+    tokens = list(pads.values())
+    if 2 <= e.antennas < len(tokens):
+        picked = np.random.default_rng(seed).choice(len(tokens), size=e.antennas, replace=False)
+        tokens = [tokens[i] for i in np.sort(picked)]
+    if tokens:
+        record["antenna_arrays"] = " ".join(tokens)
+    return record
 
 
 def measure(ms: Path, name: str, run: Path) -> WindowNoise:

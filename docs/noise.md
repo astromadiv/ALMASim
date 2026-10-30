@@ -297,7 +297,7 @@ model's, with a note in `provenance.notes`.
 **`noise validate`** simulates each real window with a model (a point
 source as bright as the real image's continuum peak, the window's frequency,
 channels and channel averaging from its MS's `RESOLUTION`, one execution
-block), exports the MS, measures it with `noise extract` (in a process of
+block of the MS's time on source by as many antennas as the MS), exports the MS, measures it with `noise extract` (in a process of
 its own) and images it as the real one was imaged. Everything goes under `validation/<model sha256[:12]>/`, so different
 models never mix. At the end, `noise compare` writes `comparison.json`: per
 metric, the median of the per-window ratio (noise levels) or difference
