@@ -6,9 +6,17 @@ per row, see :mod:`.batch`) and ``validate`` also each window's archive row
 parameters CSV names each window's MS, spectral window and field, and its
 output folder each window's task (the clean model ``noise fit`` needs) and log
 (the line channels ``noise extract`` leaves out). The archive search the data
-came from gives the rest: each observation's row, whose ``PWV`` the receiver
-temperatures need. An MS names its execution block, not its observation, so
-the resolved-products CSV (whose file names carry both) links the two.
+came from gives the rest: each observation's row. An MS names its execution
+block, not its observation, so the resolved-products CSV (whose file names
+carry both) links the two.
+
+A window's PWV (the receiver temperatures and validate need it) is its
+execution block's own, from its QA0 report, when the run's auxiliary products
+are at hand. The archive row's is the observing unit's: one of its execution
+blocks', which may have been observed in other weather. A 7 m array's
+antennas carry no water vapour radiometer, so its QA0 report has none and its
+archive row holds the PWV the observation was scheduled for, not one
+measured: its windows have no PWV.
 """
 
 from __future__ import annotations
@@ -48,6 +56,7 @@ def imaging_windows(
     science_fields: Callable[[str], Iterable[int]] | None = None,
     max_windows: int | None = None,
     names: set[str] | None = None,
+    qa0_root: Path | None = None,
 ) -> ImagingWindows:
     """One window per (MS, spectral window, field) row of ``parameters`` (an
     ``image compute-parameters`` CSV) imaged under ``images``.
@@ -61,11 +70,20 @@ def imaging_windows(
     fit`` and ``validate`` read), is left out; ``science_fields(ms)``, when
     given, says which fields of an MS are science targets (others are left
     out); ``max_windows`` keeps the first that many; ``names``, when given,
-    keeps only the windows so named.
+    keeps only the windows so named. ``qa0_root``, when given, holds the
+    extracted auxiliary deliveries (``<project>/science_goal.*/group.*/member.*``)
+    whose QA0 reports give each window's PWV.
     """
+    from ..archive.qa0 import index_member_directories
     from ..imaging.markers import imaging_log_path
     from ..imaging.wsclean_plan import task_directory
     from ..simulation.input_cubes import uids_in
+
+    members = (
+        {name.lower(): path for name, path in index_member_directories(qa0_root).items()}
+        if qa0_root is not None
+        else None
+    )
 
     rows_by_ous: dict[str, list[int]] = {}
     for i, ous in enumerate(metadata.get("member_ous_uid", pd.Series(dtype=str))):
@@ -86,7 +104,8 @@ def imaging_windows(
         if why:
             skipped.append((name, why))
             continue
-        ous = {observations[uid] for uid in uids_in(ms) if uid in observations}
+        blocks = {uid: observations[uid] for uid in uids_in(ms) if uid in observations}
+        ous = set(blocks.values())
         matches = [i for o in sorted(ous) for i in rows_by_ous.get(o, [])]
         if not matches:
             skipped.append((name, "no archive row for its observation"))
@@ -100,7 +119,7 @@ def imaging_windows(
                 "spw": str(spw),
                 "field": field_id or "",
                 "name": name,
-                "pwv": _pwv(archive.get("PWV")),
+                "pwv": _pwv(archive, blocks, members),
                 "task_log": str(imaging_log_path(task_dir)),
                 "task_dir": str(task_dir),
             }
@@ -143,10 +162,35 @@ def _not_science(
     return None if int(field_id) in science[ms] else f"field {field_id} is not a science target"
 
 
-def _pwv(value: object) -> str:
-    """The archive's PWV (mm) as the windows table holds it; empty when unknown."""
+def _pwv(
+    archive: dict[str, object], blocks: dict[str, str], members: dict[str, Path] | None
+) -> str:
+    """A window's PWV (mm) as the windows table holds it, empty when unknown: its
+    execution block's QA0 report's, when ``members`` (member directories by
+    lower-case name) hold one; else the archive row's, but for a 7 m array's."""
+    from ..archive.qa0 import read_qa0_report
+
+    if members is not None:
+        for block, ous in blocks.items():
+            report = _qa0_report(block, ous, members)
+            if report is not None:
+                pwv_mm = read_qa0_report(report).pwv_mm
+                return "" if pwv_mm is None else f"{pwv_mm:g}"
+    if str(archive.get("Array_type", "")).strip().lower() == "7m":
+        return ""
     try:
-        pwv = float(str(value))
+        pwv = float(str(archive.get("PWV")))
     except ValueError:
         return ""
     return "" if math.isnan(pwv) or pwv <= 0 else f"{pwv:g}"
+
+
+def _qa0_report(block: str, ous: str, members: dict[str, Path]) -> Path | None:
+    """The QA0 report of execution block ``block`` (a uid) of observation ``ous``."""
+    from ..archive.qa0 import entity_id_to_filename
+
+    member = members.get(f"member.{entity_id_to_filename(ous)}".lower())
+    if member is None or not (member / "qa").is_dir():
+        return None
+    wanted = f"{entity_id_to_filename(block)}.qa0_report.pdf".lower()
+    return next((p for p in (member / "qa").iterdir() if p.name.lower() == wanted), None)

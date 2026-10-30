@@ -216,9 +216,22 @@ def windows(
         help="Only these windows (comma-separated names, as a previous run listed them).",
         rich_help_panel="Inputs",
     ),
+    qa0_report_root: Path | None = typer.Option(
+        None,
+        "--qa0-report-root",
+        exists=True,
+        file_okay=False,
+        help=(
+            "Root of the extracted auxiliary deliveries (<project>/science_goal.*/group.*/"
+            "member.*/qa/): each window's PWV is its execution block's, from its QA0 report "
+            "(default: the archive row's, which is one block's of the observing unit)."
+        ),
+        rich_help_panel="Inputs",
+    ),
 ) -> None:
     """Write the windows table (windows.csv) and archive rows (rows.csv) of an
-    imaging run, for noise extract, fit and validate."""
+    imaging run, for noise extract, fit and validate. A 7 m array's windows have
+    no PWV: its antennas carry no water vapour radiometer."""
     import pandas as pd
 
     from ..services.imaging.ms_geometry import science_selection
@@ -244,6 +257,7 @@ def windows(
         science_fields=(lambda ms: science_selection(Path(ms))[1]) if science_only else None,
         max_windows=max_windows,
         names={n.strip() for n in names.split(",") if n.strip()} if names else None,
+        qa0_root=qa0_report_root.expanduser().resolve() if qa0_report_root else None,
     )
     for name, why in found.skipped:
         typer.echo(f"  left out {name}: {why}")
@@ -301,8 +315,8 @@ def extract(
         None,
         "--pwv",
         min=0,
-        help="The observation's precipitable water vapour (mm; the archive's PWV), "
-        "for noise aggregate's receiver temperatures.",
+        help="The window's precipitable water vapour (mm; its execution block's), "
+        "for noise aggregate's receiver temperatures and noise validate.",
         rich_help_panel="Inputs",
     ),
     windows: Path | None = typer.Option(
