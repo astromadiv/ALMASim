@@ -182,9 +182,10 @@ def organize_delivery(
 
     index = Path(index_path) if index_path else root / INDEX_FILENAME
     index.parent.mkdir(parents=True, exist_ok=True)
-    temporary = index.with_name(index.name + ".tmp")
+    # One temporary file per process: organize runs may overlap on one tree.
+    temporary = index.with_name(f"{index.name}.{os.getpid()}.tmp")
     with temporary.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.writer(handle)
+        writer = csv.writer(handle, lineterminator="\n")
         writer.writerow(_INDEX_COLUMNS)
         for eb, member in sorted(members.items(), key=lambda item: (str(item[1].path), item[0])):
             writer.writerow(
