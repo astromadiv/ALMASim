@@ -459,6 +459,14 @@ almasim visibilities calibrate \
   --backend slurm \
   --slurm-workers 8
 
+# Calibration links each calibrated MS into its member's calibrated/ folder of the
+# delivery tree and writes ous_index.csv there (see docs/downloads.md); for MSs
+# already on disk:
+almasim visibilities organize \
+  --delivery-root examples/output/downloads \
+  --calibrated-ms-root examples/output/archive_ms/calibrated_ms \
+  --raw-ms-root examples/output/archive_ms/raw_ms
+
 # Unpack/calibrate run every UID in its own subprocess (sync and slurm alike), so a
 # CASA crash on one execution block is skipped and the rest of the batch continues.
 # Skipped UIDs are listed at the end and the command exits with status 1; pass

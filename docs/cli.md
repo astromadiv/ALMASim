@@ -223,6 +223,7 @@ $ almasim visibilities [OPTIONS] COMMAND [ARGS]...
 * `extract`: Extract ALMA archive tarballs as a...
 * `unpack`: Import ASDM directories into raw...
 * `calibrate`: Create calibrated MeasurementSets as a...
+* `organize`: Link the calibrated MSs into their member...
 * `spw-overview`: Print the spectral-window summary for one...
 * `flag-summary`: Summarise flagging and visibility...
 
@@ -312,6 +313,25 @@ $ almasim visibilities calibrate [OPTIONS]
 * `--clean-intermediate-files`: Remove intermediate raw and working files after successful calibration.
 * `--continue-on-error / --fail-fast`: Skip UIDs whose processing fails and carry on with the rest, then exit non-zero with a summary (default). --fail-fast aborts on the first failure.  [default: continue-on-error]
 * `--keep-working-copies`: Keep each UID's working directory (raw MS copy plus caltables, about 1.8x the raw MS) after its calibrated output is written. By default it is removed.
+* `--organize-delivery / --no-organize-delivery`: Link each calibrated MS into its member folder of the ALMA delivery tree (<project>/science_goal.*/group.*/member.*/calibrated/) and write ous_index.csv at the root of the tree. The tree is --input-root.  [default: organize-delivery]
+* `--help`: Show this message and exit.
+
+### `almasim visibilities organize`
+
+Link the calibrated MSs into their member folders and index the delivery tree.
+
+**Usage**:
+
+```console
+$ almasim visibilities organize [OPTIONS]
+```
+
+**Options**:
+
+* `--delivery-root <path>`: Root of the ALMA delivery tree (<project>/science_goal.*/group.*/member.*/).  [required]
+* `--calibrated-ms-root <path>`: Folder of the calibrated MSs (<eb>.ms.split.cal).  [required]
+* `--raw-ms-root <path>`: Folder of the raw MSs (<eb>.ms), recorded in the index.
+* `--index-csv <path>`: Where to write the index (default: <delivery-root>/ous_index.csv).
 * `--help`: Show this message and exit.
 
 ### `almasim visibilities spw-overview`

@@ -309,6 +309,23 @@ def _update_manifest_measurement_sets(
         typer.echo(f"Could not update manifest {path}", err=True)
 
 
+def _organize_delivery(delivery_root: Path, calibrated_ms_root: Path, raw_ms_root: Path) -> None:
+    """Link the calibrated MSs into their member folders and index the tree; never fails the run."""
+    from ..services.archive.delivery import organize_delivery
+
+    try:
+        organize_delivery(delivery_root, calibrated_ms_root, raw_ms_root, echo=typer.echo)
+    except OSError as exc:
+        typer.echo(f"Could not organize the delivery tree under {delivery_root}: {exc}", err=True)
+
+
+_ORGANIZE_HELP = (
+    "Link each calibrated MS into its member folder of the ALMA delivery tree "
+    "(<project>/science_goal.*/group.*/member.*/calibrated/) and write ous_index.csv "
+    "at the root of the tree."
+)
+
+
 def _cleanup_after_download_postprocess(
     *,
     summary: Any,
@@ -671,6 +688,10 @@ def _download_and_postprocess(o: DownloadOptions, selected: list[Any]) -> None:
             echo=typer.echo,
         )
     _update_manifest_measurement_sets(summary.manifest_path, raw_mss, calibrated_mss)
+    # Before the cleanup, which can remove the qa/ reports that place each EB in its member.
+    _organize_delivery(
+        Path(summary.destination), archive_root / "calibrated_ms", archive_root / "raw_ms"
+    )
     _print_download_summary(summary, raw_mss, calibrated_mss, show_extraction_failures=True)
     if o.clean_intermediate_files and o.generate_calibrated_visibilities:
         if stage_failures:
@@ -988,6 +1009,12 @@ def products_calibrate(
         ),
         rich_help_panel="Outputs",
     ),
+    organize_delivery: bool = typer.Option(
+        True,
+        "--organize-delivery/--no-organize-delivery",
+        help=_ORGANIZE_HELP + " The tree is --input-root.",
+        rich_help_panel="Outputs",
+    ),
 ) -> None:
     """Create calibrated MeasurementSets as a standalone step."""
     backend_normalized = postprocess_backend.lower()
@@ -1023,7 +1050,47 @@ def products_calibrate(
     typer.echo(f"Calibrated MS products: {len(calibrated_outputs)}")
     for calibrated_ms in calibrated_outputs:
         typer.echo(f"  {calibrated_ms}")
+    if organize_delivery:
+        _organize_delivery(
+            input_root.expanduser().resolve(),
+            output_root.expanduser().resolve(),
+            raw_ms_root.expanduser().resolve(),
+        )
     _exit_if_failures("Calibrate", stage_failures)
+
+
+@products_app.command("organize", hidden=True)
+def products_organize(
+    delivery_root: Path = typer.Option(
+        ...,
+        "--delivery-root",
+        help="Root of the ALMA delivery tree (<project>/science_goal.*/group.*/member.*/).",
+    ),
+    calibrated_ms_root: Path = typer.Option(
+        ..., "--calibrated-ms-root", help="Folder of the calibrated MSs (<eb>.ms.split.cal)."
+    ),
+    raw_ms_root: Path | None = typer.Option(
+        None, "--raw-ms-root", help="Folder of the raw MSs (<eb>.ms), recorded in the index."
+    ),
+    index_csv: Path | None = typer.Option(
+        None,
+        "--index-csv",
+        help="Where to write the index (default: <delivery-root>/ous_index.csv).",
+    ),
+) -> None:
+    """Link the calibrated MSs into their member folders and index the delivery tree."""
+    from ..services.archive.delivery import organize_delivery
+
+    root = delivery_root.expanduser().resolve()
+    if not root.is_dir():
+        usage_error(f"--delivery-root {root} is not a folder.")
+    organize_delivery(
+        root,
+        calibrated_ms_root.expanduser().resolve(),
+        raw_ms_root.expanduser().resolve() if raw_ms_root else None,
+        index_path=index_csv.expanduser().resolve() if index_csv else None,
+        echo=typer.echo,
+    )
 
 
 @products_app.command("executions")

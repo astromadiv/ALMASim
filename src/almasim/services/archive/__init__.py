@@ -17,6 +17,7 @@ from .calibration import (
     write_calibration_failure_marker,
     write_calibration_marker,
 )
+from .delivery import DeliveryOrganized, MemberFolder, member_folders, organize_delivery
 from .qa0 import (
     QA0FilterResult,
     QA0Report,
@@ -75,4 +76,8 @@ __all__ = [
     "qa0_report_path",
     "read_qa0_report",
     "restore_pipeline_flags",
+    "DeliveryOrganized",
+    "MemberFolder",
+    "member_folders",
+    "organize_delivery",
 ]

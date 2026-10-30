@@ -123,7 +123,10 @@ source, band, science keyword and more), tick observations, find their
 products, and download them, raw or calibrated, to a folder you choose. Each step is a job. The
 ticked rows can go straight to *Simulate* instead. Unpacked and calibrated
 MeasurementSets go to their own folder (`raw_ms/` and `calibrated_ms/` in
-it), by default `archive_ms/` in the destination.
+it), by default `archive_ms/` in the destination. Each calibrated MS is also
+linked into its member's `calibrated/` folder in the ALMA delivery tree under
+the destination, which `ous_index.csv` indexes
+([The delivery tree](downloads.md#the-delivery-tree)).
 
 ![Archive](images/console/archive.png)
 

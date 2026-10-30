@@ -153,6 +153,8 @@ def test_products_download_sync_path(tmp_path, monkeypatch):
 
     monkeypatch.setattr(cli_products, "download_products", _fake_download_products)
     monkeypatch.setattr(cli_products, "_run_parallel_archive_jobs", _fake_stages)
+    organized: list[tuple] = []
+    monkeypatch.setattr(cli_products, "_organize_delivery", lambda *roots: organized.append(roots))
 
     result = runner.invoke(
         cli.app,
@@ -178,6 +180,9 @@ def test_products_download_sync_path(tmp_path, monkeypatch):
     assert stage_kwargs["unpack_ms"] is True
     assert stage_kwargs["continue_on_error"] is True
     assert "Raw MS products:" in result.output
+    ((delivery_root, calibrated_root, raw_root),) = organized  # the download is the tree
+    assert delivery_root == tmp_path / "downloads"
+    assert (calibrated_root.name, raw_root.name) == ("calibrated_ms", "raw_ms")
 
 
 def test_products_download_sync_without_postprocess_keeps_single_call(tmp_path, monkeypatch):

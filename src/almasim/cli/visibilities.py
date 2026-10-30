@@ -21,6 +21,7 @@ visibilities_app = typer.Typer(
 visibilities_app.command("extract")(cli_products.products_extract)
 visibilities_app.command("unpack")(cli_products.products_unpack)
 visibilities_app.command("calibrate")(cli_products.products_calibrate)
+visibilities_app.command("organize")(cli_products.products_organize)
 visibilities_app.command("spw-overview")(cli_image.derive_parameters)
 
 
