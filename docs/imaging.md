@@ -172,7 +172,7 @@ ALMA's own pipeline images where ALMA has one:
 | `NEB`, `EBUID01` ... | the execution blocks imaged |
 | `NMS`, `MSNAM01` ... | the MeasurementSets imaged |
 | `ALMASVER` | the ALMASim version |
-| `HISTORY` | each step of the task in the order it ran: the window's extraction, the continuum subtraction from the visibilities, and every WSClean command (self-calibration rounds included), with the task folder's paths written relative to it |
+| `HISTORY` | after WSClean's own record of its command line, each step of the task in the order it ran (`ALMASim: ...`): the window's extraction, the continuum subtraction from the visibilities, and every WSClean command (self-calibration rounds included), with the task folder's paths written relative to it |
 
 The OUS UIDs come from the delivery tree's `ous_index.csv`
 ([The delivery tree](downloads.md#the-delivery-tree)), looked up by the
