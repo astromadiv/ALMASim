@@ -148,6 +148,7 @@ def _download_single_file(  # noqa: C901
     host_semaphores: dict[str, threading.BoundedSemaphore] | None = None,
 ) -> None:
     destination_path = destination / file_status.filename
+    destination_path.parent.mkdir(parents=True, exist_ok=True)
     part_path = destination_path.with_suffix(destination_path.suffix + ".part")
 
     if (

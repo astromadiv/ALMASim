@@ -204,6 +204,44 @@ def test_alma_states_the_instrument_radiometer():
 
 
 @pytest.mark.unit
+def test_a_forward_efficiency_gives_the_handbook_tsys():
+    """A radiometer's forward efficiency switches Tsys to the Technical Handbook's
+    equations; a model without one keeps the identity it has without the field."""
+    import numpy as np
+
+    from almasim.services.interferometry.noise import (
+        NoiseModelConfig,
+        system_equivalent_flux_density,
+    )
+
+    alma = released_model("alma")
+    assert "forward_efficiency" not in alma.canonical_json()
+    handbook = NoiseModel.model_validate(
+        {
+            **json.loads(alma.model_dump_json()),
+            "name": "alma-handbook",
+            "components": {
+                **json.loads(alma.model_dump_json())["components"],
+                "radiometer": {
+                    **json.loads(alma.model_dump_json())["components"]["radiometer"],
+                    "forward_efficiency": 0.95,
+                },
+            },
+        }
+    )
+    assert handbook.noise_config()["forward_efficiency"] == 0.95
+    assert '"forward_efficiency":0.95' in handbook.canonical_json()
+
+    def sefd(model):
+        config = NoiseModelConfig(pwv_mm=1.0, atmospheric_lines=True, **model.noise_config())
+        return system_equivalent_flux_density(
+            config, np.array([230e9]), 60.0, antenna_diameter_m=12.0
+        )[0]
+
+    assert sefd(handbook) != sefd(alma)
+
+
+@pytest.mark.unit
 def test_a_candidate_radiometer_changes_tsys_where_it_differs():
     import numpy as np
 

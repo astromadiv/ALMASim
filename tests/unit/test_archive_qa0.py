@@ -69,6 +69,17 @@ def test_parse_pass_report():
 
 
 @pytest.mark.unit
+def test_the_weather_the_block_was_observed_in():
+    weather = "Weather PWV 0.72 mm; Wind 4.89 m/s; Humidity 29.46 %; Pressure 556.44 hPa;\n"
+    report = parse_qa0_report_text(PASS_TEXT.replace("QA0 comment", weather + "QA0 comment"))
+    assert report.pwv_mm == 0.72
+    # A 7 m array's antennas carry no water vapour radiometer.
+    seven = PASS_TEXT.replace("QA0 comment", weather.replace("0.72", "N/A") + "QA0 comment")
+    assert parse_qa0_report_text(seven).pwv_mm is None
+    assert parse_qa0_report_text(PASS_TEXT).pwv_mm is None
+
+
+@pytest.mark.unit
 def test_execblock_status_does_not_decide_delivery():
     """A SemiPass EB often reports ExecBlock Status SUCCESS; only QA0 Status counts."""
     text = SEMIPASS_TEXT.replace("ExecBlock Status FAIL", "ExecBlock Status SUCCESS")

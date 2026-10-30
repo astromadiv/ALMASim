@@ -515,6 +515,43 @@ def test_a_simulated_window_is_imaged_as_the_real_ones(monkeypatch, tmp_path):
 
 
 @pytest.mark.unit
+def test_a_window_is_simulated_through_its_own_water_vapour():
+    """The window's own PWV; without one, the PWV at which the model's Tsys is
+    ALMA's; with neither, the row's."""
+    import pandas as pd
+
+    from almasim.services.interferometry import noise
+    from almasim.services.interferometry.atmosphere import system_temperature
+    from almasim.services.noise.measurements import Tsys
+
+    model = released_model("alma")
+    row = pd.Series({"PWV": 5.186})
+    window = _window("w")
+    measured = window.model_copy(update={"input": WindowInput(ms="/d/w.ms", spw=0, pwv_mm=0.7)})
+    assert v.with_weather(row, measured, model)["PWV"] == 0.7
+    assert v.with_weather(row, window, model)["PWV"] == 5.186  # no Tsys to go by
+    assert row["PWV"] == 5.186, "the row itself is left alone"
+
+    e = window.exposure
+    freq = e.frequency_ghz * 1e9 + np.linspace(-0.5, 0.5, 64) * e.channels * e.channel_width_hz
+    config = noise.NoiseModelConfig(pwv_mm=1.0, **model.noise_config())
+    trx = noise.estimate_receiver_temperature_k(freq, "alma", config.receiver_temperatures)
+    airmass = 1 / np.sin(np.radians(55.0))
+
+    def with_tsys(kelvin):
+        return window.model_copy(
+            update={
+                "exposure": e.model_copy(update={"elevation_deg": 55.0}),
+                "tsys": Tsys(median_k=kelvin, profile=[1.0] * 64, spectral_window=1),
+            }
+        )
+
+    at_1_3 = float(np.median(system_temperature(freq, trx, pwv_mm=1.3, airmass=airmass)))
+    assert v.with_weather(row, with_tsys(at_1_3), model)["PWV"] == pytest.approx(1.3, abs=0.01)
+    assert v.pwv_from_tsys(with_tsys(1.0), model) == 0.0  # below the driest sky
+
+
+@pytest.mark.unit
 def test_a_window_is_observed_as_long_and_by_as_many_antennas_as_its_ms():
     """The row's Int.Time and antennas are the observing unit's; the MS is one block."""
     import pandas as pd

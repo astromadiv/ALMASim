@@ -40,13 +40,17 @@ _DELIVERED_STATUSES = frozenset({"pass"})
 
 @dataclass(frozen=True)
 class QA0Report:
-    """The fields of a QA0 report that decide whether an EB is usable."""
+    """The fields of a QA0 report that decide whether an EB is usable, and the
+    water vapour it was observed through (``pwv_mm``; None where the report has
+    none, as for the 7 m array, whose antennas carry no water vapour
+    radiometer)."""
 
     eb_uid: str
     qa0_status: str
     execblock_status: str
     execution_fraction: float | None
     comment: str
+    pwv_mm: float | None = None
 
     @property
     def calibration_delivered(self) -> bool:
@@ -79,6 +83,7 @@ def parse_qa0_report_text(text: str, eb_uid: str = "") -> QA0Report:
 
     # "QA0 Status" and its value are split across lines in the delivered layout.
     fraction_text = field(r"Exec\. Fraction\s+([\d.]+)")
+    pwv_text = field(r"PWV\s+([\d.]+)\s*mm")
     comment = field(r"QA0 comment\s+(.*?)(?:\nPage \d|\Z)")
     return QA0Report(
         eb_uid=eb_uid,
@@ -86,6 +91,7 @@ def parse_qa0_report_text(text: str, eb_uid: str = "") -> QA0Report:
         execblock_status=field(r"ExecBlock Status\s+(\S+)"),
         execution_fraction=float(fraction_text) if fraction_text else None,
         comment=" ".join(comment.split()),
+        pwv_mm=float(pwv_text) if pwv_text else None,
     )
 
 

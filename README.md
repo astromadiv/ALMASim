@@ -423,6 +423,12 @@ almasim products download \
   --destination examples/output/downloads \
   --extract-tar
 
+# Only the cleaned, primary-beam-corrected images, listed inside the product tars
+almasim products download \
+  --products-csv examples/output/resolved_products.csv \
+  --product-filter fits --expand-archives --include '*.pbcor.fits' \
+  --destination examples/output/images --yes
+
 # Two-pass download that skips execution blocks ALMA never calibrated: the
 # auxiliary tar carries each EB's QA0 report, and a QA0 "SemiPass" EB ships a raw
 # ASDM but no calibration products, so it can never be calibrated (see docs/downloads.md)

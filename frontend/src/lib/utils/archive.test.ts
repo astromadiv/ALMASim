@@ -4,11 +4,13 @@ import {
 	calibratedMsFolder,
 	defaultMsFolder,
 	downloadArgv,
-	filteredBytes,
+	matchesPatterns,
 	memberOusUids,
+	parsePatterns,
 	productTotals,
 	queryArgv,
 	resolveArgv,
+	selection,
 	toRecords
 } from './archive';
 import { inRunDir } from './runDir';
@@ -23,6 +25,7 @@ describe('the archive runs', () => {
 			'--member-ous-uid', 'uid://A001/X1/X1,uid://A001/X1/X2',
 			'--save-products-csv', '{run_dir}/products.csv'
 		]); // prettier-ignore
+		expect(resolveArgv(['uid://A001/X1/X1'], true).at(-1)).toBe('--expand-archives');
 		expect(inRunDir('{run_dir}/results.csv', '/runs/01J')).toBe('/runs/01J/results.csv');
 	});
 
@@ -49,6 +52,12 @@ describe('the archive runs', () => {
 			'--extract-tar',
 			'--unpack-ms'
 		]);
+	});
+
+	it('pass each filename glob as its own option', () => {
+		expect(
+			downloadArgv({ ...base, include: ['*.pbcor.fits', '*.cont.*'], exclude: ['*_bp.*'] }).slice(8)
+		).toEqual(['--include', '*.pbcor.fits', '--include', '*.cont.*', '--exclude', '*_bp.*']);
 	});
 
 	it('put the MeasurementSets in the chosen folder, when they make any', () => {
@@ -107,7 +116,39 @@ describe('reading the CSV files back', () => {
 			{ type: 'raw', count: 2, bytes: 3500 },
 			{ type: 'other', count: 1, bytes: 0 }
 		]);
-		expect(filteredBytes(totals, 'all')).toBe(8500);
-		expect(filteredBytes(totals, 'raw')).toBe(3500);
+		expect(selection(products, 'all')).toEqual({ count: 4, bytes: 8500 });
+		expect(selection(products, 'raw')).toEqual({ count: 2, bytes: 3500 });
+		expect(selection(products, 'other')).toEqual({ count: 1, bytes: 0 });
+	});
+
+	it('picks files by name the way the download command does', () => {
+		const files = toRecords(
+			['filename', 'product_type', 'content_length'],
+			[
+				['m.spw23.cube.I.pbcor.fits', 'fits', '300'],
+				['m.spw23.cube.I.pb.fits.gz', 'fits', '100'],
+				['m.spw23.mfs.I.pbcor.fits', 'fits', '20'],
+				['P_auxiliary.tar', 'auxiliary', '7']
+			]
+		);
+		expect(selection(files, 'all', ['*.pbcor.fits'])).toEqual({ count: 2, bytes: 320 });
+		expect(selection(files, 'fits', ['*.pbcor.fits'], ['*.cube.*'])).toEqual({
+			count: 1,
+			bytes: 20
+		});
+		expect(selection(files, 'all', [], ['*.fits*'])).toEqual({ count: 1, bytes: 7 });
+	});
+
+	it('reads globs like Python fnmatch', () => {
+		expect(parsePatterns(' *.pbcor.fits, ,*.cont.*,')).toEqual(['*.pbcor.fits', '*.cont.*']);
+		expect(matchesPatterns('a.spw23.fits', ['*.spw2[35].fits'], [])).toBe(true);
+		expect(matchesPatterns('a.spw27.fits', ['*.spw2[!35].fits'], [])).toBe(true);
+		expect(matchesPatterns('a.spw25.fits', ['*.spw2[!35].fits'], [])).toBe(false);
+		expect(matchesPatterns('a.fits', ['?.fits'], [])).toBe(true);
+		expect(matchesPatterns('ab.fits', ['?.fits'], [])).toBe(false);
+		expect(matchesPatterns('a+b(1).fits', ['a+b(1).fits'], [])).toBe(true);
+		expect(matchesPatterns('a[b', ['a[b'], [])).toBe(true);
+		expect(matchesPatterns('A.FITS', ['*.fits'], [])).toBe(false);
+		expect(matchesPatterns('x', [], [])).toBe(true);
 	});
 });

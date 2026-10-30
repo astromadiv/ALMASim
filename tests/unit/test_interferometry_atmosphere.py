@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from almasim.services.interferometry.atmosphere import (
+    noise_temperature,
     receiver_band,
     receiver_ripple,
     sky_spectrum,
@@ -61,6 +62,39 @@ def test_image_band_and_sideband_choice():
     assert receiver_band(650e9).image_gain == 1
     with pytest.raises(ValueError, match="sideband"):
         system_temperature(f, 55.0, sideband="dsb", **kwargs)
+
+
+def test_the_handbook_tsys_equations():
+    """With a forward efficiency, Tsys is the ALMA Technical Handbook's: Eq. 9.6
+    for a sideband-separating band, Eq. 9.5 (both sidebands, the DSB Trx twice)
+    for a double-sideband one; sky and ground as noise temperatures (Eq. 9.4)."""
+    eta, airmass, pwv = 0.95, 1.3, 0.8
+
+    def pickup(f):
+        sky, tau = sky_spectrum(f, pwv_mm=pwv, airmass=airmass)
+        return eta * noise_temperature(sky, f) + (1 - eta) * noise_temperature(270.0, f), tau
+
+    f = _window(230.0)  # band 6, sideband-separating
+    signal, tau = pickup(f)
+    tsys = system_temperature(f, 50.0, pwv_mm=pwv, airmass=airmass, forward_efficiency=eta)
+    np.testing.assert_allclose(tsys, np.exp(airmass * tau) / eta * (50.0 + signal))
+
+    f = _window(650.0)  # band 9, double sideband: the USB tuning's image 16 GHz below
+    signal, tau = pickup(f)
+    image, _ = pickup(2 * (650e9 - 8e9) - f)
+    tsys = system_temperature(
+        f, 105.0, pwv_mm=pwv, airmass=airmass, forward_efficiency=eta, sideband="usb"
+    )
+    np.testing.assert_allclose(tsys, np.exp(airmass * tau) / eta * (2 * 105.0 + signal + image))
+    # The calculator's form (no forward efficiency) doubles the sky as well as Trx.
+    calculator = system_temperature(f, 105.0, pwv_mm=pwv, airmass=airmass, sideband="usb")
+    assert np.all(calculator > tsys)
+
+
+def test_noise_temperature_is_rayleigh_jeans_at_low_frequency():
+    assert noise_temperature(270.0, np.array([1e9]))[0] == pytest.approx(270.0 - 0.024, abs=1e-3)
+    # At 900 GHz the ground's 270 K adds some 21 K less than its physical temperature.
+    assert 245 < noise_temperature(270.0, np.array([900e9]))[0] < 252
 
 
 def test_receiver_ripple_is_smooth_reproducible_and_of_its_rms():

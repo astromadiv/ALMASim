@@ -80,7 +80,7 @@ candidate model can therefore be used for a run before it is released.
 
 | Component | What it adds | Parameters |
 | --- | --- | --- |
-| `radiometer` | each visibility's noise from the radiometer equation (below) | `receiver_temperature_k`, `aperture`, `quantisation_efficiency`, `correlator_efficiency` |
+| `radiometer` | each visibility's noise from the radiometer equation (below) | `receiver_temperature_k`, `aperture`, `quantisation_efficiency`, `correlator_efficiency`, `forward_efficiency` |
 | `atmospheric_tsys` | the atmosphere's lines in Tsys across the window | |
 | `receiver_ripple` | the receiver's smooth ripple of Tsys | `rms` |
 | `channel_correlation` | correlated noise of neighbouring channels | `rho1`, `rho2`, `average` |
@@ -134,7 +134,12 @@ it). Tsys is referred to above the atmosphere,
 `(1 + g) exp(A tau) (Trx + Tsky + g Tsky_image)`, with `g` the band's
 image-band gain, `A` the airmass, `tau` the zenith opacity, the image band one
 IF centre on the other side of the local oscillator, and the sideband whose
-image gives the lower Tsys. The ripple is drawn from the run's seed.
+image gives the lower Tsys. A model whose `radiometer` sets a
+`forward_efficiency` uses the ALMA Technical Handbook's equations instead
+(Eqs. 9.5 and 9.6: the forward efficiency, the ground's spillover and, for
+the double-sideband bands 9 and 10, both sidebands' receiver noise; see
+[`atmospheric_tsys`](noise_models.md#atmospheric_tsys-the-atmospheres-lines-in-tsys)).
+The ripple is drawn from the run's seed.
 
 ## Per Visibility: the Radiometer Equation
 
@@ -246,14 +251,17 @@ needs python-casacore (the `ms-casacore` extra).
 ALMASim imaging run: the finished science windows of its parameters CSV
 (with `image clean-quality`'s `quality.json`),
 each with its task folder and log, and its observation's row in the archive
-search (linked to the MS's execution block by the resolved-products CSV),
-whose PWV fills `pwv`.
+search (linked to the MS's execution block by the resolved-products CSV).
+Each window's `pwv` is its execution block's, from its QA0 report, with
+`--qa0-report-root` (the extracted auxiliary deliveries), else the archive
+row's; a 7 m array's windows have none (its antennas carry no water vapour
+radiometer).
 
 **The windows table** (`windows.csv`) has one row per window: the columns
 `ms` and `spw`, and optionally `field`, `name`, `syscal_ms`, `line_channels`
 (`a~b;c`, left out as line emission), `task_log` (an ALMASim imaging task's
-log, whose "lines in channels" gives them), `pwv` (the archive's PWV, for the
-receiver temperatures) and `task_dir` (the window's ALMASim imaging task, for
+log, whose "lines in channels" gives them), `pwv` (the window's PWV, for the
+receiver temperatures and validate) and `task_dir` (the window's ALMASim imaging task, for
 `fit` and `validate`). Windows already measured are skipped on a rerun;
 failures go to `failures.json`. With `--backend slurm` each window is its own
 task on a Slurm worker.
@@ -287,7 +295,7 @@ windows each comes from and their 16-84% spread in `provenance.values`:
 | `channel_correlation` rho1, rho2 | windows with Hanning-correlated native channels (rho1 above 0.5) |
 | `receiver_ripple` rms | the smooth part (Legendre modes 1-4) of the noise profile over SYSCAL's Tsys², halved |
 | `antenna_ripple` rms, scale_mhz | each antenna's noise shape, windows wider than 1 GHz |
-| `radiometer` receiver temperatures | per band, the Trx that gives SYSCAL's median Tsys under the simulator's Tsys model (12 m windows, their PWV and elevation) |
+| `radiometer` receiver temperatures | per band, the Trx that gives SYSCAL's median Tsys under the simulator's Tsys model, the base model's equation (12 m windows, their PWV and elevation) |
 | `radiometer` aperture | per dish size, Ruze's law fitted to the efficiency the noise and Tsys imply |
 | `slow_phase`, `fast_phase`, `antenna_gains`, `baseline_errors` | `noise fit` |
 
@@ -297,7 +305,8 @@ model's, with a note in `provenance.notes`.
 **`noise validate`** simulates each real window with a model (a point
 source as bright as the real image's continuum peak, the window's frequency,
 channels and channel averaging from its MS's `RESOLUTION`, one execution
-block of the MS's time on source by as many antennas as the MS), exports the MS, measures it with `noise extract` (in a process of
+block of the MS's time on source by as many antennas as the MS, through the
+window's PWV or, without one, the PWV its SYSCAL Tsys implies), exports the MS, measures it with `noise extract` (in a process of
 its own) and images it as the real one was imaged. Everything goes under `validation/<model sha256[:12]>/`, so different
 models never mix. At the end, `noise compare` writes `comparison.json`: per
 metric, the median of the per-window ratio (noise levels) or difference

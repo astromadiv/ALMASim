@@ -214,6 +214,101 @@ def test_products_download_sync_without_postprocess_keeps_single_call(tmp_path, 
     assert result.exit_code == 0
 
 
+def test_products_download_picks_files_inside_the_archives(tmp_path, monkeypatch):
+    """--expand-archives lists the filtered tars' files; --include/--exclude pick among them."""
+    from almasim.services.download import DataProduct
+
+    def product(filename, semantics, product_type):
+        return DataProduct(
+            access_url=f"https://example.org/{filename}",
+            uid="uid://A",
+            filename=filename,
+            content_length=5,
+            content_type="",
+            product_type=product_type,
+            semantics=semantics,
+        )
+
+    tars = [
+        product("P_001_of_001.tar", "#this", "fits"),
+        product("P_auxiliary.tar", "#auxiliary", "auxiliary"),
+    ]
+    files = [
+        product(name, "#this", "fits")
+        for name in ("m.cube.I.pbcor.fits", "m.mfs.I.pbcor.fits", "m.cube.I.pb.fits.gz")
+    ]
+    expanded: list[list[str]] = []
+
+    def fake_expand(products, layout):
+        assert layout == "delivery"
+        expanded.append([p.filename for p in products])
+        return files
+
+    downloaded: list[str] = []
+
+    def fake_download(products, destination, **kwargs):
+        downloaded.extend(p.filename for p in products)
+        return SimpleNamespace(
+            destination=str(destination),
+            files_completed=len(products),
+            files_failed=0,
+            manifest_path=None,
+            raw_measurement_sets=[],
+            calibrated_measurement_sets=[],
+        )
+
+    monkeypatch.setattr(cli_products, "_resolve_products_from_inputs", lambda **kwargs: tars)
+    monkeypatch.setattr(cli_products, "expand_archives", fake_expand)
+    monkeypatch.setattr(cli_products, "download_products", fake_download)
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "products", "download", "--member-ous-uid", "uid://A",
+            "--product-filter", "fits", "--expand-archives",
+            "--include", "*.pbcor.fits", "--exclude", "*.cube.*",
+            "--destination", str(tmp_path), "--yes",
+        ],
+    )  # fmt: skip
+
+    assert result.exit_code == 0, result.output
+    assert expanded == [["P_001_of_001.tar"]]  # only the tars the filter kept
+    assert downloaded == ["m.mfs.I.pbcor.fits"]
+    assert "Listing the files inside 1 archive(s)" in result.output
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "products", "download", "--member-ous-uid", "uid://A",
+            "--include", "*.png", "--destination", str(tmp_path), "--yes",
+        ],
+    )  # fmt: skip
+    assert result.exit_code != 0
+    assert "--include=*.png" in result.output
+
+
+def test_products_resolve_saves_the_expanded_listing(tmp_path, monkeypatch):
+    """resolve --expand-archives saves one row per file inside the tars."""
+    from almasim.services.download import DataProduct
+
+    tar = DataProduct("https://example.org/P.tar", "uid://A", "P.tar", 9, "", "fits", "#this")
+    inner = DataProduct("https://example.org/m.fits", "uid://A", "m.pbcor.fits", 4, "", "fits")
+    monkeypatch.setattr(cli_products, "resolve_products", lambda uids: [tar])
+    monkeypatch.setattr(cli_products, "expand_archives", lambda products, layout: [inner])
+    products_csv = tmp_path / "products.csv"
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "products", "resolve", "--member-ous-uid", "uid://A",
+            "--expand-archives", "--save-products-csv", str(products_csv),
+        ],
+    )  # fmt: skip
+
+    assert result.exit_code == 0, result.output
+    assert pd.read_csv(products_csv)["filename"].tolist() == ["m.pbcor.fits"]
+
+
 def test_products_download_skip_qa0_semipass_filters_raw_products(tmp_path, monkeypatch):
     """--skip-qa0-semipass drops SemiPass raw ASDMs and reports what it skipped."""
     from almasim.services.archive import qa0

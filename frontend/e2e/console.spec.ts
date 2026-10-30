@@ -76,6 +76,10 @@ test('search the archive, resolve the products and download them', async ({ page
 	const download = page.getByRole('combobox', { name: 'Download' });
 	await expect(download).toBeVisible();
 	await expect(page.getByText('953.7 MB').first()).toBeVisible(); // the raw product (10⁹ bytes)
+	const only = page.getByRole('textbox', { name: 'Only files named' });
+	await only.fill('*_cubes.tar');
+	await expect(page.getByText(/^1 file, 190\.7 MB to download/)).toBeVisible();
+	await only.fill('');
 	await download.selectOption({ label: 'auxiliary only' });
 	await page.getByRole('textbox', { name: /Destination/ }).fill(`${E2E_ROOT}/data/archive`);
 	await expect(page.getByText(/free there/)).toBeVisible();
