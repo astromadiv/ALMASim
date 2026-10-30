@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 
 from almasim.services.imaging.ms_geometry import SPECTRAL_COLUMNS, image_pixels
+from almasim.services.imaging.provenance import Provenance, find_ous_index
 from almasim.services.instrument.constants import SPEED_OF_LIGHT_M_S
 
 
@@ -158,6 +159,7 @@ class ImagingTask:
     field_ids: tuple[int, ...] = ()
     cube_command: list[str] | None = None
     dish_diameter: float | None = None
+    provenance: Provenance | None = None
 
 
 def _field_arguments(row: pd.Series) -> list[str]:
@@ -189,6 +191,35 @@ def row_dish_diameter(row: pd.Series) -> float | None:
     except (KeyError, TypeError, ValueError):
         return None
     return round(diameter, 2) if math.isfinite(diameter) else None
+
+
+def row_provenance(
+    row: pd.Series,
+    ous_index_csv: str | Path | None = None,
+    indexes: dict[Path | None, dict[str, dict[str, str]]] | None = None,
+) -> Provenance:
+    """A parameter row's provenance: its MS, window and field, and the OUSs of its EB.
+
+    The OUSs come from ``ous_index_csv``, or from the ``ous_index.csv`` nearest
+    above the MS when it is None (none: the OUSs are left out). ``indexes``
+    keeps the indexes read, by path, across the rows of one run.
+    """
+    from almasim.services.archive.delivery import read_ous_index
+
+    ms = Path(row["filename"]).expanduser().absolute()
+    path = Path(ous_index_csv) if ous_index_csv else find_ous_index(ms)
+    indexes = {} if indexes is None else indexes
+    if path not in indexes:
+        indexes[path] = read_ous_index(path) if path is not None else {}
+    field = row.get("field_name") if hasattr(row, "get") else None
+    if field is None or (isinstance(field, float) and math.isnan(field)):
+        field = ""
+    return Provenance.for_ms(
+        [ms],
+        indexes[path],
+        spw=int(row["spectral_window_id"]),
+        field=str(field),
+    )
 
 
 def task_directory(output_directory: Path, row: pd.Series) -> tuple[Path, tuple[int, ...]]:
@@ -231,6 +262,7 @@ def build_imaging_tasks(
     min_beams_across: float = 0.0,
     multiscale: bool = False,
     join_channels: bool = False,
+    ous_index_csv: str | Path | None = None,
 ) -> tuple[list[ImagingTask], int]:
     """Turn parameter rows into WSClean tasks, skipping the ones already done.
 
@@ -252,6 +284,10 @@ def build_imaging_tasks(
     ``trust_existing_images`` also accepts a continuum image produced before
     markers existed and writes its marker. ``overwrite_outputs`` redoes
     everything.
+
+    Each task carries its data's provenance (``row_provenance``) for the
+    products' FITS headers: the OUSs from ``ous_index_csv``, or from the
+    ``ous_index.csv`` nearest above each MS when it is None.
     """
     from almasim.services.imaging.markers import is_imaging_complete, write_imaging_marker
     from almasim.services.imaging.products import (
@@ -277,6 +313,7 @@ def build_imaging_tasks(
     # with output "ms-imaged-flagged" looked for its single-window MS under
     # .../SPW-5/ms-imaged-flagged/... and every task failed (2026-10-09).
     output_directory = Path(output_directory).expanduser().absolute()
+    indexes: dict[Path | None, dict[str, dict[str, str]]] = {}
     for _, row in parameters.iterrows():
         input_filename = Path(row["filename"]).expanduser().absolute()
         spw = int(row["spectral_window_id"])
@@ -372,6 +409,7 @@ def build_imaging_tasks(
                 field_ids=field_ids,
                 cube_command=wsclean_command(CUBE_NAME, True) if cube is not None else None,
                 dish_diameter=row_dish_diameter(row),
+                provenance=row_provenance(row, ous_index_csv, indexes),
             )
         )
     return tasks, skipped

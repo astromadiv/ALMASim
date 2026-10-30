@@ -15,6 +15,7 @@ Imaging code lives in [`src/almasim/services/imaging`](../src/almasim/services/i
 | `batch_runner.py`, `task.py`, `markers.py` | running the tasks on `sync` or `slurm`, their `.done`/`.failed`/`.log` files |
 | `ms/` | the single-window MS each task images |
 | `uv_contsub.py`, `selfcal/`, `primary_beam.py` | visibility-plane continuum subtraction, self-calibration, primary-beam correction |
+| `provenance.py` | the OUSs, execution blocks and WSClean commands in every product's FITS header |
 | `quality/` | the cleaning-quality statistics and moment maps of `image clean-quality` |
 
 ## Simulation image products
@@ -157,6 +158,31 @@ lists every option.
 - `--pbcor` writes the primary beam (`wsclean[-cube]-pb.fits`, CASA's ALMA
   Airy model) and the corrected images (`wsclean[-cube]-image.pbcor.fits`).
   `almasim image pb-correct` adds them to an existing run.
+
+### Provenance in the FITS headers
+
+Every FITS a task writes says what it was made from, with the keywords of
+ALMA's own pipeline images where ALMA has one:
+
+| keyword | value |
+|---|---|
+| `PROPCODE` | the project code |
+| `SGOAL`, `GROUP`, `MEMBER` | the science goal, group and member OUS UIDs |
+| `SPW`, `FIELD` | the spectral window (its id in the MS) and the field imaged |
+| `NEB`, `EBUID01` ... | the execution blocks imaged |
+| `NMS`, `MSNAM01` ... | the MeasurementSets imaged |
+| `ALMASVER` | the ALMASim version |
+| `HISTORY` | after WSClean's own record of its command line, each step of the task in the order it ran (`ALMASim: ...`): the window's extraction, the continuum subtraction from the visibilities, and every WSClean command (self-calibration rounds included), with the task folder's paths written relative to it |
+
+The OUS UIDs come from the delivery tree's `ous_index.csv`
+([The delivery tree](downloads.md#the-delivery-tree)), looked up by the
+execution block in the MS's name: `--ous-index` names it, and by default each
+MS uses the `ous_index.csv` nearest above it, which finds the index of
+everything `products download` fetched and calibrated. An MS that no index
+lists keeps its execution block, MS, window and field. The images made from
+another one (the continuum-subtracted cube, the primary-beam correction, the
+self-calibration products and the `clean-quality` maps) copy these cards and
+add a `HISTORY` line of their own.
 
 ### Cleaning quality
 

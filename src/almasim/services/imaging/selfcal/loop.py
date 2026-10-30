@@ -376,7 +376,9 @@ def _selfcal_noise_products(  # noqa: C901
         image: Path | None = None
         if is_cube:
             try:
-                stacked = stack_channel_images(out, prefix=name, keep=("dirty", "image"))
+                stacked = stack_channel_images(
+                    out, prefix=name, keep=("dirty", "image"), provenance=task.header()
+                )
             except Exception as exc:
                 raise fail(f"Could not stack the self-calibration correction cube: {exc}") from exc
             for duplicate in out.glob(f"{name}-MFS-*.fits"):

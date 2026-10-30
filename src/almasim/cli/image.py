@@ -368,6 +368,7 @@ class ImageFromMsOptions:
     cube_line_mask: bool
     cube_reorder: bool
     plan_only: bool
+    ous_index: Path | None
 
 
 @image_app.command("image-from-ms")
@@ -739,6 +740,15 @@ def image_from_ms(
         help="Print the channel plan and the projected cube volume, then exit without imaging.",
         rich_help_panel="Spectral cube",
     ),
+    ous_index: Path | None = typer.Option(
+        None,
+        "--ous-index",
+        help=(
+            "The delivery tree's ous_index.csv, for the project, science goal, group and "
+            "member OUS in every FITS header (default: the ous_index.csv nearest above each MS)."
+        ),
+        rich_help_panel="Imaging",
+    ),
 ):
     """Image every (MS, spectral window) row of a parameter CSV with WSClean.
 
@@ -859,6 +869,7 @@ def _image_from_ms_tasks(o: ImageFromMsOptions, imaging: ImagingOptions) -> list
         min_beams_across=o.min_beams_across,
         multiscale=o.multiscale,
         join_channels=o.join_channels,
+        ous_index_csv=o.ous_index,
     )
     if skipped:
         typer.echo(f"Skipped {skipped} already-imaged SPW(s).")
@@ -1106,6 +1117,7 @@ def image_set(
         cube_line_mask=True,
         cube_reorder=True,
         plan_only=False,
+        ous_index=None,
         postprocess_backend=postprocess_backend,
         slurm_queue=slurm_queue,
         slurm_project=slurm_project,

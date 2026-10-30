@@ -49,6 +49,7 @@ from almasim.services.imaging.products import (
     SINGLE_WINDOW_PLACEHOLDER,
     TOTAL_RESIDUAL_FILENAME,
 )
+from almasim.services.imaging.provenance import Provenance, stamp_fits
 from almasim.services.imaging.selfcal.loop import _selfcal_noise_products, self_calibrate
 from almasim.services.imaging.task_run import TaskRun
 from almasim.services.imaging.uv_contsub import (
@@ -89,6 +90,7 @@ def run_wsclean_task(  # noqa: C901
     cube_line_mask: bool = False,
     noise_products: bool = False,
     pb_dish_diameter: float | None = None,
+    provenance: Provenance | None = None,
 ) -> dict[str, object]:
     """Run one WSClean task in a subprocess and leave a marker whatever happens.
 
@@ -133,6 +135,10 @@ def run_wsclean_task(  # noqa: C901
     continuum image and the image cube are primary-beam corrected
     (``pb_correct_task``): ``wsclean[-cube]-pb.fits`` and
     ``wsclean[-cube]-image.pbcor.fits``.
+
+    Every FITS the task leaves carries ``provenance`` (by default the MS's
+    execution block and the window) and its steps, each WSClean command among
+    them (see :mod:`almasim.services.imaging.provenance`).
     """
     out = Path(output_dir)
     log_path = imaging_log_path(out)
@@ -185,6 +191,7 @@ def run_wsclean_task(  # noqa: C901
         stale.unlink(missing_ok=True)
 
     single_window_ms: Path | None = None
+    extraction_note = ""
     if single_window:
         # Extract the window (and fields) into a per-task MS so WSClean never
         # reorders; ``SINGLE_WINDOW_PLACEHOLDER`` in the command is replaced.
@@ -212,6 +219,10 @@ def run_wsclean_task(  # noqa: C901
             f"with WEIGHT > {float(extracted.get('max_weight') or 0):g}"
             if extracted.get("max_weight")
             else ""
+        )
+        extraction_note = (
+            f"extracted spectral window {int(spw)} fields {fields_note} into "
+            f"{single_window_ms.name}: {kept} rows{drop_note}"
         )
         with log_path.open("a", encoding="utf-8") as log:
             log.write(
@@ -244,7 +255,10 @@ def run_wsclean_task(  # noqa: C901
         env=wsclean_environment(threads),
         timeout=timeout,
         retries=retries,
+        provenance=provenance,
     )
+    if extraction_note:
+        task.note(extraction_note)
     started = time.time()
 
     try:
@@ -334,7 +348,9 @@ def _run_and_mark(  # noqa: C901
     cube_channels: dict[str, int] = {}
     if CUBE_IMAGE_FILENAME in required:
         try:
-            cube_channels = stack_channel_images(out, prefix=CUBE_NAME, keep=cube_products)
+            cube_channels = stack_channel_images(
+                out, prefix=CUBE_NAME, keep=cube_products, provenance=task.header()
+            )
         except Exception as exc:
             raise fail(f"Could not stack the channel images into cubes: {exc}") from exc
         # WSClean also writes a <name>-MFS-<product>.fits for a -channels-out
@@ -361,6 +377,16 @@ def _run_and_mark(  # noqa: C901
     missing = [name for name in required if not (out / name).is_file()]
     if missing:
         raise fail(f"WSClean exited 0 but wrote no {', '.join(missing)} under {out}", 0)
+    # The cubes got the cards as they were stacked, and what was made from them
+    # copied them; WSClean's own images (the continuum's) get them here, before
+    # the primary-beam correction copies them on.
+    provenance = task.header()
+    for path in sorted(out.glob("*.fits")):
+        try:
+            stamp_fits(path, provenance)
+        except (OSError, ValueError) as exc:  # the images stand without it
+            with log_path.open("a", encoding="utf-8") as log:
+                log.write(f"# provenance NOT written into {path.name}: {exc}\n")
     if pb_dish_diameter:
         try:
             corrected = pb_correct_task(out, pb_dish_diameter)
@@ -460,6 +486,11 @@ def _subtract_uv_continuum_step(
         f"{fit['line_ranges'] or 'none'}\n"
     )
     log.flush()
+    task.note(
+        f"continuum subtracted from the visibilities' {fit['source_column']} (order "
+        f"{fit['order']}): {fit['line_free_channels']} of {fit['usable_channels']} "
+        f"channels line-free, lines in channels {fit['line_ranges'] or 'none'}"
+    )
     # Every continuum pass (two with continuum_restart), then the cube.
     continuum = (
         [_with_data_column(c, CONTINUUM_COLUMN) for c in commands[:-1]] if has_continuum else []

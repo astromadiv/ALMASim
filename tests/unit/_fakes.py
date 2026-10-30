@@ -153,6 +153,11 @@ class FakeTask:
     def run(self, cmd, log):
         return self._run(cmd)
 
+    def header(self):
+        from astropy.io import fits
+
+        return fits.Header()
+
 
 def flat_run_kwargs(imaging, execution, **kwargs):
     """What a fake ``run_imaging_tasks`` received, under the old keyword names (MADIV-28 T4.1)."""

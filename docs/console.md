@@ -171,7 +171,10 @@ driver with its own workers, follows the windows as they finish, and then
 measures how well each was cleaned. The folder to image starts as the
 `calibrated_ms/` of your last archive download that calibrated, and the
 output folder is yours to choose. While the imaging runs, *Dask dashboard*
-shows its workers at work.
+shows its workers at work. Every image's FITS header names its project,
+science goal, group and member OUS, from the `ous_index.csv` of that
+download, and the WSClean commands that made it
+([Provenance in the FITS headers](imaging.md#provenance-in-the-fits-headers)).
 
 ![Imaging](images/console/imaging.png)
 

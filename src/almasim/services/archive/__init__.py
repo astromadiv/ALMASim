@@ -17,7 +17,13 @@ from .calibration import (
     write_calibration_failure_marker,
     write_calibration_marker,
 )
-from .delivery import DeliveryOrganized, MemberFolder, member_folders, organize_delivery
+from .delivery import (
+    DeliveryOrganized,
+    MemberFolder,
+    member_folders,
+    organize_delivery,
+    read_ous_index,
+)
 from .qa0 import (
     QA0FilterResult,
     QA0Report,
@@ -80,4 +86,5 @@ __all__ = [
     "MemberFolder",
     "member_folders",
     "organize_delivery",
+    "read_ous_index",
 ]

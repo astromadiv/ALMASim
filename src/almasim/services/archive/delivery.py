@@ -36,6 +36,7 @@ __all__ = [
     "folder_uid",
     "member_folders",
     "organize_delivery",
+    "read_ous_index",
 ]
 
 CALIBRATED_FOLDER = "calibrated"
@@ -108,6 +109,12 @@ def member_folders(root: str | os.PathLike[str]) -> dict[str, MemberFolder]:
     return members
 
 
+def read_ous_index(path: str | os.PathLike[str]) -> dict[str, dict[str, str]]:
+    """An ``ous_index.csv`` as ``{eb_uid: row}``."""
+    with Path(path).open(newline="", encoding="utf-8") as handle:
+        return {row["eb_uid"]: row for row in csv.DictReader(handle)}
+
+
 def _link(target: Path, link: Path) -> bool:
     """Point ``link`` at ``target`` (relative); a real file or folder there is left alone."""
     relative = os.path.relpath(target, link.parent)
@@ -175,9 +182,10 @@ def organize_delivery(
 
     index = Path(index_path) if index_path else root / INDEX_FILENAME
     index.parent.mkdir(parents=True, exist_ok=True)
-    temporary = index.with_name(index.name + ".tmp")
+    # One temporary file per process: organize runs may overlap on one tree.
+    temporary = index.with_name(f"{index.name}.{os.getpid()}.tmp")
     with temporary.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.writer(handle)
+        writer = csv.writer(handle, lineterminator="\n")
         writer.writerow(_INDEX_COLUMNS)
         for eb, member in sorted(members.items(), key=lambda item: (str(item[1].path), item[0])):
             writer.writerow(

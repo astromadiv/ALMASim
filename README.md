@@ -504,7 +504,9 @@ almasim products download \
 
 # Image every calibrated MS, one WSClean per science spectral window, on Slurm.
 # Same contract as unpack/calibrate: SPW-<n>.done / .failed / .log next to each
-# output directory, failed tasks never stop the batch, reruns resume from the markers
+# output directory, failed tasks never stop the batch, reruns resume from the markers;
+# every FITS header names its project, science goal, group and member OUS, its
+# execution blocks and the WSClean commands that made it
 # (see docs/imaging.md)
 almasim image compute-parameters examples/output/archive_ms/calibrated_ms imaging_parameters.csv
 almasim image image-from-ms imaging_parameters.csv examples/output/images \
