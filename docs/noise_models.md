@@ -330,9 +330,9 @@ in images.
 
 - *Receiver temperatures.* For each 12 m window with a Tsys, a PWV (the
   archive's precipitable water vapour, given to `noise extract --pwv`) and
-  an elevation, ALMASim's own Tsys model is evaluated at `Trx` = 0 K and
-  100 K (it is linear in `Trx`) to find the `Trx` that gives the measured
-  median Tsys. The median over the windows of each row of the table (one
+  an elevation, ALMASim's own Tsys model (the base model's equation; see
+  `forward_efficiency`) is evaluated at `Trx` = 0 K and 100 K (it is linear
+  in `Trx`) to find the `Trx` that gives the measured median Tsys. The median over the windows of each row of the table (one
   band, or bands 2-3 and 9-10 together) replaces that row's receiver
   temperature.
 - *Aperture efficiency.* For each dish size (12 m, 7 m), Ruze's law
@@ -370,6 +370,7 @@ window follows Tsys.
 | `receiver_temperature_k` | Trx by frequency: rows of `upper_ghz` (the row's upper edge, GHz; null for the last), `trx_k` (K) and `bands`, edges rising | 32 (band 1), 39 (2-3), 37 (4), 50 (5), 46 (6), 63 (7), 110 (8), 160 (9-10) |
 | `aperture` | Ruze parameters per dish: rows of `diameter_m`, `eta0` and `surface_rms_m` (another diameter takes the 12 m dish's) | 12 m: 0.76, 27 um; 7 m: 0.72, 24 um |
 | `quantisation_efficiency`, `correlator_efficiency` | eta_c = their product | 0.96 x 0.88 |
+| `forward_efficiency` | eta_f, the fraction of the beam on the sky; set, Tsys follows the ALMA Technical Handbook's equations (see `atmospheric_tsys`), the receiver temperatures of bands 9 and 10 being double sideband | not set |
 
 Left out, these take ALMA's values from
 `interferometry/data/alma_radiometer.json`, which every run uses for Tsys.
@@ -406,7 +407,30 @@ with `A` the airmass, `tau` the zenith opacity, `g` the band's image-band
 gain (0 for band 1, 0.1 for the sideband-separating bands 2 to 8, whose
 rejection is about 10 dB, and 1 for the double-sideband bands 9 and 10) and
 the image band one IF centre on the other side of the local oscillator, on
-whichever side gives the lower Tsys. Off, the sky is a smooth function of
+whichever side gives the lower Tsys. This is the form of the ALMA
+Sensitivity Calculator's web application (Technical Handbook Eq. 9.7, with
+the image band's own sky). With the `radiometer` component's
+`forward_efficiency` eta_f, Tsys is instead the Handbook's Eq. 9.6 for
+bands 1 to 8,
+
+```
+Tsys = exp(A tau) / eta_f (Trx + eta_f Tsky + (1 - eta_f) Tground)
+```
+
+and Eq. 9.5 for the double-sideband bands 9 and 10, both sidebands' sky and
+ground and twice their double-sideband `Trx`:
+
+```
+Tsys = exp(A tau) / eta_f (2 Trx + eta_f (Tsky + Tsky_image) + (1 - eta_f) 2 Tground)
+```
+
+with the sky and the ground (270 K) as noise temperatures,
+`T (h nu / k T) / (exp(h nu / k T) - 1)` (Eq. 9.4). On the 100 MADIV-16
+windows, with eta_f = 0.95, the receiver temperatures that reproduce ALMA's
+own Tsys are 18 K (band 1), 33 K (band 3), 33 K (band 4), 52 K (band 5),
+43 K (band 6), 68 K (band 7), 122 K (band 8), 91 K (band 9) and 210 K
+(band 10), each within 4% of the Handbook's Table 9.2 values (ALMA's worst
+in each band) or below them. Off, the sky is a smooth function of
 frequency instead, and Tsys is simply `Trx + Tsky`, with
 `Tsky = Tground (1 - exp(-tau))` and
 `tau = (0.005 + 0.0025 PWV) A (1 + nu / 400 GHz)` (PWV in mm).

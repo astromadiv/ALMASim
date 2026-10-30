@@ -24,6 +24,7 @@ import numpy as np
 TABLE = Path(__file__).parent / "data" / "atm_chajnantor.npz"
 TABLE_GROUND_K = 270.0  # the ground temperature the table was computed for
 T_CMB_K = 2.725
+H_OVER_K = 6.62607015e-34 / 1.380649e-23  # K per Hz
 
 
 @lru_cache(maxsize=1)
@@ -113,6 +114,24 @@ def receiver_band(freq_hz: float) -> ReceiverBand:
     return min(BANDS, key=lambda b: min(abs(ghz - b.lo_ghz), abs(ghz - b.hi_ghz)))
 
 
+def noise_temperature(temperature_k: np.ndarray | float, freqs_hz: np.ndarray) -> np.ndarray:
+    """A brightness temperature as the noise temperature it adds (P = k T per
+    unit bandwidth): T (h nu / k T) / (e^(h nu / k T) - 1), the Technical
+    Handbook's Eq. 9.4."""
+    t = np.maximum(np.asarray(temperature_k, dtype=np.float64), 1e-3)
+    x = H_OVER_K * np.asarray(freqs_hz, dtype=np.float64) / t
+    return t * x / np.expm1(x)
+
+
+def _sideband_noise(
+    freqs_hz: np.ndarray, tsky_k: np.ndarray, eta: float, ground_temperature_k: float
+) -> np.ndarray:
+    """A sideband's sky and ground pickup: eta Tsky + (1 - eta) T_ground, as noise
+    temperatures."""
+    ground = noise_temperature(float(ground_temperature_k), freqs_hz)
+    return eta * noise_temperature(tsky_k, freqs_hz) + (1.0 - eta) * ground
+
+
 def system_temperature(
     freqs_hz: np.ndarray,
     trx_k: np.ndarray | float,
@@ -121,13 +140,21 @@ def system_temperature(
     airmass: float,
     ground_temperature_k: float = TABLE_GROUND_K,
     sideband: str = "auto",
+    forward_efficiency: float | None = None,
 ) -> np.ndarray:
-    """Tsys (K, above the atmosphere) across a window.
+    """Tsys (K, above the atmosphere) across a window, the image band mirrored
+    about the LO, one IF centre from the window.
 
-    Tsys = (1 + g) e^(A tau_s) (Trx + Tsky_s + g Tsky_i), with g the band's image
-    gain and the image band mirrored about the LO, one IF centre from the
-    window. ``sideband``: "usb" (LO below the window), "lsb", or "auto", the one
-    whose image band gives the lower Tsys (as a tuning would choose).
+    Without ``forward_efficiency``: Tsys = (1 + g) e^(A tau_s) (Trx + Tsky_s +
+    g Tsky_i), with g the band's image gain. With it (eta), the ALMA Technical
+    Handbook's Eq. 9.6, Tsys = e^(A tau_s) / eta S_s, and for a double-sideband
+    receiver (bands 9 and 10, its Trx double sideband) Eq. 9.5,
+    Tsys = e^(A tau_s) / eta (S_s + S_i), each sideband's
+    S = Trx + eta Tsky + (1 - eta) T_ground with Tsky and T_ground as noise
+    temperatures (Eq. 9.4).
+
+    ``sideband``: "usb" (LO below the window), "lsb", or "auto", the one whose
+    image band gives the lower Tsys (as a tuning would choose).
     """
     freqs_hz = np.asarray(freqs_hz, dtype=np.float64)
     centre = float(np.mean(freqs_hz))
@@ -137,17 +164,25 @@ def system_temperature(
         "airmass": airmass,
         "ground_temperature_k": ground_temperature_k,
     }
+    trx = np.asarray(trx_k, dtype=np.float64)
     tsky, tau = sky_spectrum(freqs_hz, **sky_kwargs)
-    signal = np.exp(airmass * tau) * (np.asarray(trx_k, dtype=np.float64) + tsky)
-    if band.image_gain <= 0:
-        return signal
+    eta = forward_efficiency
+    if eta is None:
+        signal = np.exp(airmass * tau) * (trx + tsky)
+    else:
+        signal = trx + _sideband_noise(freqs_hz, tsky, eta, ground_temperature_k)
+        scale = np.exp(airmass * tau) / eta
+    if band.image_gain <= 0 or (eta is not None and band.image_gain < 1):
+        return signal if eta is None else scale * signal
 
     def with_image(lo_hz: float) -> np.ndarray:
         image = np.clip(2.0 * lo_hz - freqs_hz, 30e9, 1000e9)
         tsky_image, _ = sky_spectrum(image, **sky_kwargs)
-        return (1.0 + band.image_gain) * (
-            signal + band.image_gain * np.exp(airmass * tau) * tsky_image
-        )
+        if eta is None:
+            g = band.image_gain
+            return (1.0 + g) * (signal + g * np.exp(airmass * tau) * tsky_image)
+        image_noise = _sideband_noise(image, tsky_image, eta, ground_temperature_k)
+        return scale * (signal + trx + image_noise)
 
     offset = band.if_centre_ghz * 1e9
     choices = {"usb": centre - offset, "lsb": centre + offset}

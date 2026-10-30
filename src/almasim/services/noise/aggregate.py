@@ -198,7 +198,7 @@ def _radiometer(
     edges = np.array([np.inf if r["upper_ghz"] is None else r["upper_ghz"] for r in rows])
     needed: dict[int, list[float]] = {}
     for w in windows:
-        trx = _trx_needed(w)
+        trx = _trx_needed(w, config.forward_efficiency)
         if trx is not None and round(w.exposure.dish_diameter_m) == 12:
             row = int(np.searchsorted(edges, w.exposure.frequency_ghz, side="right"))
             needed.setdefault(min(row, len(rows) - 1), []).append(trx)
@@ -244,10 +244,11 @@ def _radiometer(
     ]
 
 
-def _trx_needed(window: WindowNoise) -> float | None:
+def _trx_needed(window: WindowNoise, forward_efficiency: float | None = None) -> float | None:
     """The receiver temperature that gives the window's median SYSCAL Tsys under
-    the simulator's Tsys model (linear in it), at the window's PWV and the
-    target's elevation; None without them."""
+    the simulator's Tsys model (linear in it; the Technical Handbook's with
+    ``forward_efficiency``), at the window's PWV and the target's elevation;
+    None without them."""
     from ..interferometry.atmosphere import system_temperature
 
     w = window
@@ -257,7 +258,17 @@ def _trx_needed(window: WindowNoise) -> float | None:
     freq += w.exposure.frequency_ghz * 1e9
     airmass = 1.0 / np.sin(np.radians(max(5.0, min(90.0, w.exposure.elevation_deg))))
     at = [
-        float(np.median(system_temperature(freq, trx, pwv_mm=w.input.pwv_mm, airmass=airmass)))
+        float(
+            np.median(
+                system_temperature(
+                    freq,
+                    trx,
+                    pwv_mm=w.input.pwv_mm,
+                    airmass=airmass,
+                    forward_efficiency=forward_efficiency,
+                )
+            )
+        )
         for trx in (0.0, 100.0)
     ]
     if at[1] <= at[0]:

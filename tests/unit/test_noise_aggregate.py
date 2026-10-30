@@ -29,7 +29,13 @@ NCHAN = 256
 
 
 def _window(
-    k: int, *, ghz: float = 230.0, dish: float = 12.0, trx: float = 40.0, ripple: float = 0.02
+    k: int,
+    *,
+    ghz: float = 230.0,
+    dish: float = 12.0,
+    trx: float = 40.0,
+    ripple: float = 0.02,
+    forward_efficiency: float | None = None,
 ) -> WindowNoise:
     rng = np.random.default_rng(k)
     x = np.linspace(-1, 1, NCHAN)
@@ -40,7 +46,13 @@ def _window(
     freq = ghz * 1e9 + np.linspace(-0.5, 0.5, 64) * NCHAN * width
     elevation, pwv = 60.0, 1.2
     airmass = 1 / np.sin(np.radians(elevation))
-    tsys = float(np.median(system_temperature(freq, trx, pwv_mm=pwv, airmass=airmass)))
+    tsys = float(
+        np.median(
+            system_temperature(
+                freq, trx, pwv_mm=pwv, airmass=airmass, forward_efficiency=forward_efficiency
+            )
+        )
+    )
     eta0, eps = (0.75, 26e-6) if dish == 12 else (0.7, 24e-6)
     aperture = eta0 * np.exp(-((4 * np.pi * eps * ghz * 1e9 / C) ** 2)) * rng.normal(1, 0.02)
     return WindowNoise(
@@ -146,6 +158,25 @@ def test_the_candidate_takes_the_windows_medians():
     assert resolve_noise_model(candidate.model_dump_json()).engine_fields()[
         "gain_amp_rms"
     ] == pytest.approx(0.065)
+
+
+@pytest.mark.unit
+def test_the_receiver_temperature_follows_the_bases_tsys_equation():
+    """A base with a forward efficiency (the Technical Handbook's Tsys) gets the
+    receiver temperatures that equation needs."""
+    alma = released_model("alma", 1)
+    radiometer = json.loads(alma.model_dump_json())["components"]["radiometer"]
+    base = resolve_noise_model(
+        {
+            **json.loads(alma.model_dump_json()),
+            "components": {"radiometer": {**radiometer, "forward_efficiency": 0.95}},
+        }
+    )
+    windows = [Measured(_window(k, trx=35.0, forward_efficiency=0.95)) for k in range(4)]
+    candidate = aggregate(windows, base)
+    trx = {r.bands: r.trx_k for r in candidate.components.radiometer.receiver_temperature_k}
+    assert trx["6"] == pytest.approx(35.0, rel=1e-6)
+    assert candidate.components.radiometer.forward_efficiency == 0.95
 
 
 @pytest.mark.unit

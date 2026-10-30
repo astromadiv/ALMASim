@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 
 
 class NoiseComponent(BaseModel):
@@ -68,6 +68,15 @@ class Radiometer(NoiseComponent):
     )
     quantisation_efficiency: float | None = Field(default=None, gt=0, le=1)
     correlator_efficiency: float | None = Field(default=None, gt=0, le=1)
+    forward_efficiency: float | None = Field(
+        default=None,
+        gt=0,
+        le=1,
+        description=(
+            "The dishes' forward efficiency; set: Tsys from the ALMA Technical Handbook's "
+            "Eqs. 9.5 and 9.6 (receiver temperatures double sideband for bands 9 and 10)."
+        ),
+    )
 
     @model_validator(mode="after")
     def _edges_rise(self) -> Radiometer:
@@ -77,6 +86,14 @@ class Radiometer(NoiseComponent):
             if not rows or edges != sorted(edges) or len(set(edges)) != len(edges):
                 raise ValueError("receiver_temperature_k: edges must rise, at most one null last")
         return self
+
+    @model_serializer(mode="wrap")
+    def _without_unset_forward_efficiency(self, handler: Any) -> dict[str, Any]:
+        # A model that leaves it unset keeps the identity (sha256) it has without it.
+        data = handler(self)
+        if self.forward_efficiency is None:
+            data.pop("forward_efficiency", None)
+        return data
 
     def engine_fields(self) -> dict[str, Any]:
         return {"radiometer_noise": True}
@@ -98,6 +115,8 @@ class Radiometer(NoiseComponent):
             values["correlator_efficiency"] = (
                 self.quantisation_efficiency or instrument["quantisation_efficiency"]
             ) * (self.correlator_efficiency or instrument["correlator_efficiency"])
+        if self.forward_efficiency is not None:
+            values["forward_efficiency"] = self.forward_efficiency
         return values
 
 
