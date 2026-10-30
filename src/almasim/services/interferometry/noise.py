@@ -65,6 +65,9 @@ class NoiseModelConfig:
     # None: ALMA's (data/alma_radiometer.json).
     receiver_temperatures: ReceiverTable | None = None
     ruze: RuzeTable | None = None
+    # The dishes' forward efficiency; set: Tsys from the ALMA Technical
+    # Handbook's equations (atmosphere.system_temperature).
+    forward_efficiency: float | None = None
 
 
 def estimate_receiver_temperature_k(
@@ -130,6 +133,7 @@ def system_equivalent_flux_density(
             airmass=airmass,
             ground_temperature_k=config.ground_temperature_k,
             sideband=config.sideband,
+            forward_efficiency=config.forward_efficiency,
         )
     else:
         tsky = estimate_sky_temperature_k(

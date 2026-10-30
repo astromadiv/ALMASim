@@ -490,6 +490,21 @@
           ],
           "default": null,
           "title": "Correlator Efficiency"
+        },
+        "forward_efficiency": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 1,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The dishes' forward efficiency; set: Tsys from the ALMA Technical Handbook's Eqs. 9.5 and 9.6 (receiver temperatures double sideband for bands 9 and 10).",
+          "title": "Forward Efficiency"
         }
       },
       "title": "Radiometer",

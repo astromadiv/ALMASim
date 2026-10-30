@@ -80,7 +80,7 @@ candidate model can therefore be used for a run before it is released.
 
 | Component | What it adds | Parameters |
 | --- | --- | --- |
-| `radiometer` | each visibility's noise from the radiometer equation (below) | `receiver_temperature_k`, `aperture`, `quantisation_efficiency`, `correlator_efficiency` |
+| `radiometer` | each visibility's noise from the radiometer equation (below) | `receiver_temperature_k`, `aperture`, `quantisation_efficiency`, `correlator_efficiency`, `forward_efficiency` |
 | `atmospheric_tsys` | the atmosphere's lines in Tsys across the window | |
 | `receiver_ripple` | the receiver's smooth ripple of Tsys | `rms` |
 | `channel_correlation` | correlated noise of neighbouring channels | `rho1`, `rho2`, `average` |
@@ -134,7 +134,12 @@ it). Tsys is referred to above the atmosphere,
 `(1 + g) exp(A tau) (Trx + Tsky + g Tsky_image)`, with `g` the band's
 image-band gain, `A` the airmass, `tau` the zenith opacity, the image band one
 IF centre on the other side of the local oscillator, and the sideband whose
-image gives the lower Tsys. The ripple is drawn from the run's seed.
+image gives the lower Tsys. A model whose `radiometer` sets a
+`forward_efficiency` uses the ALMA Technical Handbook's equations instead
+(Eqs. 9.5 and 9.6: the forward efficiency, the ground's spillover and, for
+the double-sideband bands 9 and 10, both sidebands' receiver noise; see
+[`atmospheric_tsys`](noise_models.md#atmospheric_tsys-the-atmospheres-lines-in-tsys)).
+The ripple is drawn from the run's seed.
 
 ## Per Visibility: the Radiometer Equation
 
@@ -287,7 +292,7 @@ windows each comes from and their 16-84% spread in `provenance.values`:
 | `channel_correlation` rho1, rho2 | windows with Hanning-correlated native channels (rho1 above 0.5) |
 | `receiver_ripple` rms | the smooth part (Legendre modes 1-4) of the noise profile over SYSCAL's Tsys², halved |
 | `antenna_ripple` rms, scale_mhz | each antenna's noise shape, windows wider than 1 GHz |
-| `radiometer` receiver temperatures | per band, the Trx that gives SYSCAL's median Tsys under the simulator's Tsys model (12 m windows, their PWV and elevation) |
+| `radiometer` receiver temperatures | per band, the Trx that gives SYSCAL's median Tsys under the simulator's Tsys model, the base model's equation (12 m windows, their PWV and elevation) |
 | `radiometer` aperture | per dish size, Ruze's law fitted to the efficiency the noise and Tsys imply |
 | `slow_phase`, `fast_phase`, `antenna_gains`, `baseline_errors` | `noise fit` |
 
