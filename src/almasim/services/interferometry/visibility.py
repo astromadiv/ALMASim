@@ -7,7 +7,8 @@ from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
-from astropy.time import Time
+
+from .observing import alma_location, track_start_mjd_s
 
 
 @dataclass
@@ -174,9 +175,13 @@ def assemble_visibility_table(
     scan_length_s: float = 0.0,
     observation_id: int | None = None,
     channel_kernel: np.ndarray | None = None,
+    hour_angle_start_rad: float = 0.0,
 ) -> VisibilityTable:
     """Assemble channel-wise row samples into an MS-like visibility table.
 
+    The rows' times follow the track's hour angles: the first sample is at
+    ``hour_angle_start_rad`` from the source's transit at ALMA on
+    ``observation_date``, so the times agree with the UVW.
     ``scan_length_s`` > 0 numbers the rows' scans, blocks of that length;
     ``observation_id`` marks every row as that execution block's;
     ``channel_kernel`` is the kernel the channels' noise was correlated with.
@@ -201,9 +206,11 @@ def assemble_visibility_table(
         weight_spectrum[:, 0, chan_idx] = rows["weight"]
         sigma_spectrum[:, 0, chan_idx] = rows["sigma"]
 
-    start = Time(f"{observation_date}T00:00:00", format="isot", scale="utc")
+    start_mjd_s = track_start_mjd_s(
+        observation_date, field_ra_rad, hour_angle_start_rad, alma_location()
+    )
     time_offsets_s = reference["time_index"].astype(np.float64) * float(scan_time_s)
-    times_mjd_s = start.mjd * 86400.0 + time_offsets_s
+    times_mjd_s = start_mjd_s + time_offsets_s
     interval_s = np.full(nrows, float(scan_time_s), dtype=np.float64)
     exposure_s = np.full(nrows, float(scan_time_s), dtype=np.float64)
 

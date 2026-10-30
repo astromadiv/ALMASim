@@ -13,7 +13,7 @@ The main code is in [`src/almasim/services/interferometry`](../src/almasim/servi
 | `core.py` | `Interferometer`: one interferometric run, from antenna positions to products |
 | `simulator.py` | the channel-by-channel imaging the `Interferometer` scatters over the compute backend |
 | `imaging.py` | per-channel uv gridding, primary beam, dirty beam and dirty image |
-| `observing.py` | the hour-angle track: number of samples and scan time |
+| `observing.py` | the hour-angle track: number of samples, scan time, and when the source is at each hour angle |
 | `antenna.py` | antenna configurations, maximum baseline, beam size estimates |
 | `baselines.py` | baseline preparation |
 | `frequency.py` | the spectral window from the metadata's frequency support |
@@ -63,7 +63,7 @@ Plans can be:
 For each channel, the `Interferometer`:
 
 - multiplies the model by the primary beam: CASA's Airy model of an ALMA antenna with its central blockage ([`instrument/primary_beam.py`](../src/almasim/services/instrument/primary_beam.py)), the same model the total-power simulation and `--pbcor` use
-- samples the uv plane along the hour-angle track of the source
+- samples the uv plane along the hour-angle track of the source, a track around its transit at ALMA on the execution block's day; the exported MS's times are when the source is at each sample's hour angle
 - adds thermal noise at each visibility, and the noise model's corruptions when one is set
 - grids the visibilities with robust weighting (`robust`, `--robust`)
 - forms the dirty beam and the dirty image

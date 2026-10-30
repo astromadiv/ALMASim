@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import pytest
+from astropy.time import Time
 
 from almasim.services.interferometry.visibility import (
     VisibilityTable,
@@ -207,7 +210,7 @@ def test_assemble_visibility_table_config_name():
 
 @pytest.mark.unit
 def test_assemble_visibility_table_times():
-    """time_mjd_s is computed from observation_date + time_index * scan_time_s."""
+    """time_mjd_s follows the track: its hour angle from transit, then time_index * scan_time_s."""
     nrows = 4
     rows = [_make_channel_rows(nrows)]
     vt = assemble_visibility_table(
@@ -342,3 +345,27 @@ def test_row_weight_is_the_inverse_of_the_mean_variance():
     )
     np.testing.assert_allclose(vt.weight, 0.2, rtol=1e-6)
     np.testing.assert_allclose(vt.sigma, np.sqrt(5.0), rtol=1e-6)
+
+
+@pytest.mark.unit
+def test_assembled_times_put_the_source_at_the_tracks_hour_angles():
+    """The rows' times are when the source is at the hour angles the UVW were computed for."""
+    from almasim.services.interferometry.observing import alma_location
+
+    ra = 1.2
+    rows = [_make_channel_rows(4)]
+    vt = assemble_visibility_table(
+        channel_rows=rows,
+        channel_freq_hz=np.array([100e9]),
+        scan_time_s=60.0,
+        observation_date="2024-01-01",
+        antenna_names=["A1"],
+        antenna_positions_m=np.zeros((1, 3)),
+        source_name="S",
+        field_ra_rad=ra,
+        field_dec_rad=-0.5,
+        hour_angle_start_rad=-0.2,
+    )
+    first = Time(vt.time_mjd_s.min() / 86400.0, format="mjd", scale="utc")
+    lst = first.sidereal_time("apparent", alma_location().lon).rad
+    assert math.remainder(lst - ra, 2 * math.pi) == pytest.approx(-0.2, abs=1e-4)

@@ -6,14 +6,19 @@ import math
 
 import astropy.units as U
 import pytest
-from astropy.coordinates import EarthLocation
+from astropy.coordinates import AltAz, EarthLocation, SkyCoord
+from astropy.time import Time
 
 from almasim.services.instrument.constants import (
     ALMA_ELEVATION_M,
     ALMA_LATITUDE_DEG,
     ALMA_LONGITUDE_DEG,
 )
-from almasim.services.interferometry.observing import hour_angle_coverage, hour_angle_samples
+from almasim.services.interferometry.observing import (
+    hour_angle_coverage,
+    hour_angle_samples,
+    track_start_mjd_s,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -43,3 +48,26 @@ def test_a_one_hour_track_spans_about_a_quarter_radian(ra_deg):
     assert end - start == pytest.approx(3600.0 * SIDEREAL_RATE, rel=1e-3)
     assert start == pytest.approx(-end, rel=1e-3), "centred on the middle of the track"
     assert abs(start) < math.pi and abs(end) < math.pi
+
+
+def _hour_angle(mjd_s: float, ra_rad: float) -> float:
+    lst = Time(mjd_s / 86400.0, format="mjd", scale="utc").sidereal_time("apparent", ALMA.lon)
+    return math.remainder(float(lst.rad) - ra_rad, 2 * math.pi)
+
+
+@pytest.mark.parametrize("ra_deg", [0.0, 36.6, 180.0, 359.9])
+@pytest.mark.parametrize("hour_angle", [-1.0, 0.0, 0.4])
+def test_a_track_starts_at_its_hour_angle_from_transit(ra_deg, hour_angle):
+    when = track_start_mjd_s("2017-03-14", math.radians(ra_deg), hour_angle, ALMA)
+    assert _hour_angle(when, math.radians(ra_deg)) == pytest.approx(hour_angle, abs=1e-4)
+    midnight = Time("2017-03-14T00:00:00", scale="utc").mjd * 86400.0
+    assert midnight - 86400.0 < when < midnight + 2 * 86400.0, "around the observation date"
+
+
+def test_a_source_at_transit_is_at_its_highest():
+    ra, dec = math.radians(83.8), math.radians(-5.4)
+    when = Time(track_start_mjd_s("2017-03-14", ra, 0.0, ALMA) / 86400.0, format="mjd")
+    altaz = SkyCoord(ra * U.rad, dec * U.rad).transform_to(AltAz(obstime=when, location=ALMA))
+    assert altaz.alt.deg == pytest.approx(
+        90.0 - abs(ALMA_LATITUDE_DEG - math.degrees(dec)), abs=0.5
+    )
