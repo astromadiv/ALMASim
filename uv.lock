@@ -1998,14 +1998,14 @@ wheels = [
 
 [[package]]
 name = "python-casacore"
-version = "3.7.1"
+version = "3.8.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/24/93/2ccc937c1609d1ab051b6ca86b51983b94d79f9f097558ba11c9023d74e3/python_casacore-3.7.1.tar.gz", hash = "sha256:6c4e060cba73c0ab9d944eb4b6aa97f20c12b761e671587f313bfc59e3a775c3", size = 288525, upload-time = "2025-04-25T10:31:15.824Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/66/61/96bbc8e1c9751bc83a70a9e94154b9bff3633a56584c00c374dfb1591df1/python_casacore-3.8.1.tar.gz", hash = "sha256:757763cbf5bcb8e98b6809308de107bcb9b41982779b17f163ef20ca0ec18322", size = 288771, upload-time = "2026-06-26T08:19:05.304Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e1/1d/39f81cba931f4d32d22fae231c776bbf28f4ca7ae61a12cd6836dd31b793/python_casacore-3.7.1-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:2805353e3f12d6c03c20267cfa6539b256c43f382ccb0f84436d99f36bd83520", size = 46739724, upload-time = "2025-04-09T15:32:26.599Z" },
+    { url = "https://files.pythonhosted.org/packages/fb/11/01382c28e51adba5dd14cafdfa5c081ddbaeb069fdb1ade3940aa7cc367e/python_casacore-3.8.1-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:9cb9cecb4cb821a70ce4258dec0f5b3d5088a66317afc0df201ff19ebd4d5da9", size = 45683411, upload-time = "2026-06-26T08:18:57.194Z" },
 ]
 
 [[package]]
