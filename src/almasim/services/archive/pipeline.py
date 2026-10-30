@@ -458,6 +458,8 @@ def _calibrate_single_uid(
         "--casa-data-root",
         effective_casa_data,
         "--skip-casa-data-update",
+        # The command that started the workers organizes the delivery tree once, at the end.
+        "--no-organize-delivery",
     ]
     if overwrite:
         cmd.append("--overwrite-outputs")

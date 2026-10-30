@@ -83,6 +83,7 @@ def main() -> None:
     from almasim.services.archive import (
         create_calibrated_measurement_sets,
         create_measurement_sets,
+        organize_delivery,
     )
 
     output_root = args.output_root.expanduser().resolve()
@@ -129,6 +130,10 @@ def main() -> None:
     print("Calibrated MS products:")
     for calibrated_ms in calibrated_mss:
         print(f"  {calibrated_ms}")
+
+    # Link each calibrated MS into its member's calibrated/ folder and index the tree.
+    if not args.delete_input_root:
+        organize_delivery(args.input_root, calibrated_ms_root, raw_ms_root, echo=print)
 
 
 if __name__ == "__main__":

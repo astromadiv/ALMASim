@@ -118,6 +118,46 @@ into the same tree. The QA0 filter below reads the reports from the `qa/`
 folders under `--qa0-report-root`, so the delivery layout serves it whether
 the auxiliary tar was extracted or listed file by file.
 
+## The delivery tree
+
+Every image and MeasurementSet ALMASim downloads or makes traces back to its
+project, science goal, group and member OUS through the ALMA delivery tree:
+
+```text
+<root>/ous_index.csv
+<root>/<project>/science_goal.<uid>/group.<uid>/member.<uid>/
+    product/  calibration/  qa/  script/  log/  raw/   as ALMA delivers them
+    calibrated/<eb>.ms.split.cal                        a link to each calibrated MS
+```
+
+The extracted tars carry the tree in their paths, and `--layout delivery`
+puts single files at the same paths. Each member's `qa/` folder
+holds one `<eb>.qa0_report.pdf` per execution block, and its `calibration/`
+folder one `<eb>.ms.calapply.txt` per calibrated block, so the tree says which
+member each execution block belongs to. When `products download` unpacks or
+calibrates, and when `visibilities calibrate` finishes, ALMASim links each
+calibrated MS into its member's `calibrated/` folder, where ALMA's
+scriptForPI puts it, and rewrites `ous_index.csv`. The index has one row per
+execution block: `eb_uid`, `project_code`, `science_goal_uid`,
+`group_ous_uid`, `member_ous_uid`, `member_folder` (relative to the index)
+and the paths of its `raw_ms` and `calibrated_ms`.
+
+The MSs stay in `--archive-output-root`; the links are relative, so the tree
+and the MS folders move together. Running again keeps the links that are
+right, drops the ones whose MS is gone, and never replaces a real file or
+folder. A calibrated MS whose execution block no member lists is reported and
+left unlinked. `visibilities calibrate --no-organize-delivery` skips the step.
+For MSs already on disk, `almasim visibilities organize` builds the links and
+the index on its own:
+
+```bash
+almasim visibilities organize --delivery-root downloads \
+  --calibrated-ms-root downloads/archive_ms/calibrated_ms \
+  --raw-ms-root downloads/archive_ms/raw_ms
+```
+
+The library entry point is `almasim.services.archive.organize_delivery`.
+
 ## Skipping execution blocks ALMA never calibrated
 
 Every execution block ships a `<eb>.qa0_report.pdf` in its member OUS `qa/`
