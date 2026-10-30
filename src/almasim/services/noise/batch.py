@@ -3,8 +3,9 @@
 A windows table (CSV) lists one window per row: ``ms`` and ``spw`` (needed),
 ``field``, ``name``, ``syscal_ms``, ``line_channels`` ("a~b;c") and
 ``task_log`` (an ALMASim imaging task's log, whose "lines in channels" gives
-them), ``pwv`` (the observation's water vapour, mm, which noise aggregate
-needs for the receiver temperatures), and for ``noise fit`` ``task_dir``
+them), ``pwv`` (the window's water vapour, mm, which noise aggregate needs
+for the receiver temperatures and validate simulates through), and for
+``noise fit`` ``task_dir``
 (the imaging task holding the window's clean model). Each window writes
 ``<out>/windows/<name>/window.json`` (and ``antenna.npz``) when extracted,
 ``fit.json`` when fitted; a window whose file exists for the same input is

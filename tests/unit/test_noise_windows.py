@@ -119,6 +119,51 @@ def test_the_windows_of_an_imaging_run(tmp_path):
     assert list(rows["ALMA_source_name"]) == ["RGALX346m", "RGALX345p"]
 
 
+def test_a_window_takes_its_execution_blocks_pwv(tmp_path, monkeypatch):
+    """With the auxiliary deliveries, each window's PWV is its execution block's
+    (QA0 report); without, the archive row's, but for a 7 m array's."""
+    from almasim.services.archive import qa0
+
+    paths = _run(tmp_path)
+    metadata = pd.read_csv(paths["metadata"], dtype=str, keep_default_na=False)
+    observations = {"uid://a002/x10aa712/x5ddf": OUS1.lower()}
+
+    def found(**kwargs):
+        windows = imaging_windows(
+            pd.read_csv(paths["parameters"]), paths["images"], metadata, observations, **kwargs
+        ).windows
+        return dict(zip(windows["name"], windows["pwv"], strict=True))
+
+    assert found()[f"{EB1}_spw13_field3"] == "5.186"
+    seven = metadata.assign(Array_type="7m")
+    windows = imaging_windows(
+        pd.read_csv(paths["parameters"]), paths["images"], seven, observations
+    ).windows
+    assert set(windows["pwv"]) == {""}
+
+    root = tmp_path / "auxiliary"
+    qa = (
+        root
+        / "2022.1.01515.S"
+        / "science_goal.uid___A001_X35f5_Xab5"
+        / "group.uid___A001_X35f5_Xab6"
+    )
+    qa = qa / "member.uid___A001_X35f5_Xab7" / "qa"
+    qa.mkdir(parents=True)
+    (qa / f"{EB1}.qa0_report.pdf").write_bytes(b"%PDF")
+    read: list[Path] = []
+
+    def report(path, eb_uid=""):
+        read.append(Path(path))
+        return qa0.QA0Report(EB1, "Pass", "SUCCESS", 1.0, "", pwv_mm=0.72)
+
+    monkeypatch.setattr(qa0, "read_qa0_report", report)
+    assert set(found(qa0_root=root).values()) == {"0.72"}
+    assert read[0] == qa / f"{EB1}.qa0_report.pdf"
+    (qa / f"{EB1}.qa0_report.pdf").unlink()  # no report: the archive row's
+    assert found(qa0_root=root)[f"{EB1}_spw13_field3"] == "5.186"
+
+
 def test_science_fields_and_a_cap(tmp_path):
     paths = _run(tmp_path)
     looked: list[str] = []
@@ -201,7 +246,8 @@ def test_nothing_to_measure_fails(tmp_path):
     ("value", "expected"), [("0.79", "0.79"), ("nan", ""), ("", ""), ("-1", ""), (None, "")]
 )
 def test_pwv(value, expected):
-    assert noise_windows._pwv(value) == expected
+    assert noise_windows._pwv({"PWV": value}, {}, None) == expected
+    assert noise_windows._pwv({"PWV": value, "Array_type": "7m"}, {}, None) == ""
 
 
 def test_only_the_named_windows(tmp_path):

@@ -251,14 +251,17 @@ needs python-casacore (the `ms-casacore` extra).
 ALMASim imaging run: the finished science windows of its parameters CSV
 (with `image clean-quality`'s `quality.json`),
 each with its task folder and log, and its observation's row in the archive
-search (linked to the MS's execution block by the resolved-products CSV),
-whose PWV fills `pwv`.
+search (linked to the MS's execution block by the resolved-products CSV).
+Each window's `pwv` is its execution block's, from its QA0 report, with
+`--qa0-report-root` (the extracted auxiliary deliveries), else the archive
+row's; a 7 m array's windows have none (its antennas carry no water vapour
+radiometer).
 
 **The windows table** (`windows.csv`) has one row per window: the columns
 `ms` and `spw`, and optionally `field`, `name`, `syscal_ms`, `line_channels`
 (`a~b;c`, left out as line emission), `task_log` (an ALMASim imaging task's
-log, whose "lines in channels" gives them), `pwv` (the archive's PWV, for the
-receiver temperatures) and `task_dir` (the window's ALMASim imaging task, for
+log, whose "lines in channels" gives them), `pwv` (the window's PWV, for the
+receiver temperatures and validate) and `task_dir` (the window's ALMASim imaging task, for
 `fit` and `validate`). Windows already measured are skipped on a rerun;
 failures go to `failures.json`. With `--backend slurm` each window is its own
 task on a Slurm worker.
@@ -302,7 +305,8 @@ model's, with a note in `provenance.notes`.
 **`noise validate`** simulates each real window with a model (a point
 source as bright as the real image's continuum peak, the window's frequency,
 channels and channel averaging from its MS's `RESOLUTION`, one execution
-block of the MS's time on source by as many antennas as the MS), exports the MS, measures it with `noise extract` (in a process of
+block of the MS's time on source by as many antennas as the MS, through the
+window's PWV or, without one, the PWV its SYSCAL Tsys implies), exports the MS, measures it with `noise extract` (in a process of
 its own) and images it as the real one was imaged. Everything goes under `validation/<model sha256[:12]>/`, so different
 models never mix. At the end, `noise compare` writes `comparison.json`: per
 metric, the median of the per-window ratio (noise levels) or difference

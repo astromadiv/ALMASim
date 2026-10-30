@@ -710,7 +710,8 @@ $ almasim noise schema [OPTIONS]
 ### `almasim noise windows`
 
 Write the windows table (windows.csv) and archive rows (rows.csv) of an
-imaging run, for noise extract, fit and validate.
+imaging run, for noise extract, fit and validate. A 7 m array's windows have
+no PWV: its antennas carry no water vapour radiometer.
 
 **Usage**:
 
@@ -732,6 +733,7 @@ $ almasim noise windows [OPTIONS] {parameters}
 * `--science-only / --all-fields`: Only science target fields (OBSERVE_TARGET), read from each MS.  [default: science-only]
 * `--max-windows <int range>`: Keep the first N windows.  [x>=1]
 * `--names <str>`: Only these windows (comma-separated names, as a previous run listed them).
+* `--qa0-report-root <directory>`: Root of the extracted auxiliary deliveries (<project>/science_goal.*/group.*/member.*/qa/): each window's PWV is its execution block's, from its QA0 report (default: the archive row's, which is one block's of the observing unit).
 * `--help`: Show this message and exit.
 
 ### `almasim noise extract`
@@ -759,7 +761,7 @@ $ almasim noise extract [OPTIONS] [ms]
 * `--syscal-ms <path>`: Where to read SYSCAL's Tsys (default: the MS).
 * `--line-channels <str>`: Channels of line emission to leave out ('a~b;c').
 * `--task-log <path>`: An ALMASim imaging task's log; its 'lines in channels' are left out.
-* `--pwv <float range>`: The observation's precipitable water vapour (mm; the archive's PWV), for noise aggregate's receiver temperatures.  [x>=0]
+* `--pwv <float range>`: The window's precipitable water vapour (mm; its execution block's), for noise aggregate's receiver temperatures and noise validate.  [x>=0]
 * `--windows <path>`: A CSV of windows (columns ms, spw; optional field, name, pwv, syscal_ms, line_channels, task_log), measured one per task.
 * `--max-visibilities <int range>`: Rows are sampled evenly over the observation up to about this many visibilities.  [default: 40000000; x>=1000]
 * `--overwrite`: Measure windows again even when measured.

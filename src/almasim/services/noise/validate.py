@@ -2,8 +2,8 @@
 were (MADIV-28): what ``noise validate`` does per window.
 
 For each window: ALMASim simulates it from its archive row (a point source as
-bright as the real image's continuum peak, the window's frequency and
-channels, one execution block, the model under test), exports the MS,
+bright as the real image's continuum peak, the window's frequency, channels
+and PWV, one execution block, the model under test), exports the MS,
 measures it with ``noise extract`` and images it as the real window was
 imaged (``image compute-parameters``, ``image image-from-ms`` with the cube
 and continuum subtraction, ``image clean-quality``), then takes the image
@@ -160,9 +160,10 @@ def simulate(
     peak_jy: float | None = None,
 ) -> Path:
     """ALMASim's simulation of the window: its archive row, moved to the
-    window's frequency and channels and observed as long and by as many
-    antennas as the window's MS, a point source (``peak_jy`` of
-    continuum, when given), one execution block, the model; the exported MS."""
+    window's frequency and channels and observed as long, by as many
+    antennas and through as much water vapour as the window's MS, a point
+    source (``peak_jy`` of continuum, when given), one execution block, the
+    model; the exported MS."""
     import almasim
     from almasim.services import astro
     from almasim.services.astro.spectral import with_redshifts
@@ -180,6 +181,7 @@ def simulate(
     if support := frequency_support(window):
         record["Freq.sup."] = support
     record = with_exposure(record, window, seed)
+    record = with_weather(record, window, model)
     rest_frequency, _ = astro.get_line_info(main_dir)
     record = with_redshifts(pd.DataFrame([record]), rest_frequency).iloc[0]
     run.mkdir(parents=True, exist_ok=True)
@@ -271,6 +273,64 @@ def with_exposure(record: pd.Series, window: WindowNoise, seed: int) -> pd.Serie
     if tokens:
         record["antenna_arrays"] = " ".join(tokens)
     return record
+
+
+def with_weather(record: pd.Series, window: WindowNoise, model: NoiseModel) -> pd.Series:
+    """The archive row with the window's PWV: its own (its execution block's,
+    noise extract --pwv), or without one the PWV at which the model's Tsys is
+    ALMA's (pwv_from_tsys). The row's is the observing unit's, one of its
+    blocks', and a 7 m array's is the PWV it was scheduled for. Unchanged when
+    there is neither."""
+    pwv = window.input.pwv_mm
+    if pwv is None:
+        pwv = pwv_from_tsys(window, model)
+    if pwv is None:
+        return record
+    record = record.copy()
+    record["PWV"] = pwv
+    return record
+
+
+def pwv_from_tsys(window: WindowNoise, model: NoiseModel) -> float | None:
+    """The PWV (mm, within 0-10) at which the model's Tsys (its receiver
+    temperatures and equation) at the window's frequencies and elevation is the
+    window's median SYSCAL Tsys; None without a Tsys or an elevation. The Tsys
+    then follows ALMA's by construction, so the window still tests the rest:
+    the efficiencies, the noise's shape and everything after it."""
+    import numpy as np
+    from scipy.optimize import brentq
+
+    from ..interferometry import noise
+    from ..interferometry.atmosphere import system_temperature
+
+    e = window.exposure
+    if window.tsys is None or e.elevation_deg is None:
+        return None
+    config = noise.NoiseModelConfig(pwv_mm=1.0, **model.noise_config())
+    freq = e.frequency_ghz * 1e9 + np.linspace(-0.5, 0.5, 64) * e.channels * e.channel_width_hz
+    trx = noise.estimate_receiver_temperature_k(
+        freq, config.receiver_model, config.receiver_temperatures
+    )
+    airmass = 1.0 / np.sin(np.radians(max(5.0, min(90.0, e.elevation_deg))))
+    target = window.tsys.median_k
+
+    def excess(pwv: float) -> float:
+        tsys = system_temperature(
+            freq,
+            trx,
+            pwv_mm=pwv,
+            airmass=airmass,
+            ground_temperature_k=config.ground_temperature_k,
+            forward_efficiency=config.forward_efficiency,
+        )
+        return float(np.median(tsys)) - target
+
+    low, high = 0.0, 10.0
+    if excess(low) >= 0:
+        return low
+    if excess(high) <= 0:
+        return high
+    return float(brentq(excess, low, high, xtol=1e-3))
 
 
 def measure(ms: Path, name: str, run: Path) -> WindowNoise:

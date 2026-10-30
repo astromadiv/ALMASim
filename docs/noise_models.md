@@ -329,7 +329,8 @@ in images.
 **How it becomes the model's value** (`noise aggregate`):
 
 - *Receiver temperatures.* For each 12 m window with a Tsys, a PWV (the
-  archive's precipitable water vapour, given to `noise extract --pwv`) and
+  window's precipitable water vapour, its `pwv`, given to
+  `noise extract --pwv`) and
   an elevation, ALMASim's own Tsys model (the base model's equation; see
   `forward_efficiency`) is evaluated at `Trx` = 0 K and 100 K (it is linear
   in `Trx`) to find the `Trx` that gives the measured median Tsys. The median over the windows of each row of the table (one
@@ -795,7 +796,7 @@ required; the other columns enable more of the chain:
 | `spw` | its spectral window, in the MS's own numbering | all |
 | `field` | the target field's id or name (default: every field) | all |
 | `name` | the window's name (default: uid, spw and field) | all |
-| `pwv` | the archive's PWV for the observation (mm) | aggregate (receiver temperatures) |
+| `pwv` | the window's PWV (mm): its execution block's, or the archive's; empty for a 7 m array | aggregate (receiver temperatures), validate |
 | `line_channels` | channels of line emission to leave out, `a~b;c` | extract |
 | `task_log` | the imaging task's log, whose "lines in channels" gives them | extract |
 | `syscal_ms` | another MS to read SYSCAL from (default: `ms`) | extract |
@@ -812,7 +813,8 @@ validate` needs, from an ALMASim imaging run:
 
 ```
 almasim noise windows imaging_parameters.csv --images cubes/ \
-    --metadata results.csv --products products.csv --out noise/
+    --metadata results.csv --products products.csv \
+    --qa0-report-root auxiliary/ --out noise/
 ```
 
 It takes the windows of the parameters CSV that the run under `--images`
@@ -821,9 +823,16 @@ finished and `image clean-quality` assessed (their `quality.json`, which
 (`--all-fields`: calibrators too), each with its task folder and log. Each
 window's archive row is its observation's row in the archive search
 (`--metadata`), the row of the window's own source when the observation has
-several; its `PWV` fills `pwv`. The resolved-products CSV (`--products`;
+several. The resolved-products CSV (`--products`;
 default: `*products*.csv` beside the search) links each MS's execution block
-to its observation. It writes `noise/windows.csv` and `noise/rows.csv` (the
+to its observation. Each window's `pwv` is its execution block's own, from
+the block's QA0 report, when `--qa0-report-root` names the extracted
+auxiliary deliveries (`<project>/science_goal.*/group.*/member.*/qa/`);
+without it, it is the archive row's `PWV`, which is one block's of the whole
+observing unit (on the 78 12 m MADIV-16 windows, 32 differ from their own
+block's by more than 10%, by up to 3 mm). A 7 m array's windows have no
+`pwv`: its antennas carry no water vapour radiometer, so its QA0 report has
+none, and its archive row holds the PWV the observation was scheduled for. It writes `noise/windows.csv` and `noise/rows.csv` (the
 archive rows, with a `name` column), and lists the windows it left out and
 why. The console's *Noise models* page runs it for you.
 
@@ -998,7 +1007,7 @@ than a real one, mostly because of the 7 m window (1.47; the 12 m ones are
 0.96 to 1.08), so `alma@1` does not pass. With four windows no Wilcoxon p is
 computed (it needs six); a real validation uses tens.
 
-Four choices keep the comparison fair, and one limit remains:
+Five choices keep the comparison fair, and one limit remains:
 
 - *The source.* The simulated point source is as bright as the real image's
   continuum peak. A source as bright as the archive row's sensitivities
@@ -1017,6 +1026,14 @@ Four choices keep the comparison fair, and one limit remains:
   unit's, often several blocks, and its antennas are the union over them;
   observing the row as it is would give a window up to five times the
   MS's time, and its images a half to a third of the real noise.
+- *The weather.* Each window is simulated through its own PWV (its `pwv`).
+  A window without one, a 7 m array's, takes the PWV at which the model's
+  Tsys at its frequency and elevation is ALMA's (its median SYSCAL Tsys):
+  its Tsys then matches by construction, and the window tests the rest of
+  the model. The archive row's PWV is a 7 m array's scheduled octile (on the
+  MADIV-16 7 m windows 5.19 mm in band 3 and 1.80 mm in bands 5 and 6,
+  against 0 to 6.3 mm and 0.1 to 2.4 mm that their SYSCAL implies), which
+  would give them a Tsys 15 to 30% above ALMA's.
 - *Each hand.* `noise extract` measures the simulated MS per hand, as the
   real one, and each simulated hand carries the model's channel correlation
   and antenna ripple (see `channel_correlation` and `antenna_ripple`).
