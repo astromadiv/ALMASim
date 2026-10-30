@@ -95,6 +95,8 @@ def test_calibrated_mss_are_linked_into_their_members_and_indexed(tmp_path):
     with done.index_path.open() as handle:
         rows = {row["eb_uid"]: row for row in csv.DictReader(handle)}
     assert done.index_path == root / "ous_index.csv"
+    assert b"\r" not in done.index_path.read_bytes()
+    assert [p.name for p in root.glob("ous_index.csv*")] == ["ous_index.csv"]
     assert set(rows) == {"uid___A002_X9_X1", "uid___A002_X9_X2", "uid___A002_X9_X3"}
     assert rows["uid___A002_X9_X1"]["member_ous_uid"] == "uid://A001/X1/X3"
     assert rows["uid___A002_X9_X1"]["member_folder"] == (
