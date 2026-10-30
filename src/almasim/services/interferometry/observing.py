@@ -66,6 +66,22 @@ def hour_angle_coverage(
     return [_wrap(hour_angle(start) - ha_middle), _wrap(hour_angle(end) - ha_middle)]
 
 
+# Seconds in a sidereal day: the hour angle advances 2 pi in one.
+SIDEREAL_DAY_S = 86164.0905
+
+
+def track_start_mjd_s(
+    observation_date: str, ra_rad: float, hour_angle_rad: float, location: EarthLocation
+) -> float:
+    """When (MJD seconds, UTC) the source at ``ra_rad`` is at ``hour_angle_rad``
+    around its transit at ``location`` on ``observation_date``."""
+    midnight = Time(observation_date + "T00:00:00", format="isot", scale="utc")
+    lst = float(midnight.sidereal_time("apparent", longitude=location.lon).rad)
+    to_transit = (float(ra_rad) - lst) % (2.0 * math.pi)
+    turns = (to_transit + float(hour_angle_rad)) / (2.0 * math.pi)
+    return midnight.mjd * 86400.0 + turns * SIDEREAL_DAY_S
+
+
 def alma_location() -> EarthLocation:
     """The ALMA site."""
     return EarthLocation.from_geodetic(

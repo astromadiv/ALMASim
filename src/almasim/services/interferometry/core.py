@@ -398,6 +398,7 @@ class Interferometer:
             antenna_diameters_m=np.full(len(self.antNames), self.antenna_diameter_m),
             scan_length_s=self.corruptions.scan_length_s if self.corruptions is not None else 0.0,
             observation_id=self.execution,
+            hour_angle_start_rad=float(self.Hcov[0]),
             channel_kernel=(
                 spectral_kernel(*self.corruptions.channel_correlation())
                 if self.corruptions is not None and self.corruptions.correlates_channels
