@@ -125,6 +125,15 @@ ticked rows can go straight to *Simulate* instead. Unpacked and calibrated
 MeasurementSets go to their own folder (`raw_ms/` and `calibrated_ms/` in
 it), by default `archive_ms/` in the destination.
 
+To download single files, such as only the cleaned `*.pbcor.fits` images,
+tick *List the files inside each archive* before finding the products: the
+product list then has one row per file inside each product and auxiliary tar.
+*Only files named* and *Except files named* take comma-separated name
+patterns, and the page counts the files and bytes they pick before you start
+the download. The files go in the ALMA delivery tree under the destination,
+`<project>/science_goal.*/group.*/member.*/product/` and the member's other
+folders ([Choosing single files](downloads.md#choosing-single-files)).
+
 ![Archive](images/console/archive.png)
 
 ### Simulate

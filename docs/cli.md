@@ -94,6 +94,8 @@ $ almasim products resolve [OPTIONS]
 * `--member-limit <int range>`: Max metadata member_ous_uid rows to read (default: unlimited).  [x>=1]
 * `--save-member-ous-uid-list <path>`: Optional text file to write extracted member_ous_uid list (one per line).
 * `--save-products-csv <path>`: Destination CSV for resolved DataLink products.  [default: ~/almasim_outputs/resolved_products.csv]
+* `--expand-archives`: List the files inside each member's product and auxiliary tars, one row per file, so single files can be picked with --include/--exclude (for example the '*.pbcor.fits' images). One more DataLink request per tar.
+* `--layout <delivery|flat>`: Where --expand-archives puts the files it lists: 'delivery' in the folders of the ALMA delivery tree, <project>/science_goal.*/group.*/member.*/product/ (or calibration/, qa/, script/, log/), read from the start of one tar per member; 'flat' in --destination itself.  [default: delivery]
 * `--help`: Show this message and exit.
 
 ### `almasim products download`
@@ -113,6 +115,10 @@ $ almasim products download [OPTIONS]
 * `--member-ous-uid <str>`: Direct member_ous_uid values. Repeat or pass comma-separated values.
 * `--member-limit <int range>`: Max metadata member_ous_uid rows to read (default: unlimited).  [x>=1]
 * `--product-filter <all|auxiliary|calibration|continuum|cubes|fits|other|qa_reports|raw|scripts|weblog>`: Subset of resolved products to download.  [default: all]
+* `--expand-archives`: List the files inside each member's product and auxiliary tars, one row per file, so single files can be picked with --include/--exclude (for example the '*.pbcor.fits' images). One more DataLink request per tar. Runs after --product-filter, on the selected tars only.
+* `--layout <delivery|flat>`: Where --expand-archives puts the files it lists: 'delivery' in the folders of the ALMA delivery tree, <project>/science_goal.*/group.*/member.*/product/ (or calibration/, qa/, script/, log/), read from the start of one tar per member; 'flat' in --destination itself.  [default: delivery]
+* `--include <str>`: Download only files whose name matches this glob, for example '*.pbcor.fits'. Repeat or pass comma-separated globs; a file matching any of them is kept.
+* `--exclude <str>`: Skip files whose name matches this glob. Repeat or pass comma-separated globs.
 * `--skip-qa0-semipass`: Skip raw ASDMs whose execution block is QA0 SemiPass, read from the <eb>.qa0_report.pdf in the member's extracted auxiliary delivery. ALMA never delivers calibration for these, so they can never be calibrated. Download and extract the auxiliary products first; a raw product without a readable report is kept.
 * `--qa0-report-root <path>`: Root holding the extracted auxiliary deliveries (<project>/science_goal.*/group.*/member.*/qa/). Defaults to --destination.
 * `--save-products-csv <path>`: Save resolved products CSV before download.  [default: ~/almasim_outputs/resolved_products.csv]

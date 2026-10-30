@@ -136,7 +136,7 @@ def download_products(  # noqa: C901
 
     statuses = [
         FileDownloadStatus(
-            filename=product.filename,
+            filename=product.relative_path,
             access_url=product.access_url,
             content_length=product.content_length,
         )
