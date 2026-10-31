@@ -67,6 +67,7 @@ def test_compute_imaging_parameters_builds_expected_dataframe(monkeypatch):
     spectral_window = FakeTable(
         {
             "REF_FREQUENCY": np.array([100.0e9, 200.0e9]),
+            "NAME": np.array(["X1#BB_1#SW-01#FULL_RES", "X1#BB_2#SW-01#FULL_RES"]),
             "NUM_CHAN": np.array([4, 2]),
             "CHAN_WIDTH": [np.full(4, 0.5e6), np.full(2, -15.625e6)],
             "RESOLUTION": [np.full(4, 1.0e6), np.full(2, -31.25e6)],
@@ -115,6 +116,10 @@ def test_compute_imaging_parameters_builds_expected_dataframe(monkeypatch):
     assert list(output["n_visibility_rows"]) == [10, 20], "the calibrator (field 0) is left out"
     assert list(output["target_field_ids"]) == ["2", "2"]
     assert list(output["field_name"]) == ["target", "target"]
+    assert list(output["spectral_window_name"]) == [
+        "X1#BB_1#SW-01#FULL_RES",
+        "X1#BB_2#SW-01#FULL_RES",
+    ]
     assert list(output["n_channels"]) == [4, 2]
     assert list(output["channel_width_hz"]) == [0.5e6, 15.625e6], "widths are absolute"
     assert list(output["spectral_resolution_hz"]) == [1.0e6, 31.25e6]
@@ -1605,6 +1610,7 @@ def _geometry_tables(names):
         "::SPECTRAL_WINDOW": FakeTable(
             {
                 "REF_FREQUENCY": np.array([100.0e9, 200.0e9, 230.0e9]),
+                "NAME": np.array(["WVR", "X1#BB_1#SW-01#FULL_RES", "X1#BB_2#SW-01#FULL_RES"]),
                 "NUM_CHAN": np.array([128, 3840, 480]),
                 "CHAN_WIDTH": [np.full(n, 1e6) for n in (128, 3840, 480)],
                 "RESOLUTION": [np.full(n, 2e6) for n in (128, 3840, 480)],

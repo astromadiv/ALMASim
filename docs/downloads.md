@@ -139,8 +139,9 @@ calibrates, and when `visibilities calibrate` finishes, ALMASim links each
 calibrated MS into its member's `calibrated/` folder, where ALMA's
 scriptForPI puts it, and rewrites `ous_index.csv`. The index has one row per
 execution block: `eb_uid`, `project_code`, `science_goal_uid`,
-`group_ous_uid`, `member_ous_uid`, `member_folder` (relative to the index)
-and the paths of its `raw_ms` and `calibrated_ms`.
+`group_ous_uid`, `member_ous_uid`, `member_folder` (relative to the index),
+`alma_calibrated` (`yes` when the member has the block's calapply file) and
+the paths of its `raw_ms` and `calibrated_ms`.
 
 The MSs stay in `--archive-output-root`; the links are relative, so the tree
 and the MS folders move together. Running again keeps the links that are
@@ -157,7 +158,11 @@ almasim visibilities organize --delivery-root downloads \
 ```
 
 The library entry point is `almasim.services.archive.organize_delivery`, and
-`read_ous_index` reads the index back as `{eb_uid: row}`.
+`read_ous_index` reads the index back as `{eb_uid: row}`. `member_status`
+reads it member by member. A member is complete when every execution block
+ALMA calibrated for it has a calibrated MS. Only a complete member is imaged
+as a whole
+(see [Imaging a member](imaging.md#imaging-a-member-from-all-its-execution-blocks)).
 `image image-from-ms` takes the OUSs of every FITS header it writes from it
 (see [Provenance in the FITS headers](imaging.md#provenance-in-the-fits-headers)).
 

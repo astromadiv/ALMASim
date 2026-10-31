@@ -75,6 +75,11 @@ def _record_imaging_failure(task: ImagingTask, error: str, failures: list[TaskFa
     failures.append(TaskFailure(task.label, error, str(log_path) if log_path.is_file() else None))
 
 
+def _member_windows(task: ImagingTask) -> list[tuple[str, int, list[int]]] | None:
+    """A member task's (MS, window, field ids) per execution block, as plain values."""
+    return [(str(ms), spw, list(fields)) for ms, spw, fields in task.member_windows] or None
+
+
 def run_imaging_tasks(  # noqa: C901
     tasks: list[ImagingTask],
     imaging: ImagingOptions,
@@ -129,6 +134,7 @@ def run_imaging_tasks(  # noqa: C901
                         cube_command=task.cube_command,
                         pb_dish_diameter=task.dish_diameter if imaging.pbcor else None,
                         provenance=task.provenance,
+                        member_windows=_member_windows(task),
                         **shared_kwargs,
                     )
                 )
@@ -183,6 +189,7 @@ def run_imaging_tasks(  # noqa: C901
                 cube_command=task.cube_command,
                 pb_dish_diameter=task.dish_diameter if imaging.pbcor else None,
                 provenance=task.provenance,
+                member_windows=_member_windows(task),
                 **shared_kwargs,
             )
 

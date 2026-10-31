@@ -104,6 +104,8 @@ def test_calibrated_mss_are_linked_into_their_members_and_indexed(tmp_path):
     )
     assert rows["uid___A002_X9_X1"]["raw_ms"] == str(raw / "uid___A002_X9_X1.ms")
     assert rows["uid___A002_X9_X2"]["raw_ms"] == ""
+    assert rows["uid___A002_X9_X2"]["alma_calibrated"] == "yes", "it has a calapply file"
+    assert rows["uid___A002_X9_X1"]["alma_calibrated"] == "no", "only a QA0 report"
     assert rows["uid___A002_X9_X3"]["calibrated_ms"] == str(
         calibrated / "uid___A002_X9_X3.ms.split.cal"
     )

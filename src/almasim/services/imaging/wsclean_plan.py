@@ -14,6 +14,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from almasim.services.imaging.member_plan import is_member_row, member_task_name, member_windows
 from almasim.services.imaging.ms_geometry import SPECTRAL_COLUMNS, image_pixels
 from almasim.services.imaging.provenance import Provenance, find_ous_index
 from almasim.services.instrument.constants import SPEED_OF_LIGHT_M_S
@@ -148,7 +149,9 @@ class ImagingTask:
     """One imaging task: one MeasurementSet, one spectral window (and field).
 
     ``command`` makes the continuum image (empty when only a cube is made);
-    ``cube_command``, when set, the spectral cube.
+    ``cube_command``, when set, the spectral cube. A member task
+    (``member_parameters``) lists every execution block's MS, window and fields
+    in ``member_windows``; ``ms_path`` and ``spw`` are the earliest one's.
     """
 
     label: str
@@ -160,6 +163,7 @@ class ImagingTask:
     cube_command: list[str] | None = None
     dish_diameter: float | None = None
     provenance: Provenance | None = None
+    member_windows: tuple[tuple[Path, int, tuple[int, ...]], ...] = ()
 
 
 def _field_arguments(row: pd.Series) -> list[str]:
@@ -198,15 +202,18 @@ def row_provenance(
     ous_index_csv: str | Path | None = None,
     indexes: dict[Path | None, dict[str, dict[str, str]]] | None = None,
 ) -> Provenance:
-    """A parameter row's provenance: its MS, window and field, and the OUSs of its EB.
+    """A parameter row's provenance: its MSs, window and field, and the OUSs of its EBs.
 
-    The OUSs come from ``ous_index_csv``, or from the ``ous_index.csv`` nearest
-    above the MS when it is None (none: the OUSs are left out). ``indexes``
-    keeps the indexes read, by path, across the rows of one run.
+    A member row (``member_parameters``) has the MSs of all its EBs, any other
+    row its one MS. The OUSs come from ``ous_index_csv``, or from the
+    ``ous_index.csv`` nearest above the (first) MS when it is None (none: the
+    OUSs are left out). ``indexes`` keeps the indexes read, by path, across the
+    rows of one run.
     """
     from almasim.services.archive.delivery import read_ous_index
 
     ms = Path(row["filename"]).expanduser().absolute()
+    ms_paths = [m for m, _, _ in member_windows(row)] or [ms]
     path = Path(ous_index_csv) if ous_index_csv else find_ous_index(ms)
     indexes = {} if indexes is None else indexes
     if path not in indexes:
@@ -215,7 +222,7 @@ def row_provenance(
     if field is None or (isinstance(field, float) and math.isnan(field)):
         field = ""
     return Provenance.for_ms(
-        [ms],
+        ms_paths,
         indexes[path],
         spw=int(row["spectral_window_id"]),
         field=str(field),
@@ -227,8 +234,12 @@ def task_directory(output_directory: Path, row: pd.Series) -> tuple[Path, tuple[
 
     One field per row gets its own directory and markers, so the fields of
     one window never share an image; rows without a field, or with a list
-    (CSVs from before per-field rows), keep SPW-<n>.
+    (CSVs from before per-field rows), keep SPW-<n>. A member row's directory is
+    ``<member folder>/SPW-<n>_<field name>`` (``member_task_name``), its field 0.
     """
+    if is_member_row(row):
+        member = Path(str(row["member_folder"])).name
+        return Path(output_directory) / member / member_task_name(row), (0,)
     input_filename = Path(row["filename"]).expanduser().absolute()
     spw = int(row["spectral_window_id"])
     field_args = _field_arguments(row)
@@ -236,6 +247,18 @@ def task_directory(output_directory: Path, row: pd.Series) -> tuple[Path, tuple[
     single_field = field_ids[0] if len(field_ids) == 1 else None
     task_name = f"SPW-{spw}" if single_field is None else f"SPW-{spw}_FIELD-{single_field}"
     return Path(output_directory) / input_filename.stem / task_name, field_ids
+
+
+def _check_member_rows(parameters: pd.DataFrame, single_window: bool) -> None:
+    if not single_window and any(is_member_row(row) for _, row in parameters.iterrows()):
+        raise ValueError("A member is imaged from its combined single-window MS")
+
+
+def _task_label(outdir: Path, ms: Path, spw: int, single_field: int | None, member: bool) -> str:
+    """``<ms stem>_<spw>[_f<field>]``, or ``<member folder>_<task folder>`` for a member."""
+    if member:
+        return f"{outdir.parent.name}_{outdir.name}"
+    return f"{ms.stem}_{spw}" + ("" if single_field is None else f"_f{single_field}")
 
 
 def build_imaging_tasks(
@@ -314,9 +337,11 @@ def build_imaging_tasks(
     # .../SPW-5/ms-imaged-flagged/... and every task failed (2026-10-09).
     output_directory = Path(output_directory).expanduser().absolute()
     indexes: dict[Path | None, dict[str, dict[str, str]]] = {}
+    _check_member_rows(parameters, single_window)
     for _, row in parameters.iterrows():
         input_filename = Path(row["filename"]).expanduser().absolute()
         spw = int(row["spectral_window_id"])
+        member = is_member_row(row)
         outdir, field_ids = task_directory(output_directory, row)
         single_field = field_ids[0] if len(field_ids) == 1 else None
         if not overwrite_outputs:
@@ -400,8 +425,7 @@ def build_imaging_tasks(
 
         tasks.append(
             ImagingTask(
-                label=f"{input_filename.stem}_{spw}"
-                + ("" if single_field is None else f"_f{single_field}"),
+                label=_task_label(outdir, input_filename, spw, single_field, member),
                 ms_path=input_filename,
                 spw=spw,
                 output_dir=outdir,
@@ -410,6 +434,7 @@ def build_imaging_tasks(
                 cube_command=wsclean_command(CUBE_NAME, True) if cube is not None else None,
                 dish_diameter=row_dish_diameter(row),
                 provenance=row_provenance(row, ous_index_csv, indexes),
+                member_windows=member_windows(row),
             )
         )
     return tasks, skipped
