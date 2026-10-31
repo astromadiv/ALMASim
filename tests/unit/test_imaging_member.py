@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import csv
 import json
+import re
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
@@ -478,7 +479,8 @@ def _delivery(tmp_path, *, with_index=True):
 
 
 def _output(result) -> str:
-    return " ".join(result.output.replace("\u2502", " ").split())
+    """The CLI's output without Rich's colours and panel borders."""
+    return " ".join(re.sub(r"\x1b\[[0-9;]*m", "", result.output).replace("\u2502", " ").split())
 
 
 @pytest.mark.unit
