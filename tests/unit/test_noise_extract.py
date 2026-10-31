@@ -29,6 +29,7 @@ def _fake_ms(
     ripple_antenna: int | None = 0,
     high_weight_every: int | None = None,
     stations: bool = True,
+    flagged_antenna: int | None = None,
 ) -> dict[str, FakeTable]:
     rng = np.random.default_rng(seed)
     a1, a2 = np.triu_indices(NANT, 1)
@@ -53,6 +54,9 @@ def _fake_ms(
     data = (sky + noise).astype(np.complex64)
     flag = np.zeros(data.shape, dtype=bool)
     flag[::17, 5:9] = True
+    if flagged_antenna is not None:
+        # An antenna the MS lists whose data are all flagged.
+        flag[(ant1 == flagged_antenna) | (ant2 == flagged_antenna)] = True
     weight = np.full((nrow, 2), 1.0 / SIGMA**2, dtype=np.float32)
     if high_weight_every:
         # Rows the archive pipeline flagged and calibration left unflagged.
@@ -184,6 +188,14 @@ def test_rows_over_the_imagings_maximum_weight_are_counted(fake_ms):
     assert record.visibility.sigma_jy == pytest.approx(SIGMA / np.sqrt(2), rel=0.05)
     kept, _ = extract.extract_window(ms, SPW, "target", max_visibilities=10**9, max_weight=0)
     assert kept.exposure.high_weight_fraction == 0.0
+
+
+@pytest.mark.unit
+def test_an_antenna_whose_data_are_all_flagged_is_not_part_of_the_array(fake_ms):
+    ms = fake_ms("w.ms", flagged_antenna=2)
+    e = extract.extract_window(ms, SPW, "target", max_visibilities=10**9)[0].exposure
+    assert (e.antennas, e.baselines) == (NANT - 1, 10)
+    assert e.pads == [f"A{i:03d}:DA{41 + i}" for i in range(NANT) if i != 2]
 
 
 @pytest.mark.unit

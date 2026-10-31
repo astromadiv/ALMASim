@@ -33,7 +33,9 @@ class WindowInput(_Record):
 class Exposure(_Record):
     """What the window observed (cross-correlations)."""
 
-    antennas: int
+    antennas: int = Field(
+        description="Antennas with data the image uses (unflagged, WEIGHT within the maximum)."
+    )
     dish_diameter_m: float
     baselines: int
     integrations: int
@@ -57,7 +59,7 @@ class Exposure(_Record):
     pads: list[str] = Field(
         default_factory=list,
         description="The window's antennas as PAD:ANTENNA (the MS's STATION and NAME), "
-        "as the archive's antenna_arrays lists them.",
+        "as the archive's antenna_arrays lists them: those with data the image uses.",
     )
 
 

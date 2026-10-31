@@ -856,7 +856,10 @@ calibration left unflagged, with garbage amplitudes; the image leaves them
 out, and `noise validate` simulates the window without as much of its data.
 Its `pads` list the window's antennas as `PAD:ANTENNA` (the MS's `STATION`
 and `NAME`), the form of the archive's `antenna_arrays`, from which
-`noise validate` observes the window with the MS's own array.
+`noise validate` observes the window with the MS's own array. Its
+`antennas`, `baselines` and `pads` count only antennas with data the image
+uses: an MS often lists antennas whose data are all flagged (up to 15 of
+43 on the MADIV-16 windows), and the array that observed is the rest.
 
 This is window 81 (band 6, 12 m), shortened:
 
