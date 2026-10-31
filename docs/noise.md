@@ -306,7 +306,7 @@ model's, with a note in `provenance.notes`.
 **`noise validate`** simulates each real window with a model (a point
 source as bright as the real image's continuum peak, the window's frequency,
 channels and channel averaging from its MS's `RESOLUTION`, one execution
-block of the MS's time on source by as many antennas as the MS, through the
+block of the MS's time on source by the MS's antennas on their pads, through the
 window's PWV or, without one, the PWV its SYSCAL Tsys implies), exports the MS, flags as large a share of its rows as the real
 image misses (the window's flagged data and its rows over the imaging's
 maximum WEIGHT, `exposure.high_weight_fraction`), measures it with `noise extract` (in a process of

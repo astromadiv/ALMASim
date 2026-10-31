@@ -573,6 +573,22 @@ def test_a_window_is_observed_as_long_and_by_as_many_antennas_as_its_ms():
     assert v.with_exposure(shared, window, seed=3)["antenna_arrays"] == "A1:DA41 A2:DV01 A3:DV02"
 
 
+@pytest.mark.unit
+def test_a_window_with_its_pads_is_observed_by_the_mss_own_antennas():
+    """The row's antennas span the unit's configurations and its total-power
+    antennas; the MS's pads are the ones it observed with."""
+    import pandas as pd
+
+    union = " ".join([f"A{i:03d}:DA{i}" for i in range(50)] + ["T701:PM01"])
+    row = pd.Series({"Int.Time": 3000.0, "antenna_arrays": union})
+    window = _window("w")
+    own = ["A001:DA41", "W210:DV07", "P402:DA50"]
+    window = window.model_copy(
+        update={"exposure": window.exposure.model_copy(update={"pads": own})}
+    )
+    assert v.with_exposure(row, window, seed=3)["antenna_arrays"] == " ".join(own)
+
+
 def _lossy(window: WindowNoise, flagged: float, high_weight: float) -> WindowNoise:
     e = window.exposure.model_copy(
         update={"flagged_fraction": flagged, "high_weight_fraction": high_weight}

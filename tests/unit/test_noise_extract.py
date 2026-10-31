@@ -25,7 +25,10 @@ SPW, TSYS_SPW = 2, 3
 
 
 def _fake_ms(
-    seed: int = 0, ripple_antenna: int | None = 0, high_weight_every: int | None = None
+    seed: int = 0,
+    ripple_antenna: int | None = 0,
+    high_weight_every: int | None = None,
+    stations: bool = True,
 ) -> dict[str, FakeTable]:
     rng = np.random.default_rng(seed)
     a1, a2 = np.triu_indices(NANT, 1)
@@ -101,7 +104,17 @@ def _fake_ms(
         "ms/FIELD": FakeTable(
             {"NAME": np.array(["target"]), "PHASE_DIR": np.array([[[1.25, -0.5]]])}
         ),
-        "ms/ANTENNA": FakeTable({"DISH_DIAMETER": np.full(NANT, 12.0)}),
+        "ms/ANTENNA": FakeTable(
+            {"DISH_DIAMETER": np.full(NANT, 12.0)}
+            | (
+                {
+                    "STATION": np.array([f"A{i:03d}" for i in range(NANT)]),
+                    "NAME": np.array([f"DA{41 + i}" for i in range(NANT)]),
+                }
+                if stations
+                else {}
+            )
+        ),
         "ms/SYSCAL": FakeTable(
             {"SPECTRAL_WINDOW_ID": np.full(NANT, TSYS_SPW), "TSYS_SPECTRUM": tsys_rows}
         ),
@@ -143,6 +156,7 @@ def test_the_noise_level_correlation_and_tsys_are_measured(fake_ms):
     assert e.elevation_deg is not None and -90 <= e.elevation_deg <= 90
     assert 0 < e.flagged_fraction < 0.02
     assert e.high_weight_fraction == 0.0
+    assert e.pads == [f"A{i:03d}:DA{41 + i}" for i in range(NANT)]
     # Stokes I from independent hands: sigma / sqrt(2) per component.
     assert record.visibility.sigma_jy == pytest.approx(SIGMA / np.sqrt(2), rel=0.05)
     assert record.visibility.unit_jy == pytest.approx(
@@ -170,6 +184,13 @@ def test_rows_over_the_imagings_maximum_weight_are_counted(fake_ms):
     assert record.visibility.sigma_jy == pytest.approx(SIGMA / np.sqrt(2), rel=0.05)
     kept, _ = extract.extract_window(ms, SPW, "target", max_visibilities=10**9, max_weight=0)
     assert kept.exposure.high_weight_fraction == 0.0
+
+
+@pytest.mark.unit
+def test_an_antenna_table_without_stations_gives_no_pads(fake_ms):
+    ms = fake_ms("w.ms", stations=False)
+    record, _ = extract.extract_window(ms, SPW, "target", max_visibilities=10**9)
+    assert record.exposure.pads == [] and record.exposure.antennas == NANT
 
 
 @pytest.mark.unit

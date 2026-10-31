@@ -339,6 +339,12 @@ def _exposure(
     antennas = np.union1d(a1, a2)
     with table(str(ms / "ANTENNA"), ack=False) as ant:
         diameter = float(np.median(np.asarray(ant.getcol("DISH_DIAMETER"))[antennas]))
+        names = ant.colnames()
+        pads = (
+            [f"{s}:{n}" for s, n in zip(ant.getcol("STATION"), ant.getcol("NAME"), strict=True)]
+            if {"STATION", "NAME"} <= set(names)
+            else []
+        )
     width = float(np.median(window["width"]))
     effective = float(np.median(window["effective"])) or width
     return Exposure(
@@ -357,6 +363,7 @@ def _exposure(
         flagged_fraction=float(flagged),
         high_weight_fraction=float(high_weight),
         elevation_deg=_elevation(table, ms, unique, fields),
+        pads=[pads[a] for a in antennas] if pads else [],
     )
 
 

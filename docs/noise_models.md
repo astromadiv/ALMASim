@@ -854,6 +854,9 @@ rows whose WEIGHT exceeds 10^4, the most `image image-from-ms --max-weight`
 images by default. Those are rows the archive pipeline flagged and
 calibration left unflagged, with garbage amplitudes; the image leaves them
 out, and `noise validate` simulates the window without as much of its data.
+Its `pads` list the window's antennas as `PAD:ANTENNA` (the MS's `STATION`
+and `NAME`), the form of the archive's `antenna_arrays`, from which
+`noise validate` observes the window with the MS's own array.
 
 This is window 81 (band 6, 12 m), shortened:
 
@@ -864,7 +867,8 @@ This is window 81 (band 6, 12 m), shortened:
     "antennas": 43, "baselines": 903, "integrations": 55, "integration_s": 6.048,
     "time_on_source_s": 332.6, "channels": 240, "channel_width_hz": 7812500.0,
     "noise_bandwidth_hz": 8196777.3, "frequency_ghz": 267.73,
-    "flagged_fraction": 0.0033, "high_weight_fraction": 0.0, "elevation_deg": 60.0
+    "flagged_fraction": 0.0033, "high_weight_fraction": 0.0, "elevation_deg": 60.0,
+    "pads": ["A001:DA63", "A008:DV17", ...]
   },
   "thermal": {
     "scale": 1.297,        // the noise is 1.3 x what WEIGHT says (in variance)
@@ -1028,13 +1032,17 @@ Five choices keep the comparison fair, and one limit remains:
   from its MS's `RESOLUTION` (`exposure.resolution_hz`), not the archive
   row's: the row lists the whole observing unit's windows, whose averaging
   can differ from this one's.
-- *The exposure.* Each window is observed as long, and by as many antennas,
-  as its MS: one execution block of the MS's time on source
-  (`exposure.time_on_source_s`), by `exposure.antennas` of the row's
-  antennas, one per pad. The row's `Int.Time` is the whole observing
-  unit's, often several blocks, and its antennas are the union over them;
-  observing the row as it is would give a window up to five times the
-  MS's time, and its images a half to a third of the real noise.
+- *The exposure.* Each window is observed as long as its MS, and by its
+  MS's antennas: one execution block of the MS's time on source
+  (`exposure.time_on_source_s`), by the antennas on the MS's pads
+  (`exposure.pads`). The row's `Int.Time` is the whole observing unit's,
+  often several blocks, and its antennas are the union over them, which
+  can span several configurations and include the total-power antennas.
+  Observing the row as it is would give a window up to five times the MS's
+  time, and an array whose longest baselines reach twice the MS's: its
+  pixels are then smaller, its cube has fewer channels and its images'
+  noise is a third to a half of the real noise. A window measured without
+  its pads takes `exposure.antennas` of the row's antennas, one per pad.
 - *The weather.* Each window is simulated through its own PWV (its `pwv`).
   A window without one, a 7 m array's, takes the PWV at which the model's
   Tsys at its frequency and elevation is ALMA's (its median SYSCAL Tsys):

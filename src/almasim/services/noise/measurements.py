@@ -54,6 +54,11 @@ class Exposure(_Record):
         "(image image-from-ms --max-weight), which the image leaves out.",
     )
     elevation_deg: float | None = Field(default=None, description="The target's median elevation.")
+    pads: list[str] = Field(
+        default_factory=list,
+        description="The window's antennas as PAD:ANTENNA (the MS's STATION and NAME), "
+        "as the archive's antenna_arrays lists them.",
+    )
 
 
 class ThermalNoise(_Record):

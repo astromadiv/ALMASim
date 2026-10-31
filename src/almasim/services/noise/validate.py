@@ -258,16 +258,21 @@ def frequency_support(window: WindowNoise) -> str | None:
 
 def with_exposure(record: pd.Series, window: WindowNoise, seed: int) -> pd.Series:
     """The archive row observed as the window's MS was: its time on source in
-    one execution block, by as many of the observing unit's antennas (one per
-    pad, drawn with ``seed``) as the MS has. The row's Int.Time is the whole
-    observing unit's, which may be several of the MS's blocks, and its
-    antennas are the union over them."""
+    one execution block, by the MS's own antennas on their pads
+    (``exposure.pads``). The row's Int.Time is the whole observing unit's,
+    which may be several of the MS's blocks, and its antennas are the union
+    over them, configurations and the total-power antennas included. A window
+    measured without its pads takes as many of the row's antennas as the MS
+    has, one per pad, drawn with ``seed``."""
     import numpy as np
 
     e = window.exposure
     record = record.copy()
     record["Int.Time"] = e.time_on_source_s
     record["n_executions"] = 1
+    if e.pads:
+        record["antenna_arrays"] = " ".join(e.pads)
+        return record
     pads: dict[str, str] = {}
     for token in str(record.get("antenna_arrays", "")).split():
         pads.setdefault(token.split(":")[0], token)
