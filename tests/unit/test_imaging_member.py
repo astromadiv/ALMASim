@@ -2,24 +2,33 @@
 
 from __future__ import annotations
 
+import contextlib
+import csv
 import json
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 
 import pandas as pd
 import pytest
+from typer.testing import CliRunner
 
+from almasim import cli
+from almasim.cli import image as cli_image
 from almasim.services.archive.delivery import member_status
 from almasim.services.imaging import markers as imaging_markers
+from almasim.services.imaging import ms_geometry
 from almasim.services.imaging import products as imaging_products
 from almasim.services.imaging import task as imaging_task
 from almasim.services.imaging.member_plan import (
     MEMBER_WINDOWS_COLUMN,
+    WINDOW_NAME_COLUMN,
     member_parameters,
     member_windows,
 )
 from almasim.services.imaging.ms import member_window
 from almasim.services.imaging.wsclean_plan import build_imaging_tasks
+from almasim.services.ms import tables as ms_tables
 
 from ._fakes import patch_everywhere
 
@@ -29,6 +38,8 @@ FOLDER = (
 )
 WINDOW = "X1#ALMA_RB_03#BB_1#SW-01#FULL_RES"
 EBS = ("uid___A002_X9_X1", "uid___A002_X9_X2", "uid___A002_X9_X3")
+
+runner = CliRunner()
 
 
 def _index(calibrated=EBS, alma=EBS, extra=()):
@@ -127,6 +138,55 @@ def test_a_member_whose_ebs_lack_parameter_rows_is_not_imaged():
 
     assert rows.empty
     assert skipped == [(MEMBER, f"1 of its 3 execution blocks have no parameter rows ({EBS[2]})")]
+
+
+@pytest.mark.unit
+def test_window_names_come_from_each_ms_when_the_csv_has_none(monkeypatch):
+    # Each EB's SPECTRAL_WINDOW table, as its own numbering lists the windows.
+    names = {f"/cal/{eb}.ms.split.cal": ["other"] * 26 for eb in EBS}
+    for eb, spw in zip(EBS, (25, 17, 25), strict=True):
+        names[f"/cal/{eb}.ms.split.cal"][spw] = WINDOW
+    opened = []
+
+    @contextlib.contextmanager
+    def fake_open_table(path, **kwargs):
+        filename = path.removesuffix("::SPECTRAL_WINDOW")
+        opened.append(filename)
+        yield SimpleNamespace(getcol=lambda column: names[filename])
+
+    monkeypatch.setattr(ms_geometry, "import_casacore_tables", lambda: object())
+    monkeypatch.setattr(ms_tables, "open_table", fake_open_table)
+
+    rows, skipped = member_parameters(_parameters().drop(columns=WINDOW_NAME_COLUMN), _index())
+
+    assert skipped == [] and len(rows) == 1
+    assert rows.iloc[0][WINDOW_NAME_COLUMN] == WINDOW
+    assert sorted(opened) == sorted(names), "each MS read once"
+
+
+@pytest.mark.unit
+def test_an_ms_not_named_after_its_eb_and_a_member_without_rows_are_left_out_quietly():
+    parameters = pd.concat([_parameters(), pd.DataFrame([_row(EBS[0], 25, 500.0)])])
+    parameters.iloc[-1, parameters.columns.get_loc("filename")] = "/cal/simulated.ms"
+    index = _index()
+    other = "uid___A002_X9_X9"
+    index[other] = {**index[EBS[0]], "eb_uid": other, "member_ous_uid": "uid://A001/X1/X4"}
+
+    rows, skipped = member_parameters(parameters, index)
+
+    assert skipped == [] and len(rows) == 1
+    assert len(member_windows(rows.iloc[0])) == 3
+
+
+@pytest.mark.unit
+def test_an_eb_row_without_target_fields_gives_its_window_no_field_ids():
+    parameters = _parameters()
+    parameters["target_field_ids"] = parameters["target_field_ids"].astype(object)
+    parameters.loc[1, "target_field_ids"] = float("nan")
+
+    rows, _ = member_parameters(parameters, _index())
+
+    assert [f for _, _, f in member_windows(rows.iloc[0])] == [(2,), (2,), ()]
 
 
 @pytest.mark.unit
@@ -394,3 +454,88 @@ def test_a_member_cube_takes_its_channel_count_from_the_grid(tmp_path, monkeypat
     assert commands[0][commands[0].index("-channels-out") + 1] == "238"
     log = imaging_markers.imaging_log_path(outdir).read_text()
     assert "; the cube has 238 channels" in log
+
+
+def _delivery(tmp_path, *, with_index=True):
+    """A parameter CSV of the member's three EBs plus one EB of a member missing a row,
+    their MSs under ``archive_ms`` and the index above them."""
+    other = "uid___A002_X9_X9"
+    index = _index()
+    index[other] = {**index[EBS[0]], "eb_uid": other, "member_ous_uid": "uid://A001/X1/X4"}
+    archive = tmp_path / "archive_ms"
+    parameters = pd.concat([_parameters(), pd.DataFrame([_row(other, 25, 5000.0)])])
+    parameters["filename"] = [str(archive / Path(f).name) for f in parameters["filename"]]
+    csv_path = tmp_path / "params.csv"
+    parameters.to_csv(csv_path, index=False)
+    if with_index:
+        # The other member's second EB has a calibrated MS but no row in the CSV.
+        index["uid___A002_X9_XA"] = {**index[other], "eb_uid": "uid___A002_X9_XA"}
+        with (tmp_path / "ous_index.csv").open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=list(index[EBS[0]]))
+            writer.writeheader()
+            writer.writerows(index.values())
+    return csv_path
+
+
+def _output(result) -> str:
+    return " ".join(result.output.replace("\u2502", " ").split())
+
+
+@pytest.mark.unit
+def test_image_from_ms_by_member_images_each_complete_member(tmp_path, monkeypatch):
+    csv_path = _delivery(tmp_path)
+    runs = []
+
+    def fake_run(tasks, imaging, execution, *, casa_data, failures, **kwargs):
+        runs.append((tasks, casa_data))
+        return [{"ok": 1}]
+
+    monkeypatch.setattr(cli_image, "run_imaging_tasks", fake_run)
+    monkeypatch.setattr(
+        cli_image, "_prepare_selfcal_casa_data", lambda out, root: tmp_path / "casa-data"
+    )
+
+    result = runner.invoke(
+        cli.app,
+        ["image", "image-from-ms", str(csv_path), str(tmp_path / "out"), "--by-member"],
+    )
+
+    assert result.exit_code == 0, result.output
+    output = _output(result)
+    assert "Not imaging member uid://A001/X1/X4: 1 of its 2 execution blocks have no " in output
+    assert "1 complete member(s), 1 (window, field) task(s)" in output
+    [(tasks, casa_data)] = runs
+    assert casa_data == str(tmp_path / "casa-data"), "the regridding needs CASA's data"
+    assert [s for _, s, _ in tasks[0].member_windows] == [25, 25, 17]
+
+
+@pytest.mark.unit
+def test_image_from_ms_by_member_needs_the_single_window_ms(tmp_path):
+    csv_path = _delivery(tmp_path)
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "image",
+            "image-from-ms",
+            str(csv_path),
+            str(tmp_path / "out"),
+            "--by-member",
+            "--no-single-window-ms",
+        ],
+    )
+
+    assert result.exit_code == 2
+    assert "--by-member needs --single-window-ms" in _output(result)
+
+
+@pytest.mark.unit
+def test_image_from_ms_by_member_needs_an_ous_index(tmp_path):
+    csv_path = _delivery(tmp_path, with_index=False)
+
+    result = runner.invoke(
+        cli.app, ["image", "image-from-ms", str(csv_path), str(tmp_path / "out"), "--by-member"]
+    )
+
+    assert result.exit_code == 2
+    assert "pass --ous-index" in _output(result)
