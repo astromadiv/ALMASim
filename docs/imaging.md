@@ -187,10 +187,13 @@ and field of each block are extracted as for any task. CASA `mstransform` then
 regrids each copy onto one LSRK channel grid, and CASA `concat` joins them
 into one MS of one window and one field. The execution blocks' channels are
 topocentric, so one window starts a few MHz apart from one day to the next:
-channel *n* of one block is not channel *n* of another. The grid is the
-earliest execution block's window in LSRK: its channel count and width,
-starting at its first channel. The other blocks cover it up to their shift,
-so the edge channels hold fewer blocks. The task's log gives the grid and
+channel *n* of one block is not channel *n* of another. `mstransform`
+regrids only onto channels a block covers over its whole time range, so the
+grid is where all the blocks' windows overlap in LSRK, a channel in from each
+end, with the widest block's channel width. It has a few channels fewer than
+one block's window, and every channel holds every block. A cube keeps the
+planned number of native channels per cube channel, so its `-channels-out`
+follows the grid. The task's log gives the grid, the cube's channel count and
 each block's own LSRK start. The cell and image size follow the longest
 baseline of the member's execution blocks. Self-calibration, continuum
 subtraction, the cube and the primary-beam correction then run on the

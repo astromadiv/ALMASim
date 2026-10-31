@@ -213,7 +213,7 @@ def row_provenance(
     from almasim.services.archive.delivery import read_ous_index
 
     ms = Path(row["filename"]).expanduser().absolute()
-    ms_paths = [m for m, _, _ in member_windows(row)] if is_member_row(row) else [ms]
+    ms_paths = [m for m, _, _ in member_windows(row)] or [ms]
     path = Path(ous_index_csv) if ous_index_csv else find_ous_index(ms)
     indexes = {} if indexes is None else indexes
     if path not in indexes:
@@ -247,6 +247,18 @@ def task_directory(output_directory: Path, row: pd.Series) -> tuple[Path, tuple[
     single_field = field_ids[0] if len(field_ids) == 1 else None
     task_name = f"SPW-{spw}" if single_field is None else f"SPW-{spw}_FIELD-{single_field}"
     return Path(output_directory) / input_filename.stem / task_name, field_ids
+
+
+def _check_member_rows(parameters: pd.DataFrame, single_window: bool) -> None:
+    if not single_window and any(is_member_row(row) for _, row in parameters.iterrows()):
+        raise ValueError("A member is imaged from its combined single-window MS")
+
+
+def _task_label(outdir: Path, ms: Path, spw: int, single_field: int | None, member: bool) -> str:
+    """``<ms stem>_<spw>[_f<field>]``, or ``<member folder>_<task folder>`` for a member."""
+    if member:
+        return f"{outdir.parent.name}_{outdir.name}"
+    return f"{ms.stem}_{spw}" + ("" if single_field is None else f"_f{single_field}")
 
 
 def build_imaging_tasks(
@@ -325,12 +337,11 @@ def build_imaging_tasks(
     # .../SPW-5/ms-imaged-flagged/... and every task failed (2026-10-09).
     output_directory = Path(output_directory).expanduser().absolute()
     indexes: dict[Path | None, dict[str, dict[str, str]]] = {}
+    _check_member_rows(parameters, single_window)
     for _, row in parameters.iterrows():
         input_filename = Path(row["filename"]).expanduser().absolute()
         spw = int(row["spectral_window_id"])
         member = is_member_row(row)
-        if member and not single_window:
-            raise ValueError("A member is imaged from its combined single-window MS")
         outdir, field_ids = task_directory(output_directory, row)
         single_field = field_ids[0] if len(field_ids) == 1 else None
         if not overwrite_outputs:
@@ -414,12 +425,7 @@ def build_imaging_tasks(
 
         tasks.append(
             ImagingTask(
-                label=(
-                    f"{outdir.parent.name}_{outdir.name}"
-                    if member
-                    else f"{input_filename.stem}_{spw}"
-                    + ("" if single_field is None else f"_f{single_field}")
-                ),
+                label=_task_label(outdir, input_filename, spw, single_field, member),
                 ms_path=input_filename,
                 spw=spw,
                 output_dir=outdir,
@@ -428,7 +434,7 @@ def build_imaging_tasks(
                 cube_command=wsclean_command(CUBE_NAME, True) if cube is not None else None,
                 dish_diameter=row_dish_diameter(row),
                 provenance=row_provenance(row, ous_index_csv, indexes),
-                member_windows=member_windows(row) if member else (),
+                member_windows=member_windows(row),
             )
         )
     return tasks, skipped

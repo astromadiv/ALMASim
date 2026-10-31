@@ -149,7 +149,9 @@ def is_member_row(row: pd.Series) -> bool:
 
 
 def member_windows(row: pd.Series) -> tuple[tuple[Path, int, tuple[int, ...]], ...]:
-    """A merged row's (MS, window, field ids) of every EB, in time order."""
+    """A merged row's (MS, window, field ids) of every EB, in time order; () for any other row."""
+    if not is_member_row(row):
+        return ()
     return tuple(
         (Path(ms), int(spw), tuple(int(f) for f in fields))
         for ms, spw, fields in json.loads(row[MEMBER_WINDOWS_COLUMN])

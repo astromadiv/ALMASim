@@ -194,7 +194,8 @@ def run_wsclean_task(  # noqa: C901
     # WSClean's reorder files (hundreds of GB across a run) and the
     # single-window copy behind; nothing else ever removes them.
     _remove_reorder_files(out)
-    for pattern in ("spw*.single.ms", "*.spw*.single.ms", "*.spw*.single.lsrk.ms"):
+    member_copies = ("*.spw*.single.ms", "*.spw*.single.lsrk.ms", "*.spw*.single.probe.ms")
+    for pattern in ("spw*.single.ms", *member_copies):
         for stale in out.glob(pattern):
             shutil.rmtree(stale, ignore_errors=True)
     for stale in out.glob(f"{CUBE_NAME}-[0-9][0-9][0-9][0-9]-*.fits"):
@@ -208,6 +209,7 @@ def run_wsclean_task(  # noqa: C901
         single_window_ms = out / f"spw{int(spw)}.single.ms"
         try:
             if member_windows:
+                planned = WSCleanCommand.parse(commands[-1]).value("-channels-out")
                 extracted = build_member_window_ms(
                     member_windows,
                     single_window_ms,
@@ -215,6 +217,7 @@ def run_wsclean_task(  # noqa: C901
                     timeout=timeout,
                     log_path=log_path,
                     max_weight=max_weight,
+                    channels_out=int(planned) if cube_command and planned else None,
                 )
             else:
                 extracted = extract_single_window_ms_subprocess(
@@ -252,6 +255,14 @@ def run_wsclean_task(  # noqa: C901
                 f"{float(extracted['start_hz']) / 1e9:.6f} GHz, "
                 f"{float(extracted['width_hz']) / 1e3:.3f} kHz wide"
             )
+            if cube_command and extracted.get("channels_out"):
+                # The plan counted the first EB's channels; the grid has fewer.
+                commands[-1] = (
+                    WSCleanCommand.parse(commands[-1])
+                    .with_option("-channels-out", extracted["channels_out"])
+                    .argv()
+                )
+                extraction_note += f"; the cube has {extracted['channels_out']} channels"
         with log_path.open("a", encoding="utf-8") as log:
             if member_windows:
                 shifts = ", ".join(f"{float(s) / 1e3:+.1f}" for s in extracted["shifts_hz"])

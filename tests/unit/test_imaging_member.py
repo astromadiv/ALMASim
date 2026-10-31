@@ -211,7 +211,13 @@ def test_the_combined_ms_is_built_from_each_ebs_window_and_the_copies_removed(
         (out / "table.dat").write_bytes(b"x" * 8)
         for copy in kwargs["window_mss"]:
             Path(copy.removesuffix(".ms") + ".lsrk.ms").mkdir()
-        return {"channels": 480, "start_hz": 1e11, "width_hz": 1.95e6, "shifts_hz": [0.0, 1.5e6]}
+        return {
+            "channels": 476,
+            "start_hz": 1e11,
+            "width_hz": 1.95e6,
+            "shifts_hz": [0.0, 1.5e6],
+            "channels_out": None,
+        }
 
     monkeypatch.setattr(member_window, "extract_single_window_ms_subprocess", fake_extract)
     monkeypatch.setattr(member_window, "call_in_child", fake_child)
@@ -232,7 +238,8 @@ def test_the_combined_ms_is_built_from_each_ebs_window_and_the_copies_removed(
     assert combined["out_path"] == str(out) and combined["casa_data"] == "/casa"
     assert sorted(p.name for p in tmp_path.iterdir()) == ["spw25.single.ms"], "copies removed"
     assert result["rows"] == 20 and result["dropped_rows"] == 2
-    assert result["execution_blocks"] == 2 and result["channels"] == 480
+    assert result["execution_blocks"] == 2 and result["channels"] == 476
+    assert combined["channels_out"] is None
     assert result["bytes"] == 8 and result["max_weight"] == 100.0
 
 
@@ -257,8 +264,10 @@ def test_a_member_task_images_the_combined_ms(tmp_path, monkeypatch):
 
     built = []
 
-    def fake_build(windows, out, *, casa_data, timeout=None, log_path=None, max_weight=None):
-        built.append((list(windows), Path(out).name, casa_data))
+    def fake_build(
+        windows, out, *, casa_data, timeout=None, log_path=None, max_weight=None, channels_out=None
+    ):
+        built.append((list(windows), Path(out).name, casa_data, channels_out))
         Path(out).mkdir()
         return {
             "rows": 30,
@@ -270,6 +279,7 @@ def test_a_member_task_images_the_combined_ms(tmp_path, monkeypatch):
             "start_hz": 92.5e9,
             "width_hz": 1953.125e3,
             "shifts_hz": [0.0, 1.5e6, -2.0e6],
+            "channels_out": None,
         }
 
     monkeypatch.setattr(subprocess, "Popen", fake_popen)
@@ -290,7 +300,7 @@ def test_a_member_task_images_the_combined_ms(tmp_path, monkeypatch):
         member_windows=windows,
     )  # fmt: skip
 
-    assert built == [(windows, "spw25.single.ms", "/casa")]
+    assert built == [(windows, "spw25.single.ms", "/casa", None)], "no cube, no channel count"
     assert calls[0][-1] == str(outdir / "spw25.single.ms")
     assert imaging_markers.is_imaging_complete(outdir)
     log = imaging_markers.imaging_log_path(outdir).read_text().splitlines()
@@ -326,3 +336,61 @@ def test_member_windows_round_trip_through_the_csv(tmp_path):
     assert member_windows(again.iloc[0]) == member_windows(rows.iloc[0])
     last = json.loads(again.iloc[0][MEMBER_WINDOWS_COLUMN])[2]
     assert last == [f"/cal/{EBS[1]}.ms.split.cal", 17, [1]]
+
+
+@pytest.mark.unit
+def test_a_member_cube_takes_its_channel_count_from_the_grid(tmp_path, monkeypatch):
+    commands = []
+
+    def fake_popen(cmd, **kwargs):
+        commands.append(list(cmd))
+
+        class _Proc:
+            stdout = iter(["WSClean version 3.7\n"])
+
+            @staticmethod
+            def wait():
+                return 0
+
+        return _Proc()
+
+    asked = []
+
+    def fake_build(windows, out, *, channels_out=None, **_):
+        asked.append(channels_out)
+        Path(out).mkdir()
+        return {
+            "rows": 30,
+            "bytes": 1,
+            "dropped_rows": 0,
+            "max_weight": None,
+            "channels": 476,
+            "start_hz": 92.5e9,
+            "width_hz": 1953.125e3,
+            "shifts_hz": [0.0, 1.5e6],
+            "channels_out": 238,
+        }
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+    patch_everywhere(monkeypatch, member_window, "build_member_window_ms", fake_build)
+    outdir = tmp_path / "SPW-25_Spiderweb"
+    cube = ["wsclean", "-name", str(outdir / imaging_products.CUBE_NAME), "-channels-out", "240",
+            imaging_products.SINGLE_WINDOW_PLACEHOLDER]  # fmt: skip
+
+    with pytest.raises(RuntimeError):  # the fake WSClean writes no cube
+        imaging_task.run_wsclean_task(
+            command=[],
+            cube_command=cube,
+            output_dir=str(outdir),
+            ms_path="/cal/a.ms",
+            spw=25,
+            threads=2,
+            single_window=True,
+            casa_data="/casa",
+            member_windows=[("/cal/a.ms", 25, [2]), ("/cal/b.ms", 25, [2])],
+        )
+
+    assert asked == [240], "the plan's count, for the first EB's channels"
+    assert commands[0][commands[0].index("-channels-out") + 1] == "238"
+    log = imaging_markers.imaging_log_path(outdir).read_text()
+    assert "; the cube has 238 channels" in log
