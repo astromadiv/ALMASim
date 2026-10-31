@@ -26,6 +26,7 @@ from almasim.services.imaging.markers import (
     write_imaging_failure_marker,
     write_imaging_marker,
 )
+from almasim.services.imaging.ms.member_window import build_member_window_ms
 from almasim.services.imaging.ms.single_window import (
     DEFAULT_MAX_WEIGHT,
     extract_single_window_ms_subprocess,
@@ -91,6 +92,7 @@ def run_wsclean_task(  # noqa: C901
     noise_products: bool = False,
     pb_dish_diameter: float | None = None,
     provenance: Provenance | None = None,
+    member_windows: Sequence[tuple[str, int, Sequence[int]]] | None = None,
 ) -> dict[str, object]:
     """Run one WSClean task in a subprocess and leave a marker whatever happens.
 
@@ -136,6 +138,11 @@ def run_wsclean_task(  # noqa: C901
     (``pb_correct_task``): ``wsclean[-cube]-pb.fits`` and
     ``wsclean[-cube]-image.pbcor.fits``.
 
+    With ``member_windows`` ((MS, window, field ids) of each execution block
+    of a member, earliest first; needs ``single_window`` and ``casa_data``)
+    the single-window MS combines them all, regridded onto one LSRK grid
+    (``build_member_window_ms``); ``ms_path`` and ``spw`` name the earliest.
+
     Every FITS the task leaves carries ``provenance`` (by default the MS's
     execution block and the window) and its steps, each WSClean command among
     them (see :mod:`almasim.services.imaging.provenance`).
@@ -147,6 +154,8 @@ def run_wsclean_task(  # noqa: C901
         raise ValueError("run_wsclean_task needs a continuum or a cube command")
     if uv_contsub_order is not None and not (single_window and cube_command):
         raise ValueError("uv_contsub_order needs single_window and a cube_command")
+    if member_windows and not (single_window and casa_data):
+        raise ValueError("member_windows needs single_window and casa_data")
     if selfcal_solints and not (single_window and command and casa_data):
         raise ValueError("selfcal_solints needs single_window, a continuum command and casa_data")
     if continuum_restart and command:
@@ -185,8 +194,9 @@ def run_wsclean_task(  # noqa: C901
     # WSClean's reorder files (hundreds of GB across a run) and the
     # single-window copy behind; nothing else ever removes them.
     _remove_reorder_files(out)
-    for stale in out.glob("spw*.single.ms"):
-        shutil.rmtree(stale, ignore_errors=True)
+    for pattern in ("spw*.single.ms", "*.spw*.single.ms", "*.spw*.single.lsrk.ms"):
+        for stale in out.glob(pattern):
+            shutil.rmtree(stale, ignore_errors=True)
     for stale in out.glob(f"{CUBE_NAME}-[0-9][0-9][0-9][0-9]-*.fits"):
         stale.unlink(missing_ok=True)
 
@@ -197,15 +207,25 @@ def run_wsclean_task(  # noqa: C901
         # reorders; ``SINGLE_WINDOW_PLACEHOLDER`` in the command is replaced.
         single_window_ms = out / f"spw{int(spw)}.single.ms"
         try:
-            extracted = extract_single_window_ms_subprocess(
-                ms_path,
-                spw,
-                field_ids,
-                single_window_ms,
-                timeout=timeout,
-                log_path=log_path,
-                max_weight=max_weight,
-            )
+            if member_windows:
+                extracted = build_member_window_ms(
+                    member_windows,
+                    single_window_ms,
+                    casa_data=str(casa_data),
+                    timeout=timeout,
+                    log_path=log_path,
+                    max_weight=max_weight,
+                )
+            else:
+                extracted = extract_single_window_ms_subprocess(
+                    ms_path,
+                    spw,
+                    field_ids,
+                    single_window_ms,
+                    timeout=timeout,
+                    log_path=log_path,
+                    max_weight=max_weight,
+                )
         except Exception as exc:
             error = f"Could not extract spectral window {spw} into a single-window MS: {exc}"
             write_imaging_failure_marker(out, ms_path=ms_path, spw=spw, error=error)
@@ -224,12 +244,27 @@ def run_wsclean_task(  # noqa: C901
             f"extracted spectral window {int(spw)} fields {fields_note} into "
             f"{single_window_ms.name}: {kept} rows{drop_note}"
         )
-        with log_path.open("a", encoding="utf-8") as log:
-            log.write(
-                f"# extracted spectral window {int(spw)} fields {fields_note} into "
-                f"{single_window_ms.name}: {kept} rows, {size_gb:.1f} GB, "
-                f"{extracted.get('seconds')} s{drop_note}\n"
+        if member_windows:
+            extraction_note = (
+                f"combined spectral window {int(spw)} of {len(member_windows)} execution "
+                f"blocks into {single_window_ms.name}: {kept} rows{drop_note}, on an LSRK grid "
+                f"of {extracted['channels']} channels from "
+                f"{float(extracted['start_hz']) / 1e9:.6f} GHz, "
+                f"{float(extracted['width_hz']) / 1e3:.3f} kHz wide"
             )
+        with log_path.open("a", encoding="utf-8") as log:
+            if member_windows:
+                shifts = ", ".join(f"{float(s) / 1e3:+.1f}" for s in extracted["shifts_hz"])
+                log.write(
+                    f"# {extraction_note}, {size_gb:.1f} GB, {extracted.get('seconds')} s\n"
+                    f"# the execution blocks' own LSRK starts, in kHz: {shifts}\n"
+                )
+            else:
+                log.write(
+                    f"# extracted spectral window {int(spw)} fields {fields_note} into "
+                    f"{single_window_ms.name}: {kept} rows, {size_gb:.1f} GB, "
+                    f"{extracted.get('seconds')} s{drop_note}\n"
+                )
         commands = [
             WSCleanCommand.parse(c).substituted(SINGLE_WINDOW_PLACEHOLDER, single_window_ms).argv()
             for c in commands

@@ -523,7 +523,7 @@ $ almasim image image-from-ms [OPTIONS] {imaging_parameters} {output_directory}
 * `--selfcal-min-snr <float range>`: Skip self-calibration when the initial continuum S/N is below this.  [default: 20.0; x>=0.0]
 * `--noise-products / --no-noise-products`: Where self-calibration was applied, also image what it removed and keep it: wsclean[-cube]-selfcal-correction.fits, wsclean[-cube]-residual-total.fits (residual + correction: all the data the model does not explain) and the gain tables in selfcal_gains/ (default).  [default: noise-products]
 * `--pbcor / --no-pbcor`: Also primary-beam correct the continuum image and the image cube: wsclean[-cube]-pb.fits (the beam, CASA's ALMA Airy model, per channel) and wsclean[-cube]-image.pbcor.fits (blanked below 0.2). Off by default; 'image pb-correct' adds them to an existing run.  [default: no-pbcor]
-* `--casa-data-root <path>`: CASA runtime data for --selfcal (default <output>/.casa-data, downloaded once by the driver when missing, as the calibration stage does).
+* `--casa-data-root <path>`: CASA runtime data for --selfcal and --by-member (default <output>/.casa-data, downloaded once by the driver when missing, as the calibration stage does).
 * `--uv-contsub / --no-uv-contsub`: Subtract the continuum from the visibilities before imaging (CASA uvcontsub): line channels are found on the source spectrum, the continuum is fitted per visibility over the others. The continuum image is made from the fitted continuum and every cube product holds only the lines. Needs --cube and --single-window-ms; replaces --contsub.  [default: no-uv-contsub]
 * `--contsub-order <int range>`: Continuum polynomial order for --contsub and --uv-contsub: 0 (constant) or 1 (linear, default).  [default: 1; 0<=x<=1]
 * `--spectral-sampling <float range>`: Cube channels per spectral resolution element (the spectral counterpart of --beam-sampling). 2 keeps the native channels of ALMA's Hanning-smoothed windows; 1 halves them.  [default: 2.0; x>=1e-06]
@@ -535,6 +535,7 @@ $ almasim image image-from-ms [OPTIONS] {imaging_parameters} {output_directory}
 * `--cube-reorder / --cube-no-reorder`: Let WSClean reorder the single-window MS per channel for the cube (default). Without it WSClean re-reads the whole MS for every cube channel: ~25x slower.  [default: cube-reorder]
 * `--plan-only`: Print the channel plan and the projected cube volume, then exit without imaging.
 * `--ous-index <path>`: The delivery tree's ous_index.csv, for the project, science goal, group and member OUS in every FITS header (default: the ous_index.csv nearest above each MS).
+* `--by-member / --by-ms`: Image each member OUS from all its execution blocks: one task per window and field, the EBs' visibilities regridded onto one LSRK grid (CASA mstransform) and combined. Only complete members are imaged: every EB ALMA calibrated for the member has a calibrated MS (the ous_index.csv) and a row in the CSV. Needs --single-window-ms. Default --by-ms: one task per MS.  [default: by-ms]
 * `--help`: Show this message and exit.
 
 ### `almasim image clean-quality`

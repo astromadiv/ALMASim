@@ -20,7 +20,9 @@ from .calibration import (
 from .delivery import (
     DeliveryOrganized,
     MemberFolder,
+    MemberStatus,
     member_folders,
+    member_status,
     organize_delivery,
     read_ous_index,
 )
@@ -84,7 +86,9 @@ __all__ = [
     "restore_pipeline_flags",
     "DeliveryOrganized",
     "MemberFolder",
+    "MemberStatus",
     "member_folders",
+    "member_status",
     "organize_delivery",
     "read_ous_index",
 ]

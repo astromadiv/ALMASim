@@ -10,9 +10,14 @@ folders. Every execution block of a member has a ``<eb>.qa0_report.pdf`` in its
 :func:`organize_delivery` links each calibrated MS into its member's
 ``calibrated/`` folder, as ALMA's scriptForPI does, and writes
 ``ous_index.csv`` at the root of the tree: one row per execution block, with
-its project, science goal, group and member, and its MSs. The MSs themselves
-stay where the archive stages write them; the links are relative, so the tree
-and the MS folders can move together.
+its project, science goal, group and member, whether ALMA calibrated it (it has a
+calapply file), and its MSs. The MSs themselves stay where the archive stages
+write them; the links are relative, so the tree and the MS folders can move
+together.
+
+:func:`member_status` reads the index member by member: a member is complete
+when every execution block ALMA calibrated for it has a calibrated MS, and only
+a complete member is imaged as a whole.
 """
 
 from __future__ import annotations
@@ -33,8 +38,10 @@ __all__ = [
     "INDEX_FILENAME",
     "DeliveryOrganized",
     "MemberFolder",
+    "MemberStatus",
     "folder_uid",
     "member_folders",
+    "member_status",
     "organize_delivery",
     "read_ous_index",
 ]
@@ -48,6 +55,7 @@ _INDEX_COLUMNS = [
     "group_ous_uid",
     "member_ous_uid",
     "member_folder",
+    "alma_calibrated",
     "raw_ms",
     "calibrated_ms",
 ]
@@ -73,6 +81,25 @@ class DeliveryOrganized:
     linked: int
     without_member: list[str]
     """Calibrated MSs whose execution block no member folder lists."""
+
+
+@dataclass(frozen=True)
+class MemberStatus:
+    """One member's execution blocks, as an ``ous_index.csv`` lists them."""
+
+    member_ous_uid: str
+    member_folder: str
+    needed: tuple[str, ...]
+    """The EBs its image is made from: those ALMA calibrated (all of them when
+    ALMA calibrated none)."""
+    calibrated_ms: tuple[str, ...]
+    """The calibrated MSs of ``needed`` that exist, in the order of ``needed``."""
+    missing: tuple[str, ...]
+    """The EBs of ``needed`` without a calibrated MS."""
+
+    @property
+    def complete(self) -> bool:
+        return bool(self.needed) and not self.missing
 
 
 def folder_uid(folder_name: str) -> str:
@@ -113,6 +140,28 @@ def read_ous_index(path: str | os.PathLike[str]) -> dict[str, dict[str, str]]:
     """An ``ous_index.csv`` as ``{eb_uid: row}``."""
     with Path(path).open(newline="", encoding="utf-8") as handle:
         return {row["eb_uid"]: row for row in csv.DictReader(handle)}
+
+
+def member_status(index: dict[str, dict[str, str]]) -> dict[str, MemberStatus]:
+    """Each member of an index (``read_ous_index``), by member OUS UID.
+
+    An EB is needed when ALMA calibrated it (``alma_calibrated``); an EB ALMA
+    did not calibrate, one that failed QA0 say, is left out of the member's image.
+    """
+    rows_by_member: dict[str, list[dict[str, str]]] = {}
+    for eb in sorted(index):
+        rows_by_member.setdefault(index[eb]["member_ous_uid"], []).append(index[eb])
+    status: dict[str, MemberStatus] = {}
+    for member, rows in rows_by_member.items():
+        needed = [r for r in rows if r.get("alma_calibrated") == "yes"] or rows
+        status[member] = MemberStatus(
+            member_ous_uid=member,
+            member_folder=rows[0]["member_folder"],
+            needed=tuple(r["eb_uid"] for r in needed),
+            calibrated_ms=tuple(r["calibrated_ms"] for r in needed if r["calibrated_ms"]),
+            missing=tuple(r["eb_uid"] for r in needed if not r["calibrated_ms"]),
+        )
+    return status
 
 
 def _link(target: Path, link: Path) -> bool:
@@ -196,6 +245,9 @@ def organize_delivery(
                     member.group_ous_uid,
                     member.member_ous_uid,
                     os.path.relpath(member.path, index.parent),
+                    "yes"
+                    if (member.path / "calibration" / f"{eb}.ms.calapply.txt").is_file()
+                    else "no",
                     str(raw[eb]) if eb in raw else "",
                     str(calibrated[eb]) if eb in calibrated else "",
                 ]

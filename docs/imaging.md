@@ -12,8 +12,9 @@ Imaging code lives in [`src/almasim/services/imaging`](../src/almasim/services/i
 | `reconstruction/` | the in-memory image products of a simulation: Wiener deconvolution and preview, TP/INT merging, cube regridding |
 | `ms_geometry.py` | `compute_imaging_parameters`: the WSClean geometry of every (spectral window, field) of an MS |
 | `wsclean_plan.py`, `wsclean/` | WSClean command lines, the cube channel plan, the per-task run |
+| `member_plan.py` | a member's parameter rows merged per window and field, for `--by-member` |
 | `batch_runner.py`, `task.py`, `markers.py` | running the tasks on `sync` or `slurm`, their `.done`/`.failed`/`.log` files |
-| `ms/` | the single-window MS each task images |
+| `ms/` | the single-window MS each task images, and a member's combined one |
 | `uv_contsub.py`, `selfcal/`, `primary_beam.py` | visibility-plane continuum subtraction, self-calibration, primary-beam correction |
 | `provenance.py` | the OUSs, execution blocks and WSClean commands in every product's FITS header |
 | `quality/` | the cleaning-quality statistics and moment maps of `image clean-quality` |
@@ -91,8 +92,8 @@ almasim image image-from-ms imaging_parameters.csv /data/images \
 **compute-parameters** reads each MS (`--pattern`, default `*.cal`) with
 python-casacore and writes the WSClean geometry of each spectral window:
 field of view (the primary beam's half-power width for the smallest dish),
-synthesized beam and reference frequency. It writes one row per spectral
-window and field, and only for (window, field) pairs that hold visibilities:
+synthesized beam and reference frequency, with the window's name
+(`spectral_window_name`). It writes one row per spectral window and field, and only for (window, field) pairs that hold visibilities:
 an ALMA MS lists every correlator window, WVR ones included, but after
 `split` only the science windows have rows. By default the fields are those
 observed with the `OBSERVE_TARGET` intent, recorded in `target_field_ids`, so
@@ -159,6 +160,43 @@ lists every option.
   Airy model) and the corrected images (`wsclean[-cube]-image.pbcor.fits`).
   `almasim image pb-correct` adds them to an existing run.
 
+### Imaging a member from all its execution blocks
+
+`--by-member` images each member OUS as ALMA does, from every execution block
+ALMA calibrated for it, in one task per window and field:
+
+```bash
+almasim image image-from-ms imaging_parameters.csv /data/images --by-member --cube
+```
+
+The CSV must hold the rows of all the member's execution blocks.
+The members come from the delivery tree's `ous_index.csv` (`--ous-index`, by
+default the one nearest above the MSs; see
+[The delivery tree](downloads.md#the-delivery-tree)). Only a complete member is
+imaged: every execution block ALMA calibrated for it (`alma_calibrated`) has a
+calibrated MS and rows in the CSV. Every other member is listed with the
+execution blocks it lacks. The windows of different execution blocks are
+matched by name (`spectral_window_name`): each EB numbers its windows its own
+way. Fields are matched by name too. A mosaic, whose pointings share one name,
+is listed and left out.
+
+A member task writes to `<output>/member.<uid>/SPW-<n>_<field>/`, where
+`<n>` is the window's id in the earliest execution block. Its single-window
+MS combines all the execution blocks (`build_member_window_ms`). The window
+and field of each block are extracted as for any task. CASA `mstransform` then
+regrids each copy onto one LSRK channel grid, and CASA `concat` joins them
+into one MS of one window and one field. The execution blocks' channels are
+topocentric, so one window starts a few MHz apart from one day to the next:
+channel *n* of one block is not channel *n* of another. The grid is the
+earliest execution block's window in LSRK: its channel count and width,
+starting at its first channel. The other blocks cover it up to their shift,
+so the edge channels hold fewer blocks. The task's log gives the grid and
+each block's own LSRK start. The cell and image size follow the longest
+baseline of the member's execution blocks. Self-calibration, continuum
+subtraction, the cube and the primary-beam correction then run on the
+combined MS as on any other. The regridding needs CASA and its runtime data
+(`--casa-data-root`).
+
 ### Provenance in the FITS headers
 
 Every FITS a task writes says what it was made from, with the keywords of
@@ -169,10 +207,10 @@ ALMA's own pipeline images where ALMA has one:
 | `PROPCODE` | the project code |
 | `SGOAL`, `GROUP`, `MEMBER` | the science goal, group and member OUS UIDs |
 | `SPW`, `FIELD` | the spectral window (its id in the MS) and the field imaged |
-| `NEB`, `EBUID01` ... | the execution blocks imaged |
+| `NEB`, `EBUID01` ... | the execution blocks imaged (all of a member's with `--by-member`) |
 | `NMS`, `MSNAM01` ... | the MeasurementSets imaged |
 | `ALMASVER` | the ALMASim version |
-| `HISTORY` | after WSClean's own record of its command line, each step of the task in the order it ran (`ALMASim: ...`): the window's extraction, the continuum subtraction from the visibilities, and every WSClean command (self-calibration rounds included), with the task folder's paths written relative to it |
+| `HISTORY` | after WSClean's own record of its command line, each step of the task in the order it ran (`ALMASim: ...`): the window's extraction (a member's combination of its execution blocks), the continuum subtraction from the visibilities, and every WSClean command (self-calibration rounds included), with the task folder's paths written relative to it |
 
 The OUS UIDs come from the delivery tree's `ous_index.csv`
 ([The delivery tree](downloads.md#the-delivery-tree)), looked up by the

@@ -295,9 +295,10 @@ def _report_imaging_failures(failures: list[TaskFailure]) -> None:
 
 
 def _prepare_selfcal_casa_data(output_directory: Path, casa_data_root: Path | None) -> Path:
-    """CASA runtime data for the workers' gaincal, populated here once if missing.
+    """CASA runtime data for the workers' CASA steps, populated here once if missing.
 
-    The calibration stage's preflight: the tasks would otherwise each try to
+    Self-calibration's gaincal and a member's LSRK regridding need it. The
+    calibration stage's preflight: the tasks would otherwise each try to
     download it, or fail to import casatools without it.
     """
     from ..services.casa.environment import configure_casa_environment
@@ -311,7 +312,7 @@ def _prepare_selfcal_casa_data(output_directory: Path, casa_data_root: Path | No
     )
     workspace = output_directory / ".casa-work"
     configure_casa_environment(workspace, casa_data, workspace_root=workspace)
-    typer.echo(f"Self-calibration CASA runtime data: {casa_data}")
+    typer.echo(f"CASA runtime data: {casa_data}")
     ensure_casa_runtime_data(casa_data, logger_fn=typer.echo)
     return casa_data
 
@@ -369,6 +370,7 @@ class ImageFromMsOptions:
     cube_reorder: bool
     plan_only: bool
     ous_index: Path | None
+    by_member: bool
 
 
 @image_app.command("image-from-ms")
@@ -635,8 +637,8 @@ def image_from_ms(
         None,
         "--casa-data-root",
         help=(
-            "CASA runtime data for --selfcal (default <output>/.casa-data, downloaded once "
-            "by the driver when missing, as the calibration stage does)."
+            "CASA runtime data for --selfcal and --by-member (default <output>/.casa-data, "
+            "downloaded once by the driver when missing, as the calibration stage does)."
         ),
         rich_help_panel="Self-calibration",
     ),
@@ -749,6 +751,18 @@ def image_from_ms(
         ),
         rich_help_panel="Imaging",
     ),
+    by_member: bool = typer.Option(
+        False,
+        "--by-member/--by-ms",
+        help=(
+            "Image each member OUS from all its execution blocks: one task per window and "
+            "field, the EBs' visibilities regridded onto one LSRK grid (CASA mstransform) "
+            "and combined. Only complete members are imaged: every EB ALMA calibrated for "
+            "the member has a calibrated MS (the ous_index.csv) and a row in the CSV. "
+            "Needs --single-window-ms. Default --by-ms: one task per MS."
+        ),
+        rich_help_panel="Imaging",
+    ),
 ):
     """Image every (MS, spectral window) row of a parameter CSV with WSClean.
 
@@ -834,6 +848,8 @@ def _image_from_ms_options(o: ImageFromMsOptions) -> tuple[ImagingOptions, ExecO
 def _image_from_ms_tasks(o: ImageFromMsOptions, imaging: ImagingOptions) -> list[ImagingTask]:
     """The tasks still to image (none with --plan-only), after the cube plan is shown."""
     parameters = pd.read_csv(str(o.imaging_parameters))
+    if o.by_member:
+        parameters = _member_rows(o, parameters)
     if imaging.cube is not None:
         parameters = add_spectral_columns(parameters)
         _echo_cube_plan(
@@ -879,6 +895,30 @@ def _image_from_ms_tasks(o: ImageFromMsOptions, imaging: ImagingOptions) -> list
     return tasks
 
 
+def _member_rows(o: ImageFromMsOptions, parameters: pd.DataFrame) -> pd.DataFrame:
+    """The CSV's rows merged per member, window and field (``member_parameters``)."""
+    from ..services.archive.delivery import read_ous_index
+    from ..services.imaging.member_plan import member_parameters
+    from ..services.imaging.provenance import find_ous_index
+
+    if not o.single_window:
+        raise typer.BadParameter("--by-member needs --single-window-ms")
+    index_path = o.ous_index
+    if index_path is None and len(parameters):
+        index_path = find_ous_index(Path(str(parameters["filename"].iloc[0])).expanduser())
+    if index_path is None:
+        raise typer.BadParameter(
+            "--by-member needs the delivery tree's ous_index.csv: pass --ous-index "
+            "(none was found above the MSs)"
+        )
+    rows, skipped = member_parameters(parameters, read_ous_index(index_path))
+    for member, reason in skipped:
+        typer.echo(f"Not imaging member {member}: {reason}")
+    members = rows["member_ous_uid"].nunique() if len(rows) else 0
+    typer.echo(f"{members} complete member(s), {len(rows)} (window, field) task(s)")
+    return rows
+
+
 def _run_image_from_ms(
     o: ImageFromMsOptions,
     imaging: ImagingOptions,
@@ -887,7 +927,7 @@ def _run_image_from_ms(
 ) -> None:
     """Run the tasks and report them; exit 1 when any failed."""
     casa_data: str | None = None
-    if imaging.selfcal.solints:
+    if imaging.selfcal.solints or o.by_member:
         casa_data = str(_prepare_selfcal_casa_data(o.output_directory, o.casa_data_root))
     typer.echo(
         f"Imaging {len(tasks)} (MS, SPW, field) task(s); "
@@ -1118,6 +1158,7 @@ def image_set(
         cube_reorder=True,
         plan_only=False,
         ous_index=None,
+        by_member=False,
         postprocess_backend=postprocess_backend,
         slurm_queue=slurm_queue,
         slurm_project=slurm_project,

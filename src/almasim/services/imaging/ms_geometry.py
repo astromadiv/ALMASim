@@ -205,6 +205,7 @@ def compute_imaging_parameters(
     opener = import_casacore_tables()
     with open_table(f"{input_ms}::SPECTRAL_WINDOW", opener=opener) as spectral_windows:
         reference_frequencies = spectral_windows.getcol("REF_FREQUENCY")
+        window_names = np.asarray([str(n) for n in spectral_windows.getcol("NAME")], dtype=object)
         spectral = spectral_window_properties(spectral_windows)
     with open_table(f"{input_ms}::OBSERVATION", opener=opener) as observation:
         start_mjd, end_mjd = observation[0]["TIME_RANGE"]
@@ -243,6 +244,7 @@ def compute_imaging_parameters(
         {
             "filename": [str(input_ms.resolve())] * n_rows,
             "spectral_window_id": spectral_window_id[keep],
+            "spectral_window_name": window_names[keep],
             "reference_frequency": reference_frequencies[keep],
             "fov_per_frequency": fov_per_frequency[keep],
             "max_baseline_size": [max_baseline_size] * n_rows,
