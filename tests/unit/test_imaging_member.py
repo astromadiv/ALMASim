@@ -10,12 +10,14 @@ import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
+import numpy as np
 import pandas as pd
 import pytest
 from typer.testing import CliRunner
 
 from almasim import cli
 from almasim.cli import image as cli_image
+from almasim.services import casa as casa_module
 from almasim.services.archive.delivery import member_status
 from almasim.services.imaging import markers as imaging_markers
 from almasim.services.imaging import ms_geometry
@@ -28,6 +30,7 @@ from almasim.services.imaging.member_plan import (
     member_windows,
 )
 from almasim.services.imaging.ms import member_window
+from almasim.services.imaging.selfcal import casa_ops
 from almasim.services.imaging.wsclean_plan import build_imaging_tasks
 from almasim.services.ms import tables as ms_tables
 
@@ -541,3 +544,107 @@ def test_image_from_ms_by_member_needs_an_ous_index(tmp_path):
 
     assert result.exit_code == 2
     assert "pass --ous-index" in _output(result)
+
+
+class _FakeCasa:
+    """CASA's table tool, mstransform and concat over in-memory tables.
+
+    ``coverage`` maps each EB's MS to its channel frequencies and width, which
+    its LSRK probe reports; ``combined`` is the windows and fields concat makes.
+    """
+
+    def __init__(self, coverage, combined=(1, 1)):
+        self.coverage = coverage
+        self.combined = combined
+        self.tables = {ms: {"FIELD_ID": [2, 2, 2], "SCAN_NUMBER": [3, 7, 5]} for ms in coverage}
+        self.calls = []
+        self.tools = SimpleNamespace(table=self._table)
+        self.tasks = SimpleNamespace(mstransform=self._mstransform, concat=self._concat)
+
+    def _table(self):
+        tables = self.tables
+        opened = {}
+        return SimpleNamespace(
+            open=lambda path: opened.update(t=tables[path]),
+            getcol=lambda name: opened["t"][name],
+            getcell=lambda name, row: opened["t"][name][row],
+            close=lambda: None,
+        )
+
+    def _mstransform(self, *, vis, outputvis, mode, **kwargs):
+        self.calls.append(("mstransform", vis, mode, kwargs))
+        if mode == "channel":
+            frequencies, width = self.coverage[vis]
+            self.tables[f"{outputvis}/SPECTRAL_WINDOW"] = {
+                "CHAN_FREQ": [frequencies],
+                "CHAN_WIDTH": [np.full(frequencies.size, -width)],
+            }
+
+    def _concat(self, *, vis, concatvis, **kwargs):
+        self.calls.append(("concat", vis, concatvis, kwargs))
+        windows, fields = self.combined
+        self.tables[f"{concatvis}/SPECTRAL_WINDOW"] = {"FLAG_ROW": [False] * windows}
+        self.tables[f"{concatvis}/FIELD"] = {"FLAG_ROW": [False] * fields}
+
+
+def _fake_casa(monkeypatch, tmp_path, *, second_low_hz=100.0105e9, combined=(1, 1)):
+    first, second = str(tmp_path / "a.ms"), str(tmp_path / "b.ms")
+    fake = _FakeCasa(
+        {
+            first: (100.0e9 + 1.0e6 * np.arange(100), 1.0e6),
+            second: (second_low_hz + 1.2e6 * np.arange(80), 1.2e6),
+        },
+        combined,
+    )
+    monkeypatch.setattr(casa_module, "tasks", lambda: fake.tasks)
+    monkeypatch.setattr(casa_module, "tools", lambda: fake.tools)
+    monkeypatch.setattr(casa_ops, "_configure_casa", lambda casa_data, log_file: None)
+    return fake, [first, second]
+
+
+@pytest.mark.unit
+def test_the_ebs_are_regridded_onto_their_common_lsrk_coverage(tmp_path, monkeypatch):
+    fake, mss = _fake_casa(monkeypatch, tmp_path)
+    out = str(tmp_path / "member.ms")
+
+    grid = member_window.regrid_and_concat(mss, out, "/casa-data", "/log", channels_out=20)
+
+    # Overlap 100.0105-100.099 GHz, less a 1.2 MHz channel at each end: 72 channels,
+    # trimmed to 70 so 5 native channels make each of the cube's 14.
+    assert grid["channels"] == 70 and grid["native_channels"] == 100
+    assert grid["channels_out"] == 14
+    assert grid["width_hz"] == pytest.approx(1.2e6)
+    assert grid["start_hz"] == pytest.approx(100.0117e9)
+    assert grid["shifts_hz"] == [0.0, 10.5e6]
+    probes = [c for c in fake.calls if c[0] == "mstransform" and c[2] == "channel"]
+    assert [c[3]["scan"] for c in probes] == ["3,7", "3,7"], "the first and last scans"
+    regrids = [c for c in fake.calls if c[0] == "mstransform" and c[2] == "frequency"]
+    assert [c[1] for c in regrids] == mss
+    assert {(c[3]["nchan"], c[3]["start"], c[3]["field"]) for c in regrids} == {
+        (70, f"{grid['start_hz']!r}Hz", "2")
+    }
+    [concat] = [c for c in fake.calls if c[0] == "concat"]
+    assert concat[1] == [str(tmp_path / "a.lsrk.ms"), str(tmp_path / "b.lsrk.ms")]
+    assert concat[2] == out
+
+
+@pytest.mark.unit
+def test_ebs_whose_windows_do_not_overlap_are_not_combined(tmp_path, monkeypatch):
+    _, mss = _fake_casa(monkeypatch, tmp_path, second_low_hz=100.2e9)
+
+    with pytest.raises(RuntimeError, match="do not overlap in LSRK"):
+        member_window.regrid_and_concat(mss, str(tmp_path / "member.ms"), "/c", "/log")
+
+
+@pytest.mark.unit
+def test_a_combined_ms_of_several_windows_or_fields_is_refused(tmp_path, monkeypatch):
+    _, mss = _fake_casa(monkeypatch, tmp_path, combined=(1, 2))
+
+    with pytest.raises(RuntimeError, match="1 spectral windows and 2 fields"):
+        member_window.regrid_and_concat(mss, str(tmp_path / "member.ms"), "/c", "/log")
+
+
+@pytest.mark.unit
+def test_a_member_window_needs_an_execution_block(tmp_path):
+    with pytest.raises(ValueError, match="needs at least one execution block"):
+        member_window.build_member_window_ms([], tmp_path / "member.ms", casa_data="/c")
