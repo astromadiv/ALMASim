@@ -4,15 +4,15 @@
     "sha256": "c96c2ab387d9ca3883efe1d7438a748e0a2f69844bde6b401278800f59bc7019"
   },
   "baseline": {
-    "url": "https://github.com/astromadiv/ALMASim/releases/download/golden-baseline-v14/golden-baseline-v14.tar.gz",
-    "sha256": "25058c1539013cbdad3b4ad648312e213f68b8f1487047279abd9cb8353ca191",
-    "version": "v14",
-    "source": "workflow run 40604867613, commit 021c2201; MADIV-28: the noise model's golden case (#489)"
+    "url": "https://github.com/astromadiv/ALMASim/releases/download/golden-baseline-v15/golden-baseline-v15.tar.gz",
+    "sha256": "1b9fcf2a47d3e2d75f749159a76c3d55ab9ec231db0662e6172110276928a263",
+    "version": "v15",
+    "source": "workflow run 41137952947, commit 28000b89; MADIV-28: provenance in every imaging FITS header (#533)"
   },
   "simulation_baseline": {
-    "url": "https://github.com/astromadiv/ALMASim/releases/download/golden-baseline-v14/golden-simulation-v14.tar.gz",
-    "sha256": "dafd3e00bf62e74175dc03db08c6b44ca802b64ba40ab5dc615f868a696c7784",
-    "version": "v14",
-    "source": "workflow run 40604867613, commit 021c2201; MADIV-28: the noise model's golden case (#489)"
+    "url": "https://github.com/astromadiv/ALMASim/releases/download/golden-baseline-v15/golden-simulation-v15.tar.gz",
+    "sha256": "239947b6e3ab56dc37aa2d3f7b49dbb512f59d1016453ce73186e540025b4226",
+    "version": "v15",
+    "source": "workflow run 41137952947, commit 28000b89; MADIV-28: provenance in every imaging FITS header (#533)"
   }
 }
