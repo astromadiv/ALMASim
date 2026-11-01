@@ -195,6 +195,8 @@ def test_an_antenna_whose_data_are_all_flagged_is_not_part_of_the_array(fake_ms)
     ms = fake_ms("w.ms", flagged_antenna=2)
     e = extract.extract_window(ms, SPW, "target", max_visibilities=10**9)[0].exposure
     assert (e.antennas, e.baselines) == (NANT - 1, 10)
+    # Its rows are not the array's, so they are not counted as flagged data.
+    assert 0 < e.flagged_fraction < 0.02
     assert e.pads == [f"A{i:03d}:DA{41 + i}" for i in range(NANT) if i != 2]
 
 

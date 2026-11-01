@@ -859,7 +859,10 @@ and `NAME`), the form of the archive's `antenna_arrays`, from which
 `noise validate` observes the window with the MS's own array. Its
 `antennas`, `baselines` and `pads` count only antennas with data the image
 uses: an MS often lists antennas whose data are all flagged (up to 15 of
-43 on the MADIV-16 windows), and the array that observed is the rest.
+43 on the MADIV-16 windows), and the array that observed is the rest. Its
+`flagged_fraction` and `high_weight_fraction` are measured on the baselines
+between those antennas, so the simulated window, observed by the array
+alone, misses only the data the array's own baselines miss.
 
 This is window 81 (band 6, 12 m), shortened:
 
