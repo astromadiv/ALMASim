@@ -55,6 +55,22 @@ def test_antenna_positions_keep_table_order():
     assert antenna_positions(layout, array)["name"].tolist() == names
 
 
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "pads, km",
+    [
+        # Distances between the pads' positions in the MADIV-16 MSs' ANTENNA tables.
+        ("A001 P401", 3.2076),
+        ("A001 S301", 3.1866),
+        ("A001 W210", 3.7239),
+        ("P404 W207", 5.8051),
+    ],
+)
+def test_the_outer_pads_are_where_alma_has_them(pads, km):
+    array = " ".join(f"{pad}:DA41" for pad in pads.split())
+    assert max_baseline_km(DataLayout(MAIN_DIR), array) == pytest.approx(km, abs=0.001)
+
+
 def _pairwise_max_km(rows) -> float:
     """The loop the simulator used before T2.2."""
     best = 0.0

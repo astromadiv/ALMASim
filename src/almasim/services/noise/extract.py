@@ -56,10 +56,11 @@ class _Sums:
     hands_identical: bool | None = None
     antenna_sum: np.ndarray = field(init=False)
     antenna_count: np.ndarray = field(init=False)
+    antenna_rows: np.ndarray = field(init=False)
+    # Per baseline (ANTENNA1 * nant + ANTENNA2): rows, rows over the maximum
+    # WEIGHT, flagged values and values.
+    baseline: dict[str, np.ndarray] = field(init=False)
     rows: int = 0
-    high_rows: int = 0
-    flagged: float = 0.0
-    values: float = 0.0
 
     def __post_init__(self) -> None:
         for lag in (1, 2, 3):
@@ -67,6 +68,19 @@ class _Sums:
             self.lag_count[lag] = np.zeros(self.nchan - lag)
         self.antenna_sum = np.zeros((self.nant, self.nchan - 3, self.nhand))
         self.antenna_count = np.zeros((self.nant, self.nchan - 3, self.nhand))
+        self.antenna_rows = np.zeros(self.nant, dtype=np.int64)
+        self.baseline = {
+            key: np.zeros(self.nant * self.nant) for key in ("rows", "high", "flagged", "values")
+        }
+
+    def shares(self) -> tuple[float, float]:
+        """The flagged share of the values and the share of rows over the maximum
+        WEIGHT, on the baselines between the array's antennas (antenna_rows): the
+        rows of an antenna whose data are all flagged are not the array's."""
+        array = self.antenna_rows > 0
+        between = (array[:, None] & array[None, :]).ravel()
+        b = {key: value[between].sum() for key, value in self.baseline.items()}
+        return b["flagged"] / max(b["values"], 1), b["high"] / max(b["rows"], 1)
 
 
 def extract_window(
@@ -144,10 +158,10 @@ def extract_window(
         exposure_cols,
         a1,
         a2,
+        sums.antenna_rows,
         fields,
         ncorr,
-        sums.flagged / max(sums.values, 1),
-        sums.high_rows / max(sums.rows, 1),
+        *sums.shares(),
     )
     tsys = None
     try:
@@ -239,14 +253,24 @@ def _accumulate(
     max_weight: float | None = None,
 ) -> None:
     """Add one chunk of rows (nrow, nchan, ncorr) to the sums."""
+    imaged = np.ones(weight.shape[0], dtype=bool)
     if max_weight:
-        sums.high_rows += int((weight.max(axis=1) > max_weight).sum())
+        imaged = weight.max(axis=1) <= max_weight
+    pair = ant1 * sums.nant + ant2
+    for key, value in (
+        ("rows", np.ones(pair.size)),
+        ("high", (~imaged).astype(np.float64)),
+        ("flagged", flag.sum(axis=(1, 2)).astype(np.float64)),
+        ("values", np.full(pair.size, float(flag[0].size))),
+    ):
+        sums.baseline[key] += np.bincount(pair, value, sums.nant * sums.nant)
     if weight.shape[1] != data.shape[2]:
         weight = np.repeat(weight.mean(axis=1, keepdims=True), data.shape[2], axis=1)
     good = ~flag & (weight[:, None, :] > 0)
+    imaged &= good.any(axis=(1, 2))
+    np.add.at(sums.antenna_rows, ant1[imaged], 1)
+    np.add.at(sums.antenna_rows, ant2[imaged], 1)
     sums.rows += data.shape[0]
-    sums.flagged += float(flag.sum())
-    sums.values += float(flag.size)
     for lag in (1, 2, 3):
         diff = data[:, lag:] - data[:, :-lag]
         ok = good[:, lag:] & good[:, :-lag]
@@ -329,22 +353,33 @@ def _exposure(
     cols: dict[str, np.ndarray],
     a1: np.ndarray,
     a2: np.ndarray,
+    antenna_rows: np.ndarray,
     fields: list[int] | None,
     ncorr: int,
     flagged: float,
     high_weight: float = 0.0,
 ) -> Exposure:
+    """The antennas and baselines are those with data the image uses (unflagged,
+    WEIGHT within the maximum) in the sampled rows: an antenna the MS lists
+    whose data are all flagged is not part of the array that observed."""
     times, interval = cols["TIME"], cols["INTERVAL"]
     unique, first = np.unique(times, return_index=True)
-    antennas = np.union1d(a1, a2)
+    antennas = np.flatnonzero(antenna_rows > 0)
+    both = np.isin(a1, antennas) & np.isin(a2, antennas)
     with table(str(ms / "ANTENNA"), ack=False) as ant:
         diameter = float(np.median(np.asarray(ant.getcol("DISH_DIAMETER"))[antennas]))
+        names = ant.colnames()
+        pads = (
+            [f"{s}:{n}" for s, n in zip(ant.getcol("STATION"), ant.getcol("NAME"), strict=True)]
+            if {"STATION", "NAME"} <= set(names)
+            else []
+        )
     width = float(np.median(window["width"]))
     effective = float(np.median(window["effective"])) or width
     return Exposure(
         antennas=int(antennas.size),
         dish_diameter_m=diameter,
-        baselines=int(np.unique(a1 * 100_000 + a2).size),
+        baselines=int(np.unique(a1[both] * 100_000 + a2[both]).size),
         integrations=int(unique.size),
         integration_s=float(np.median(interval)),
         time_on_source_s=float(interval[first].sum()),
@@ -357,6 +392,7 @@ def _exposure(
         flagged_fraction=float(flagged),
         high_weight_fraction=float(high_weight),
         elevation_deg=_elevation(table, ms, unique, fields),
+        pads=[pads[a] for a in antennas] if pads else [],
     )
 
 

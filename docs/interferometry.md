@@ -27,6 +27,8 @@ The main code is in [`src/almasim/services/interferometry`](../src/almasim/servi
 | `corruptions.py` | what calibrated visibilities carry besides thermal noise (the noise model's engine) |
 | `utils.py` | small helpers |
 
+The antennas sit on ALMA's pads at the positions in [`antenna_config/antenna_coordinates.csv`](../src/almasim/antenna_config/antenna_coordinates.csv) (metres, local tangent plane), the positions of CASA's `alma.all.cfg`, which match the MSs' `ANTENNA` tables to within half a metre. An archive row's `antenna_arrays` names them as `PAD:ANTENNA`.
+
 [`data/`](../src/almasim/services/interferometry/data) holds the ATM table for the ALMA site and the radiometer parameters. The noise modules are described in [Noise](noise.md) and [Noise models](noise_models.md).
 
 ## Current Scope
