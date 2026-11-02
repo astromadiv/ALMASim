@@ -4,6 +4,7 @@ comparison and the validate/compare commands (simulation and imaging stubbed).""
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -146,6 +147,33 @@ def test_a_matching_model_passes_and_a_quiet_one_does_not():
         Criteria(noise_tolerance=0.5, group_tolerance=0.5, checked=()),
     )
     assert loose.passed
+
+
+@pytest.mark.unit
+def test_cube_noise_is_compared_at_the_real_cubes_channel_width():
+    # The simulated cube has half the real cube's channels (its image is wider
+    # and the size cap halves them), so its channels are twice as wide and its
+    # noise sqrt(2) lower: the same noise per unit bandwidth.
+    pairs = [
+        Pair(
+            name=p.name,
+            sim_image={
+                **p.sim_image,
+                "cube.sigma_median": p.real_image["cube.sigma_median"] / np.sqrt(2),
+                "cube.channels": 32,
+            },
+            real_image={**p.real_image, "cube.channels": 64},
+            sim_window=p.sim_window,
+            real_window=p.real_window,
+            band=p.band,
+        )
+        for p in _pairs(1.0)
+    ]
+    wide = compare(pairs, {"label": "wide"}).metrics["cube.sigma_median"]
+    assert wide.median == pytest.approx(1.0)
+    # Without the simulated window its channel width is unknown: no scaling.
+    unknown = compare([replace(p, sim_window=None) for p in pairs], {"label": "unknown"})
+    assert unknown.metrics["cube.sigma_median"].median == pytest.approx(1 / np.sqrt(2))
 
 
 @pytest.fixture
