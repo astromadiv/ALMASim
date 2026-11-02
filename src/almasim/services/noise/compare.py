@@ -146,7 +146,10 @@ def _values(pairs: Sequence[Pair], metric: str) -> tuple[np.ndarray, np.ndarray]
 def _value(pair: Pair, metric: str, *, simulated: bool) -> float | None:
     head = metric.split(".", 1)[0]
     if head in ("cont", "cube", "q"):
-        return (pair.sim_image if simulated else pair.real_image).get(metric)
+        value = (pair.sim_image if simulated else pair.real_image).get(metric)
+        if metric == "cube.sigma_median" and simulated and value is not None:
+            value *= _cube_width_scale(pair)
+        return value
     window = pair.sim_window if simulated else pair.real_window
     if window is None:
         return None
@@ -156,6 +159,24 @@ def _value(pair: Pair, metric: str, *, simulated: bool) -> float | None:
         if node is None:
             return None
     return float(node) if isinstance(node, int | float) else None
+
+
+def _cube_channel_hz(image: Mapping[str, float], window: WindowNoise | None) -> float | None:
+    """The width of one cube channel: the window's band over the cube's channels."""
+    channels = image.get("cube.channels")
+    if window is None or not channels:
+        return None
+    return window.exposure.channels * window.exposure.channel_width_hz / channels
+
+
+def _cube_width_scale(pair: Pair) -> float:
+    """sqrt(simulated / real cube channel width): the simulated cube's noise
+    at the real cube's channel width. The cube's size cap gives the two cubes
+    different channel counts when their images differ in size (1 when either
+    width is unknown)."""
+    sim = _cube_channel_hz(pair.sim_image, pair.sim_window)
+    real = _cube_channel_hz(pair.real_image, pair.real_window)
+    return float(np.sqrt(sim / real)) if sim and real else 1.0
 
 
 def _summary(sim: np.ndarray, real: np.ndarray, kind: str) -> MetricSummary | None:

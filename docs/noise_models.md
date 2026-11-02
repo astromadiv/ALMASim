@@ -1026,7 +1026,7 @@ than a real one, mostly because of the 7 m window (1.47; the 12 m ones are
 0.96 to 1.08), so `alma@1` does not pass. With four windows no Wilcoxon p is
 computed (it needs six); a real validation uses tens.
 
-Five choices keep the comparison fair, and one limit remains:
+Six choices keep the comparison fair, and one limit remains:
 
 - *The source.* The simulated point source is as bright as the real image's
   continuum peak. A source as bright as the archive row's sensitivities
@@ -1057,6 +1057,15 @@ Five choices keep the comparison fair, and one limit remains:
   MADIV-16 7 m windows 5.19 mm in band 3 and 1.80 mm in bands 5 and 6,
   against 0 to 6.3 mm and 0.1 to 2.4 mm that their SYSCAL implies), which
   would give them a Tsys 15 to 30% above ALMA's.
+- *The cube's channel width.* `noise compare` compares the cube noise at the
+  real cube's channel width: it scales the simulated `cube.sigma_median` by
+  the square root of the simulated over the real cube's channel width (each
+  the window's band over its cube's channels). Both cubes are capped at
+  `--max-cube-gb`, and a real window imaged with a narrower field than
+  ALMASim's (the primary beam's half-power width, about 1.15 lambda/D; the
+  MADIV-16 cubes use 1.12 lambda/D) has fewer pixels, so the cap can give the
+  simulated cube half the real one's channels (w51: 120 against 240) and a
+  noise lower by the square root of 2.
 - *Each hand.* `noise extract` measures the simulated MS per hand, as the
   real one, and each simulated hand carries the model's channel correlation
   and antenna ripple (see `channel_correlation` and `antenna_ripple`).
