@@ -617,6 +617,24 @@ def test_a_window_with_its_pads_is_observed_by_the_mss_own_antennas():
     assert v.with_exposure(row, window, seed=3)["antenna_arrays"] == " ".join(own)
 
 
+@pytest.mark.unit
+def test_a_window_is_observed_on_its_own_track():
+    import pandas as pd
+
+    from almasim.services.simulation.params import SimulationParams
+
+    row = pd.Series({"Int.Time": 3000.0, "antenna_arrays": "A001:DA41 A002:DA42"})
+    window = _window("w")
+    record = v.with_exposure(row, window, seed=3)
+    assert record[["hour_angle_h", "track_span_s", "scans"]].isna().all(), "measured without"
+    track = {"hour_angle_h": -2.17, "track_span_s": 3407.5, "scans": 10}
+    window = window.model_copy(update={"exposure": window.exposure.model_copy(update=track)})
+    record = v.with_exposure(row, window, seed=3)
+    assert record[list(track)].to_dict() == track
+    picked = SimulationParams._OPTIONAL_ROW_COLUMNS
+    assert all(picked[name] == (name,) for name in track), "a row's track reaches the run"
+
+
 def _lossy(window: WindowNoise, flagged: float, high_weight: float) -> WindowNoise:
     e = window.exposure.model_copy(
         update={"flagged_fraction": flagged, "high_weight_fraction": high_weight}

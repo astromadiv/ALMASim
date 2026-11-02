@@ -94,6 +94,7 @@ def prepare_baselines(
     Nant: int,
     nH: int,
     Hcov: list[float],
+    hour_angles: np.ndarray | None = None,
 ) -> tuple[
     int,
     np.ndarray,
@@ -118,6 +119,9 @@ def prepare_baselines(
         Number of hour angle samples
     Hcov : list[float]
         Hour angle coverage [start, end]
+    hour_angles : np.ndarray, optional
+        Each sample's hour angle (rad, ``nH`` of them); by default ``nH``
+        evenly spaced over ``Hcov``
 
     Returns
     -------
@@ -144,8 +148,12 @@ def prepare_baselines(
     Gains = np.ones((Nbas, nH), dtype=np.complex64)
     Noise = np.zeros((Nbas, nH), dtype=np.complex64)
 
-    # Calculate hour angles
-    H_angles = np.linspace(Hcov[0], Hcov[1], nH)
+    if hour_angles is not None:
+        H_angles = np.asarray(hour_angles, dtype=np.float64)
+        if H_angles.shape != (nH,):
+            raise ValueError(f"hour_angles must hold nH={nH} values, not {H_angles.shape}")
+    else:
+        H_angles = np.linspace(Hcov[0], Hcov[1], nH)
     H = [np.sin(H_angles), np.cos(H_angles)]
 
     # Generate baseline pairs

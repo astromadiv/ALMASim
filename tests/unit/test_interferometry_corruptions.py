@@ -244,6 +244,7 @@ def test_interferometer_hands_its_channels_the_corruption_fields():
         Nchan=8,
         nH=4,
         scan_time=30.0,
+        sample_offsets_s=None,
         antPos=[[0.0, 0.0, 0.0], [0.1, 0.0, 0.0], [0.0, 0.1, 0.0]],
         Nant=3,
         spectral_window=SimpleNamespace(frequencies_hz=lambda: freqs),

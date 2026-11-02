@@ -153,6 +153,13 @@ class SimulationParams:
     # (None: all of them).
     n_executions: int | None = _coerced(_optional(int), default=None)
     executions: int | None = _coerced(_optional(int), default=None)
+    # Each execution block's track (interferometry.observing.execution_track):
+    # its middle hour angle in hours (None: drawn with the seed), the seconds
+    # from its first scan's start to its last's end (None: TRACK_SPAN_FACTOR
+    # times its time on source) and its scans (None: of about SCAN_LENGTH_S).
+    hour_angle_h: float | None = _coerced(_optional(float), default=None)
+    track_span_s: float | None = _coerced(_optional(float), default=None)
+    scans: int | None = _coerced(_optional(int), default=None)
 
     def __post_init__(self) -> None:
         if self.noise_model is None and self.corruptions is not None:
@@ -201,6 +208,9 @@ class SimulationParams:
         "n_lines": ("n_lines",),
         "line_names": ("line_names",),
         "n_executions": ("n_executions",),
+        "hour_angle_h": ("hour_angle_h",),
+        "track_span_s": ("track_span_s",),
+        "scans": ("scans",),
     }
 
     @classmethod

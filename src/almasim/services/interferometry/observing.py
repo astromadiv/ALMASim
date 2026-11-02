@@ -10,6 +10,7 @@ snapshot. These helpers take seconds and return radians.
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 
 import astropy.units as U
 import numpy as np
@@ -80,6 +81,101 @@ def track_start_mjd_s(
     to_transit = (float(ra_rad) - lst) % (2.0 * math.pi)
     turns = (to_transit + float(hour_angle_rad)) / (2.0 * math.pi)
     return midnight.mjd * 86400.0 + turns * SIDEREAL_DAY_S
+
+
+# An execution block's track, as the 70 MADIV-16 windows of the noise study
+# (MADIV-28) observed theirs: its middle hour angle within +-HOUR_ANGLE_LIMIT_H
+# (|HA| median 1.24 h, uniform over +-2.5 h gives 1.25 h), its time on source
+# in scans of about SCAN_LENGTH_S (median 167 s between gaps) spread over
+# TRACK_SPAN_FACTOR times that time (median 1.27: the calibrators' scans and
+# the other fields' take the rest), the source above ELEVATION_LIMIT_DEG.
+HOUR_ANGLE_LIMIT_H = 2.5
+SCAN_LENGTH_S = 170.0
+TRACK_SPAN_FACTOR = 1.27
+ELEVATION_LIMIT_DEG = 30.0
+
+
+@dataclass(frozen=True)
+class Track:
+    """When one execution block observes its source: ``scans`` equal scans, the
+    first starting and the last ending ``span_s`` apart, around the hour angle
+    ``middle_hour_angle_rad``."""
+
+    middle_hour_angle_rad: float
+    span_s: float
+    scans: int = 1
+
+    def sample_offsets_s(self, samples: int, sample_time_s: float) -> np.ndarray:
+        """Each sample's start, in seconds from the first's: the samples split
+        into the scans as evenly as they go, the scans spread evenly over the
+        span (back to back when the span is shorter than the samples)."""
+        samples = max(1, int(samples))
+        scans = max(1, min(int(self.scans), samples))
+        counts = np.diff(np.linspace(0, samples, scans + 1).round().astype(int))
+        observed = samples * float(sample_time_s)
+        gap = max(0.0, float(self.span_s) - observed) / (scans - 1) if scans > 1 else 0.0
+        starts = np.concatenate(([0], np.cumsum(counts)[:-1])) * float(sample_time_s)
+        starts = starts + np.arange(scans) * gap
+        within = np.concatenate([np.arange(n) for n in counts]) * float(sample_time_s)
+        return np.repeat(starts, counts) + within
+
+    def hour_angles_rad(self, samples: int, sample_time_s: float) -> np.ndarray:
+        """Each sample's hour angle (rad) at its middle, the track centred on
+        ``middle_hour_angle_rad``."""
+        offsets = self.sample_offsets_s(samples, sample_time_s) + 0.5 * float(sample_time_s)
+        middle = 0.5 * (offsets[0] + offsets[-1])
+        return self.middle_hour_angle_rad + (offsets - middle) * (2.0 * math.pi / SIDEREAL_DAY_S)
+
+    def mean_elevation_deg(
+        self, samples: int, sample_time_s: float, lat_rad: float, dec_rad: float
+    ) -> float:
+        """The source's mean elevation over the track's samples (degrees)."""
+        angles = self.hour_angles_rad(samples, sample_time_s)
+        return float(np.degrees(np.mean(elevation_rad(angles, lat_rad, dec_rad))))
+
+
+def elevation_rad(hour_angle_rad: np.ndarray | float, lat_rad: float, dec_rad: float) -> np.ndarray:
+    """The source's elevation (rad) at ``hour_angle_rad``."""
+    sin_el = math.sin(lat_rad) * math.sin(dec_rad) + math.cos(lat_rad) * math.cos(dec_rad) * np.cos(
+        hour_angle_rad
+    )
+    return np.arcsin(np.clip(sin_el, -1.0, 1.0))
+
+
+def execution_track(
+    on_source_s: float,
+    lat_rad: float,
+    dec_rad: float,
+    rng: np.random.Generator,
+    *,
+    hour_angle_h: float | None = None,
+    span_s: float | None = None,
+    scans: int | None = None,
+) -> Track:
+    """An execution block's track for ``on_source_s`` on source.
+
+    ``scans`` defaults to the time on source in scans of about SCAN_LENGTH_S,
+    ``span_s`` to TRACK_SPAN_FACTOR times the time on source; ``hour_angle_h``
+    (the track's middle) is drawn with ``rng``, uniformly over the hour angles
+    within +-HOUR_ANGLE_LIMIT_H at which the whole track stays above
+    ELEVATION_LIMIT_DEG, or transit when there are none.
+    """
+    on_source_s = max(float(on_source_s), 0.0)
+    if scans is None:
+        scans = max(1, round(on_source_s / SCAN_LENGTH_S))
+    if span_s is None:
+        span_s = TRACK_SPAN_FACTOR * on_source_s
+    span_s = max(float(span_s), on_source_s)
+    if hour_angle_h is not None:
+        return Track(float(hour_angle_h) * math.pi / 12.0, span_s, int(scans))
+    half_span = 0.5 * span_s * 2.0 * math.pi / SIDEREAL_DAY_S
+    cos_limit = (
+        math.sin(math.radians(ELEVATION_LIMIT_DEG)) - math.sin(lat_rad) * math.sin(dec_rad)
+    ) / (math.cos(lat_rad) * math.cos(dec_rad))
+    above = math.pi if cos_limit <= -1.0 else (math.acos(cos_limit) if cos_limit < 1.0 else 0.0)
+    reach = min(HOUR_ANGLE_LIMIT_H * math.pi / 12.0, above - half_span)
+    middle = float(rng.uniform(-reach, reach)) if reach > 0.0 else 0.0
+    return Track(middle, span_s, int(scans))
 
 
 def alma_location() -> EarthLocation:

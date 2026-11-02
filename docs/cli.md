@@ -207,7 +207,10 @@ $ almasim simulation [OPTIONS]
 * `--noise-model, --corruptions <str>`: What the visibilities carry besides white thermal noise: a released noise model ('alma', the newest version, or 'alma@1': radiometer noise following ALMA's Tsys, correlated channels, antenna noise ripple and, on bright sources, the gain, atmospheric phase and baseline errors calibration leaves, as measured on real calibrated data; 'none'), a JSON object or a JSON file of a noise model. 'almasim noise show' lists the models.
 * `--noise-only <str>`: Apply only these components of the noise model (comma-separated, e.g. 'radiometer,channel_correlation'); 'almasim noise show' lists them.
 * `--noise-without <str>`: Apply the noise model without these components (comma-separated).
-* `--executions <int range>`: How many of the MOUS's execution blocks to simulate (default: all). A row's Int.Time is the MOUS's total time on source; it is observed in blocks (the row's n_executions, else blocks of at most 3000 s), each a track near transit on its own day. 1 gives a single execution block.  [x>=1]
+* `--executions <int range>`: How many of the MOUS's execution blocks to simulate (default: all). A row's Int.Time is the MOUS's total time on source; it is observed in blocks (the row's n_executions, else blocks of at most 3000 s), each a track of its own on its own day (--hour-angle). 1 gives a single execution block.  [x>=1]
+* `--hour-angle <float range>`: Hour angle (h) at the middle of each execution block's track (default: drawn with the seed, uniform within +-2.5 h where the whole track stays above 30 deg elevation; transit when nowhere does).  [-12.0<=x<=12.0]
+* `--track-span <float range>`: Seconds from the start of each execution block's first scan to the end of its last (default: 1.27 times its time on source, the calibrators' scans taking the rest; never less than the time on source).  [x>=0.0]
+* `--scans <int range>`: Scans each execution block observes its source in, spread evenly over its track (default: its time on source in scans of about 170 s).  [x>=1]
 * `--help`: Show this message and exit.
 
 ## `almasim visibilities`

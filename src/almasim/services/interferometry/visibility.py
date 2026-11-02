@@ -176,12 +176,16 @@ def assemble_visibility_table(
     observation_id: int | None = None,
     channel_kernel: np.ndarray | None = None,
     hour_angle_start_rad: float = 0.0,
+    sample_offsets_s: np.ndarray | None = None,
 ) -> VisibilityTable:
     """Assemble channel-wise row samples into an MS-like visibility table.
 
     The rows' times follow the track's hour angles: the first sample is at
     ``hour_angle_start_rad`` from the source's transit at ALMA on
-    ``observation_date``, so the times agree with the UVW.
+    ``observation_date``, so the times agree with the UVW. ``sample_offsets_s``
+    gives each sample's start in seconds from the first's (a track in scans,
+    ``observing.Track``); by default the samples follow each other every
+    ``scan_time_s``.
     ``scan_length_s`` > 0 numbers the rows' scans, blocks of that length;
     ``observation_id`` marks every row as that execution block's;
     ``channel_kernel`` is the kernel the channels' noise was correlated with.
@@ -209,7 +213,11 @@ def assemble_visibility_table(
     start_mjd_s = track_start_mjd_s(
         observation_date, field_ra_rad, hour_angle_start_rad, alma_location()
     )
-    time_offsets_s = reference["time_index"].astype(np.float64) * float(scan_time_s)
+    time_index = reference["time_index"].astype(np.int64)
+    if sample_offsets_s is not None:
+        time_offsets_s = np.asarray(sample_offsets_s, dtype=np.float64)[time_index]
+    else:
+        time_offsets_s = time_index.astype(np.float64) * float(scan_time_s)
     times_mjd_s = start_mjd_s + time_offsets_s
     interval_s = np.full(nrows, float(scan_time_s), dtype=np.float64)
     exposure_s = np.full(nrows, float(scan_time_s), dtype=np.float64)

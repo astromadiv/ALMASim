@@ -18,6 +18,7 @@ STREAMS = {
     "receiver": 5,
     "antennas": 6,
     "polarization": 7,
+    "track": 8,
 }
 
 

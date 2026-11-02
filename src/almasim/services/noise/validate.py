@@ -258,7 +258,9 @@ def frequency_support(window: WindowNoise) -> str | None:
 
 def with_exposure(record: pd.Series, window: WindowNoise, seed: int) -> pd.Series:
     """The archive row observed as the window's MS was: its time on source in
-    one execution block, by the MS's own antennas on their pads
+    one execution block, on the MS's own track (``exposure.hour_angle_h``,
+    ``track_span_s`` and ``scans``; drawn as any run's when the window was
+    measured without them), by the MS's own antennas on their pads
     (``exposure.pads``). The row's Int.Time is the whole observing unit's,
     which may be several of the MS's blocks, and its antennas are the union
     over them, configurations and the total-power antennas included. A window
@@ -270,6 +272,9 @@ def with_exposure(record: pd.Series, window: WindowNoise, seed: int) -> pd.Serie
     record = record.copy()
     record["Int.Time"] = e.time_on_source_s
     record["n_executions"] = 1
+    record["hour_angle_h"] = e.hour_angle_h
+    record["track_span_s"] = e.track_span_s
+    record["scans"] = e.scans
     if e.pads:
         record["antenna_arrays"] = " ".join(e.pads)
         return record

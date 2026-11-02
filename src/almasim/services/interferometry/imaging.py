@@ -241,10 +241,13 @@ def image_channel(
     gains: np.ndarray | None = None,
     noise_samples: np.ndarray | None = None,
     noise_scale: np.ndarray | None = None,
+    hour_angles: np.ndarray | None = None,
 ) -> tuple:
     """Process a single channel through interferometric simulation.
 
     ``rng`` draws the visibility noise (fresh entropy when None).
+    ``hour_angles``: each sample's hour angle (rad), by default ``nH`` evenly
+    spaced over ``Hcov`` (``baselines.prepare_baselines``).
     ``gains`` (baselines x integrations): what the calibration left on each
     visibility (all ones when None); ``noise_samples``: this channel's noise,
     when drawn outside (correlated with its neighbours), instead of white
@@ -267,7 +270,7 @@ def image_channel(
         GrobustNoise,
     ) = prepare_2d_arrays(Npix)
     Nbas, B, basnum, basidx, antnum, Gains, Noise, H, u, v, ravelDims = prepare_baselines(
-        Nant, nH, Hcov
+        Nant, nH, Hcov, hour_angles
     )
     if noise_samples is not None:
         Noise[:] = noise_samples

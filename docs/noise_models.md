@@ -398,7 +398,8 @@ present in a model, it is on.
 
 **How the simulator applies it.** Tsys comes from a table of CASA's ATM
 model for the ALMA site (`interferometry/data/atm_chajnantor.npz`; CASA is not
-needed to use it) at the run's PWV and the target's elevation:
+needed to use it) at the run's PWV and the target's mean elevation over its
+execution block's track (see [Execution blocks](simulation.md#execution-blocks)):
 
 ```
 Tsys = (1 + g) exp(A tau) (Trx + Tsky + g Tsky_image)
@@ -1026,7 +1027,7 @@ than a real one, mostly because of the 7 m window (1.47; the 12 m ones are
 0.96 to 1.08), so `alma@1` does not pass. With four windows no Wilcoxon p is
 computed (it needs six); a real validation uses tens.
 
-Six choices keep the comparison fair, and one limit remains:
+Seven choices keep the comparison fair, and one limit remains:
 
 - *The source.* The simulated point source is as bright as the real image's
   continuum peak. A source as bright as the archive row's sensitivities
@@ -1049,6 +1050,17 @@ Six choices keep the comparison fair, and one limit remains:
   pixels are then smaller, its cube has fewer channels and its images'
   noise is a third to a half of the real noise. A window measured without
   its pads takes `exposure.antennas` of the row's antennas, one per pad.
+- *The track.* Each window is observed on its MS's track: the target's hour
+  angle at the middle of its integrations (`exposure.hour_angle_h`), the
+  span from the first to the last (`exposure.track_span_s`) and its scans
+  (`exposure.scans`, runs of integrations without a gap longer than two
+  integrations), so that its uv coverage, its elevation and with them its
+  beam match the real window's. Cleaning removes more noise under a
+  tighter coverage with stronger sidelobes: window 1's MS observes in ten
+  scans over 57 minutes at 59.5° elevation, and observed instead in one
+  stretch at transit (81°) its simulated continuum is cleaned to 0.71 of
+  its dirty noise, the real one to 0.83. A window measured without a track is observed on one drawn as
+  any run's (see [Execution blocks](simulation.md#execution-blocks)).
 - *The weather.* Each window is simulated through its own PWV (its `pwv`).
   A window without one, a 7 m array's, takes the PWV at which the model's
   Tsys at its frequency and elevation is ALMA's (its median SYSCAL Tsys):

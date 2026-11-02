@@ -229,6 +229,28 @@ def test_assemble_visibility_table_times():
     assert np.all(np.diff(vt.time_mjd_s) >= 0)
 
 
+@pytest.mark.unit
+def test_a_track_in_scans_gives_each_sample_its_own_start():
+    from almasim.services.interferometry.observing import Track
+
+    offsets = Track(0.0, span_s=300.0, scans=2).sample_offsets_s(4, 60.0)
+    vt = assemble_visibility_table(
+        channel_rows=[_make_channel_rows(4)],
+        channel_freq_hz=np.array([100e9]),
+        scan_time_s=60.0,
+        observation_date="2024-01-01",
+        antenna_names=["A1"],
+        antenna_positions_m=np.zeros((1, 3)),
+        source_name="S",
+        field_ra_rad=0.0,
+        field_dec_rad=0.0,
+        sample_offsets_s=offsets,
+        scan_length_s=60.0,
+    )
+    np.testing.assert_allclose(vt.time_mjd_s - vt.time_mjd_s[0], [0.0, 60.0, 180.0, 240.0])
+    assert list(vt.scan_number) == [1, 2, 4, 5], "scans numbered by the time elapsed"
+
+
 # ===========================================================================
 # concatenate_visibility_tables
 # ===========================================================================

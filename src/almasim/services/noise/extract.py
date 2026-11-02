@@ -393,7 +393,40 @@ def _exposure(
         high_weight_fraction=float(high_weight),
         elevation_deg=_elevation(table, ms, unique, fields),
         pads=[pads[a] for a in antennas] if pads else [],
+        **_track(table, ms, unique, float(np.median(interval)), fields),
     )
+
+
+def _track(
+    table: Any, ms: Path, times: np.ndarray, integration_s: float, fields: list[int] | None
+) -> dict[str, Any]:
+    """The target's track: the hour angle at its middle, its span and its scans
+    (runs of integrations without a gap longer than two integrations), as the
+    simulation lays out one (``interferometry.observing.Track``)."""
+    times = np.sort(np.asarray(times, dtype=np.float64))
+    if times.size == 0:
+        return {}
+    scans = int(np.count_nonzero(np.diff(times) > 2.0 * integration_s)) + 1
+    track: dict[str, Any] = {
+        "track_span_s": float(times[-1] - times[0] + integration_s),
+        "scans": scans,
+    }
+    try:
+        from astropy import units as u
+        from astropy.time import Time
+
+        from ..interferometry.observing import alma_location
+
+        with table(str(ms / "FIELD"), ack=False) as f:
+            ra = float(np.asarray(f.getcell("PHASE_DIR", (fields or [0])[0])).ravel()[0])
+        middle = Time(0.5 * (times[0] + times[-1]) / 86400.0, format="mjd")
+        lst = middle.sidereal_time("apparent", longitude=alma_location().lon).to_value(u.rad)
+        track["hour_angle_h"] = (
+            float(np.remainder(lst - ra + np.pi, 2 * np.pi) - np.pi) * 12 / np.pi
+        )
+    except Exception:  # noqa: BLE001 - the hour angle is a by-product, not worth failing for
+        pass
+    return track
 
 
 def _elevation(table: Any, ms: Path, times: np.ndarray, fields: list[int] | None) -> float | None:

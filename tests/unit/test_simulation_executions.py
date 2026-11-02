@@ -44,7 +44,9 @@ def test_each_execution_observes_on_its_own_day():
     assert execution_date("not a date", 3) == "not a date"
 
 
-def _plan(total_time_s: float, *, n_executions=None, executions=None, configs=None):
+def _plan(
+    total_time_s: float, *, n_executions=None, executions=None, configs=None, hour_angle_h=None
+):
     params = SimpleNamespace(
         pwv=1.0,
         ground_temperature_k=270.0,
@@ -52,6 +54,10 @@ def _plan(total_time_s: float, *, n_executions=None, executions=None, configs=No
         corruptions=None,
         n_executions=n_executions,
         executions=executions,
+        hour_angle_h=hour_angle_h,
+        track_span_s=None,
+        scans=None,
+        elevation_deg=None,
         idx=0,
         main_dir="/tmp",
         ra=10.0,
@@ -295,3 +301,67 @@ def test_the_export_writes_the_combined_observation(tmp_path):
     dirty = fits.getdata(tmp_path / "dirty-cube_5.fits")
     assert dirty == pytest.approx(np.full((2, 8, 8), 2.0)), "the blocks' mean, not the last"
     assert fits.getheader(tmp_path / "dirty-cube_5.fits")["EPOCH"] == 3 + 5, "both tracks"
+
+
+@pytest.mark.unit
+def test_each_block_of_a_seeded_run_draws_its_own_track():
+    from almasim.services.interferometry.observing import SCAN_LENGTH_S, TRACK_SPAN_FACTOR
+
+    runs, _ = _plan(9000.0, n_executions=3)
+    again, _ = _plan(9000.0, n_executions=3)
+    tracks = [run.track for run in runs]
+    assert tracks == [run.track for run in again], "the seed sets the tracks"
+    assert len({track.middle_hour_angle_rad for track in tracks}) == 3
+    assert all(track.span_s == pytest.approx(TRACK_SPAN_FACTOR * 3000.0) for track in tracks)
+    assert all(track.scans == round(3000.0 / SCAN_LENGTH_S) for track in tracks)
+
+
+@pytest.mark.unit
+def test_a_given_hour_angle_centres_every_blocks_track():
+    runs, _ = _plan(9000.0, n_executions=3, hour_angle_h=-1.5)
+    assert {run.track.middle_hour_angle_rad for run in runs} == {-1.5 * np.pi / 12}
+
+
+@pytest.mark.unit
+def test_radiometer_noise_is_at_the_elevation_its_track_observes_at(monkeypatch):
+    from almasim.services import interferometry as uin
+    from almasim.services.instrument.constants import ALMA_LATITUDE_DEG
+    from almasim.services.simulation import planning
+
+    elevations = []
+
+    def visibility_noise(config, freqs, bandwidth, sample_time, elevation_deg, **kwargs):
+        elevations.append(elevation_deg)
+        return np.ones(np.size(freqs))
+
+    monkeypatch.setattr(uin, "visibility_noise", visibility_noise)
+    monkeypatch.setattr(
+        planning.CorruptionModel,
+        "from_mapping",
+        staticmethod(
+            lambda _: SimpleNamespace(
+                radiometer_noise=True, atmospheric_tsys=False, receiver_ripple_rms=0.0
+            )
+        ),
+    )
+    runs, _ = _plan(6000.0, n_executions=2, hour_angle_h=2.0)
+    lat, dec = np.radians(ALMA_LATITUDE_DEG), np.radians(-30.0)
+    samples = int(3000.0 / runs[0].sample_time_s)
+    expected = runs[0].track.mean_elevation_deg(samples, runs[0].sample_time_s, lat, dec)
+    assert elevations == [pytest.approx(expected)] * 2
+    assert expected < 90.0 - abs(ALMA_LATITUDE_DEG + 30.0) - 5.0, "two hours off transit"
+
+
+@pytest.mark.unit
+def test_an_interferometer_samples_its_tracks_scans():
+    from almasim.services.interferometry.core import Interferometer
+    from almasim.services.interferometry.observing import Track
+
+    block = Interferometer.__new__(Interferometer)
+    block.nH, block.scan_time = 10, 6.0
+    block.track = Track(-0.5, span_s=600.0, scans=2)
+    block._get_Hcov()
+    np.testing.assert_allclose(block.hour_angles, block.track.hour_angles_rad(10, 6.0))
+    np.testing.assert_allclose(block.sample_offsets_s, block.track.sample_offsets_s(10, 6.0))
+    assert block.Hcov == [block.hour_angles[0], block.hour_angles[-1]]
+    assert block.sample_offsets_s[5] - block.sample_offsets_s[4] > 6.0, "a gap between scans"
