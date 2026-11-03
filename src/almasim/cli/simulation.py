@@ -163,6 +163,9 @@ def _build_simulation_params(
     kaggle_token: Path | None = None,
     noise_model: NoiseModel | str | None = None,
     executions: int | None = None,
+    hour_angle: float | None = None,
+    track_span: float | None = None,
+    scans: int | None = None,
     ms_export: bool = False,
     ms_path: Path | None = None,
 ) -> SimulationParams:
@@ -214,6 +217,9 @@ def _build_simulation_params(
         kaggle_token=kaggle_token,
         noise_model=noise_model,
         executions=executions,
+        hour_angle_h=hour_angle,
+        track_span_s=track_span,
+        scans=scans,
         # --ms-export; ms_path: where, when the run's own name is not enough.
         ms_export=ms_export,
         ms_save_mode="msv2" if ms_export else "none",
@@ -310,6 +316,9 @@ class SimulationRunOptions:
     noise_only: str | None
     noise_without: str | None
     executions: int | None
+    hour_angle: float | None
+    track_span: float | None
+    scans: int | None
 
 
 @simulation_app.command("run")
@@ -572,7 +581,41 @@ def simulation_run(
             "How many of the MOUS's execution blocks to simulate (default: all). A "
             "row's Int.Time is the MOUS's total time on source; it is observed in "
             "blocks (the row's n_executions, else blocks of at most 3000 s), each a "
-            "track near transit on its own day. 1 gives a single execution block."
+            "track of its own on its own day (--hour-angle). 1 gives a single "
+            "execution block."
+        ),
+        rich_help_panel="Observation",
+    ),
+    hour_angle: float | None = typer.Option(
+        None,
+        "--hour-angle",
+        min=-12.0,
+        max=12.0,
+        help=(
+            "Hour angle (h) at the middle of each execution block's track (default: "
+            "drawn with the seed, uniform within +-2.5 h where the whole track stays "
+            "above 30 deg elevation; transit when nowhere does)."
+        ),
+        rich_help_panel="Observation",
+    ),
+    track_span: float | None = typer.Option(
+        None,
+        "--track-span",
+        min=0.0,
+        help=(
+            "Seconds from the start of each execution block's first scan to the end "
+            "of its last (default: 1.27 times its time on source, the calibrators' "
+            "scans taking the rest; never less than the time on source)."
+        ),
+        rich_help_panel="Observation",
+    ),
+    scans: int | None = typer.Option(
+        None,
+        "--scans",
+        min=1,
+        help=(
+            "Scans each execution block observes its source in, spread evenly over "
+            "its track (default: its time on source in scans of about 170 s)."
         ),
         rich_help_panel="Observation",
     ),
@@ -653,6 +696,9 @@ def simulation_run(
                     kaggle_token=o.kaggle_token,
                     noise_model=o.noise_model,
                     executions=o.executions,
+                    hour_angle=o.hour_angle,
+                    track_span=o.track_span,
+                    scans=o.scans,
                     ms_export=o.ms_export,
                     # Several runs whose products are not kept share --output-dir:
                     # each MS by its run's name (two cubes of one row share an index).

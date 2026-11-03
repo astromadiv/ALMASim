@@ -80,6 +80,8 @@ class ChannelImagingConfig:
     # Each channel's continuum share of the source: the per-baseline errors act on
     # that part of its visibilities only. None: on all of them.
     continuum_fraction: np.ndarray | None = None
+    # Each sample's hour angle (rad); None: nH evenly spaced over Hcov.
+    hour_angles: np.ndarray | None = None
 
     def channel_rng(self, channel: int) -> np.random.Generator:
         """The generator of ``channel``: the same whichever worker images it."""
@@ -140,6 +142,7 @@ def image_configured_channel(
         config.robust,
         config.scan_time_s,
         rng=config.channel_rng(channel),
+        hour_angles=config.hour_angles,
         **corrupted,
     )
 

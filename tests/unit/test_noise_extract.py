@@ -30,6 +30,7 @@ def _fake_ms(
     high_weight_every: int | None = None,
     stations: bool = True,
     flagged_antenna: int | None = None,
+    scans: int = 1,
 ) -> dict[str, FakeTable]:
     rng = np.random.default_rng(seed)
     a1, a2 = np.triu_indices(NANT, 1)
@@ -38,7 +39,9 @@ def _fake_ms(
     ant2 = np.tile(a2, NTIME)
     # Autocorrelations and another window's rows, which a measurement leaves out.
     nrow = ant1.size
-    times = 5.0e9 + 6.0 * np.repeat(np.arange(NTIME), nbl)
+    # ``scans`` runs of integrations, 100 s apart.
+    step = np.arange(NTIME)
+    times = 5.0e9 + 6.0 * np.repeat(step + 100.0 / 6.0 * (step * scans // NTIME), nbl)
     kernel = np.array([1.0, 2.0, 1.0]) / np.sqrt(6.0)  # Hanning: rho1 2/3, rho2 1/6
     white = rng.normal(size=(nrow, NCHAN + 2, 2)) + 1j * rng.normal(size=(nrow, NCHAN + 2, 2))
     noise = SIGMA * sum(kernel[k] * white[:, k : k + NCHAN] for k in range(3))
@@ -158,6 +161,8 @@ def test_the_noise_level_correlation_and_tsys_are_measured(fake_ms):
     assert e.noise_bandwidth_hz == pytest.approx(2.667 * 15.625e6)
     assert e.resolution_hz == pytest.approx(2 * 15.625e6)
     assert e.elevation_deg is not None and -90 <= e.elevation_deg <= 90
+    assert (e.scans, e.track_span_s) == (1, pytest.approx(6.0 * NTIME))
+    assert e.hour_angle_h is not None and -12 <= e.hour_angle_h <= 12
     assert 0 < e.flagged_fraction < 0.02
     assert e.high_weight_fraction == 0.0
     assert e.pads == [f"A{i:03d}:DA{41 + i}" for i in range(NANT)]
@@ -366,3 +371,21 @@ def test_windows_fan_out_as_commands_on_slurm(monkeypatch, tmp_path):
         "--overwrite",
     ]
     assert (cores, timeout) == (2, 60.0)
+
+
+@pytest.mark.unit
+def test_the_track_is_its_scans_over_their_span(fake_ms):
+    from astropy.time import Time
+
+    from almasim.services.interferometry.observing import alma_location
+
+    ms = fake_ms("w.ms.split.cal", scans=3)
+    e = extract.extract_window(ms, SPW, "target", max_visibilities=10**9)[0].exposure
+    assert e.scans == 3
+    assert e.track_span_s == pytest.approx(6.0 * NTIME + 2 * 100.0)
+    assert e.time_on_source_s == pytest.approx(6.0 * NTIME)
+    # The hour angle at the middle of the first integration's start and the last's.
+    middle = 5.0e9 + 0.5 * (6.0 * (NTIME - 1) + 200.0)
+    lst = Time(middle / 86400.0, format="mjd").sidereal_time("apparent", alma_location().lon)
+    expected = (lst.rad - 1.25 + np.pi) % (2 * np.pi) - np.pi
+    assert e.hour_angle_h == pytest.approx(expected * 12 / np.pi, abs=1e-6)

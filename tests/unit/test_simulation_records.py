@@ -114,5 +114,5 @@ def test_interferometer_run_gives_the_interferometer_keywords():
     )  # fmt: skip
     kwargs = run.interferometer_kwargs()
     assert kwargs["antenna_diameter_m"] == 7.0 and kwargs["config_name"] == "7m"
-    assert len(kwargs) == 24
+    assert len(kwargs) == 25 and kwargs["track"] is None
     assert kwargs["sample_time_s"] is None and kwargs["execution"] is None

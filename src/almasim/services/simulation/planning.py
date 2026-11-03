@@ -11,9 +11,10 @@ import astropy.units as U
 import numpy as np
 
 from .. import interferometry as uin
+from ..instrument.constants import ALMA_LATITUDE_DEG
 from ..interferometry.atmosphere import receiver_ripple
 from ..interferometry.corruptions import CorruptionModel
-from ..interferometry.observing import hour_angle_samples
+from ..interferometry.observing import Track, execution_track, hour_angle_samples
 from .geometry import CubeGeometry
 from .params import SimulationParams
 from .rng import run_rng
@@ -51,6 +52,8 @@ class InterferometerRun:
     sample_time_s: float | None = None
     # Which execution block of the MOUS this run is (0, 1, ...).
     execution: int | None = None
+    # When the block observes (observing.Track); None: one scan centred on transit.
+    track: Track | None = None
 
     def interferometer_kwargs(self) -> dict[str, Any]:
         """The run as ``Interferometer`` keyword arguments."""
@@ -177,9 +180,9 @@ def plan_observation_runs(
             raw_noise_profile,
             reference_noise=base_noise_reference,
         )
-        # A MOUS is observed in execution blocks, each a track of its own near
-        # transit on its own day, sampled alike; the samples of the blocks
-        # simulated stay within one track's budget (observing.hour_angle_samples).
+        # A MOUS is observed in execution blocks, each a track of its own on its
+        # own day, sampled alike; the samples of the blocks simulated stay within
+        # one track's budget (observing.hour_angle_samples).
         n_executions = execution_count(config.total_time_s, params.n_executions)
         simulated = (
             n_executions
@@ -188,21 +191,42 @@ def plan_observation_runs(
         )
         execution_time_s = config.total_time_s / n_executions
         _, sample_time_s = hour_angle_samples(execution_time_s * simulated)
+        samples = max(1, int(execution_time_s / sample_time_s))
+        lat_rad, dec_rad = math.radians(ALMA_LATITUDE_DEG), math.radians(float(params.dec))
+        tracks = [
+            execution_track(
+                execution_time_s,
+                lat_rad,
+                dec_rad,
+                run_rng(params.seed, "track", index, execution),
+                hour_angle_h=params.hour_angle_h,
+                span_s=params.track_span_s,
+                scans=params.scans,
+            )
+            for execution in range(simulated)
+        ]
+        noise_profiles = [noise_profile] * simulated
         if corruptions is not None and corruptions.radiometer_noise and config.array_type != "TP":
-            # Each visibility's own noise, over the integration the simulator samples.
-            noise_profile = uin.visibility_noise(
-                uin.NoiseModelConfig(
-                    pwv_mm=params.pwv,
-                    ground_temperature_k=params.ground_temperature_k,
-                    **radiometer,
-                    atmospheric_lines=corruptions.atmospheric_tsys,
-                ),
-                channel_frequencies_hz,
-                geometry.noise_bandwidth_hz,
-                sample_time_s,
-                observation_plan.elevation_deg,
-                antenna_diameter_m=config.antenna_diameter_m,
-            ) * (1.0 + ripple)
+            # Each visibility's own noise, over the integration the simulator
+            # samples, at the elevation its block's track observes at.
+            noise_profiles = [
+                uin.visibility_noise(
+                    uin.NoiseModelConfig(
+                        pwv_mm=params.pwv,
+                        ground_temperature_k=params.ground_temperature_k,
+                        **radiometer,
+                        atmospheric_lines=corruptions.atmospheric_tsys,
+                    ),
+                    channel_frequencies_hz,
+                    geometry.noise_bandwidth_hz,
+                    sample_time_s,
+                    params.elevation_deg
+                    or track.mean_elevation_deg(samples, sample_time_s, lat_rad, dec_rad),
+                    antenna_diameter_m=config.antenna_diameter_m,
+                )
+                * (1.0 + ripple)
+                for track in tracks
+            ]
         if config.array_type == "TP":
             total_power_runs.append(
                 TotalPowerRun(
@@ -231,7 +255,7 @@ def plan_observation_runs(
                         n_executions,
                         run_rng(params.seed, "antennas", index, execution),
                     ),
-                    noise=noise_profile,
+                    noise=noise_profiles[execution],
                     snr=effective_snr,
                     integration_time=execution_time_s / 3600.0,
                     observation_date=execution_date(params.obs_date, execution),
@@ -247,6 +271,7 @@ def plan_observation_runs(
                     spectral_window=geometry.spectral_window(),
                     sample_time_s=sample_time_s,
                     execution=execution,
+                    track=tracks[execution],
                 )
                 for execution in range(simulated)
             )

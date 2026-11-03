@@ -59,6 +59,18 @@ class Exposure(_Record):
         "leaves out.",
     )
     elevation_deg: float | None = Field(default=None, description="The target's median elevation.")
+    hour_angle_h: float | None = Field(
+        default=None, description="The target's hour angle at the middle of its track (h)."
+    )
+    track_span_s: float | None = Field(
+        default=None,
+        description="From the start of the first integration on the target to the end of the last.",
+    )
+    scans: int | None = Field(
+        default=None,
+        description="The target's scans: runs of integrations without a gap longer than "
+        "two integrations.",
+    )
     pads: list[str] = Field(
         default_factory=list,
         description="The window's antennas as PAD:ANTENNA (the MS's STATION and NAME), "

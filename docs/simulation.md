@@ -100,7 +100,19 @@ A cancelled run raises `SimulationCancelled`.
 
 ## Execution Blocks
 
-A metadata row's `Int.Time` is the MOUS's total time on source. ALMASim observes it in execution blocks: the row's `n_executions` when the metadata has it (see `almasim products executions`), otherwise blocks of at most 3000 s. Each block is a track near transit on its own day, with its own draw of the MOUS's antennas. `SimulationParams.executions` (`--executions` on the command line) simulates only the first blocks; by default all of them are simulated.
+A metadata row's `Int.Time` is the MOUS's total time on source. ALMASim observes it in execution blocks: the row's `n_executions` when the metadata has it (see `almasim products executions`), otherwise blocks of at most 3000 s. Each block is a track of its own on its own day, with its own draw of the MOUS's antennas. `SimulationParams.executions` (`--executions` on the command line) simulates only the first blocks; by default all of them are simulated.
+
+Each block's track ([`interferometry/observing.py`](../src/almasim/services/interferometry/observing.py), `execution_track`) is laid out as ALMA's blocks lay out theirs on the 70 MADIV-16 windows of the noise study:
+
+| Part of the track | Default | Parameter (option) | On the 70 windows |
+| --- | --- | --- | --- |
+| hour angle at its middle | drawn with the run's seed, uniformly within ±2.5 h where the whole track stays above 30° elevation; transit for a source that never rises that high | `hour_angle_h` (`--hour-angle`, hours) | median \|HA\| 1.24 h |
+| scans | the time on source in scans of about 170 s | `scans` (`--scans`) | median 167 s between gaps |
+| span, first scan's start to last scan's end | 1.27 times the time on source, never less than it | `track_span_s` (`--track-span`, seconds) | median 1.27 |
+
+The scans share the samples evenly and are spread evenly over the span; the gaps between them stand for the calibrators' scans and the other fields'. A metadata row can give the three values as `hour_angle_h`, `track_span_s` and `scans` columns; `noise validate` gives each window the track its MS measured. With a noise model's radiometer noise, the target's mean elevation over the track sets the Tsys (`elevation_deg` overrides it).
+
+The track sets the uv coverage, and with it the beam's sidelobes and how much noise cleaning removes. A block observed in one stretch at transit has a tighter coverage and stronger sidelobes than ALMA's: on window 1 of the noise study, observed in one stretch at transit, cleaning lowers the simulated continuum's noise to 0.71 of its dirty image's, and the real continuum's (ten scans over 57 minutes) to 0.83.
 
 ## Simulation Parameters
 

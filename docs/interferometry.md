@@ -13,7 +13,7 @@ The main code is in [`src/almasim/services/interferometry`](../src/almasim/servi
 | `core.py` | `Interferometer`: one interferometric run, from antenna positions to products |
 | `simulator.py` | the channel-by-channel imaging the `Interferometer` scatters over the compute backend |
 | `imaging.py` | per-channel uv gridding, primary beam, dirty beam and dirty image |
-| `observing.py` | the hour-angle track: number of samples, scan time, and when the source is at each hour angle |
+| `observing.py` | the hour-angle track: number of samples, scan time, each execution block's track (`Track`, `execution_track`: its scans, their hour angles and span) and when the source is at each hour angle |
 | `antenna.py` | antenna configurations, maximum baseline, beam size estimates |
 | `baselines.py` | baseline preparation |
 | `frequency.py` | the spectral window from the metadata's frequency support |
@@ -58,14 +58,14 @@ Plans can be:
 - inferred from metadata rows
 - split automatically into `12m`, `7m` and `TP` configurations when the metadata's antenna list mixes antenna types
 
-[`services/simulation/planning.py`](../src/almasim/services/simulation/planning.py) turns the plan into runs: one `Interferometer` run per execution block of each interferometric configuration, and one total-power run per TP configuration. Each execution block observes a track near transit on its own day, with its own draw of the configuration's antennas; see [Execution blocks](simulation.md#execution-blocks).
+[`services/simulation/planning.py`](../src/almasim/services/simulation/planning.py) turns the plan into runs: one `Interferometer` run per execution block of each interferometric configuration, and one total-power run per TP configuration. Each execution block observes a track of its own on its own day, with its own draw of the configuration's antennas; see [Execution blocks](simulation.md#execution-blocks).
 
 ## The Interferometer
 
 For each channel, the `Interferometer`:
 
 - multiplies the model by the primary beam: CASA's Airy model of an ALMA antenna with its central blockage ([`instrument/primary_beam.py`](../src/almasim/services/instrument/primary_beam.py)), the same model the total-power simulation and `--pbcor` use
-- samples the uv plane along the hour-angle track of the source, a track around its transit at ALMA on the execution block's day; the exported MS's times are when the source is at each sample's hour angle
+- samples the uv plane along the execution block's track: its scans at their hour angles on the block's day (one scan centred on transit for an `Interferometer` built without a track); the exported MS's times are when the source is at each sample's hour angle
 - adds thermal noise at each visibility, and the noise model's corruptions when one is set
 - grids the visibilities with robust weighting (`robust`, `--robust`)
 - forms the dirty beam and the dirty image

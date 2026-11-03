@@ -25,7 +25,13 @@ from .corruptions import (
     draw_antenna_corruptions,
     spectral_kernel,
 )
-from .observing import alma_location, clip_to_horizon, hour_angle_coverage, hour_angle_samples
+from .observing import (
+    Track,
+    alma_location,
+    clip_to_horizon,
+    hour_angle_coverage,
+    hour_angle_samples,
+)
 from .simulator import ChannelImagingConfig, image_channels, picklable_header, stack_channels
 from .utils import get_channel_wavelength
 from .visibility import assemble_visibility_table
@@ -87,6 +93,7 @@ class Interferometer:
         continuum_fraction: np.ndarray | None = None,
         sample_time_s: float | None = None,
         execution: int | None = None,
+        track: Track | None = None,
     ):
         """
         Initialize interferometer.
@@ -147,6 +154,9 @@ class Interferometer:
             (``observing.hour_angle_samples``)
         execution : int, optional
             The execution block this run is (its rows' OBSERVATION_ID); 0 when None
+        track : Track, optional
+            When the block observes: its scans and hour angles
+            (``observing.Track``); by default one scan centred on transit
         """
         self.noise_entropy = noise_entropy
         self.corruptions = corruptions
@@ -169,6 +179,7 @@ class Interferometer:
         self.observation_date = observation_date
         self.sample_time_s = sample_time_s
         self.execution = execution
+        self.track = track
         # Each configuration gets its own copy: _get_nH appends EPOCH, which every
         # configuration used to add to one shared header (MADIV-28 T1.14).
         self.header = header.copy() if hasattr(header, "copy") else header
@@ -263,7 +274,17 @@ class Interferometer:
         self.observing_location = alma_location()
 
     def _get_Hcov(self) -> None:
-        """Hour-angle coverage [start, end] in radians, centred on the track's middle."""
+        """Hour-angle coverage [start, end] in radians: the track's first and last
+        samples, or without a track one scan centred on transit. With a track
+        ``hour_angles`` and ``sample_offsets_s`` hold each sample's hour angle
+        and start; without, both are None (evenly spaced over the coverage)."""
+        self.hour_angles = None
+        self.sample_offsets_s = None
+        if self.track is not None:
+            self.hour_angles = self.track.hour_angles_rad(self.nH, self.scan_time)
+            self.sample_offsets_s = self.track.sample_offsets_s(self.nH, self.scan_time)
+            self.Hcov = [float(self.hour_angles[0]), float(self.hour_angles[-1])]
+            return
         self.Hcov = hour_angle_coverage(
             self.observation_date,
             float(self.integration_time) * 3600.0,  # the integration time is in hours
@@ -289,7 +310,8 @@ class Interferometer:
         self.antPos = layout.positions_km
         self.antNames = layout.names
         self.antPos3D = layout.positions_m
-        clip_to_horizon(self.Hcov, self.lat, self.dec)
+        if self.track is None:
+            clip_to_horizon(self.Hcov, self.lat, self.dec)
         self.Xmax = layout.max_extent_km * 1.5
         self.Nant = len(self.antPos)
 
@@ -332,7 +354,11 @@ class Interferometer:
         if fraction is not None and np.size(fraction) == self.Nchan:
             fields["continuum_fraction"] = np.asarray(fraction, dtype=np.float64)
         if model.has_antenna_errors:
-            times_s = np.arange(self.nH) * float(self.scan_time)
+            times_s = (
+                self.sample_offsets_s
+                if self.sample_offsets_s is not None
+                else np.arange(self.nH) * float(self.scan_time)
+            )
             antenna_xy_m = np.asarray(self.antPos, dtype=np.float64)[:, :2] * 1e3
             fields["antenna_corruptions"] = draw_antenna_corruptions(
                 model, antenna_xy_m, times_s, np.random.default_rng((*entropy, 1))
@@ -370,6 +396,7 @@ class Interferometer:
             robust=self.robust,
             scan_time_s=self.scan_time,
             noise_entropy=self.noise_entropy,
+            hour_angles=self.hour_angles,
             **self._corruption_fields(),
         )
         wavelengths = [self.get_channel_wavelength(i)[0] for i in range(self.Nchan)]
@@ -399,6 +426,7 @@ class Interferometer:
             scan_length_s=self.corruptions.scan_length_s if self.corruptions is not None else 0.0,
             observation_id=self.execution,
             hour_angle_start_rad=float(self.Hcov[0]),
+            sample_offsets_s=self.sample_offsets_s,
             channel_kernel=(
                 spectral_kernel(*self.corruptions.channel_correlation())
                 if self.corruptions is not None and self.corruptions.correlates_channels
