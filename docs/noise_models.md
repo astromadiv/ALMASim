@@ -498,7 +498,8 @@ window's averaging N (from the archive's spectral resolution, unless
 `average` sets it; see [Noise](noise.md#channels)), then builds a three-tap
 kernel (a, b, a) with unit norm whose output has those correlations
 (rho1 = 2ab, rho2 = a^2; when no such kernel exists, the one that matches
-rho1), and makes each channel's noise as `a w(k-1) + b w(k) + a w(k+1)` from
+rho1, as for averaged channels, whose rho2 is 0: 16 averaged channels keep
+their rho1 of 0.026), and makes each channel's noise as `a w(k-1) + b w(k) + a w(k+1)` from
 white draws `w`, each keyed by its channel, so that channel tasks running
 separately share their neighbours' draws. The exported MS's hands get the
 same kernel: real correlators smooth each polarisation on its own, so

@@ -143,6 +143,10 @@ def resolve_corruptions(spec: Any) -> dict[str, Any] | None:
     return None if model is None else model.engine_fields()
 
 
+# How far the kernel's rho1 may sit from the one asked for before rho2 gives way.
+RHO1_TOLERANCE = 1e-3
+
+
 def spectral_kernel(rho1: float, rho2: float) -> np.ndarray:
     """A 3-tap symmetric kernel (a, b, a), unit norm, whose output's channel
     correlations are ``rho1`` and ``rho2``: rho1 = 2ab, rho2 = a^2 (with
@@ -152,9 +156,10 @@ def spectral_kernel(rho1: float, rho2: float) -> np.ndarray:
     a = np.sqrt(rho2)
     b = np.sqrt(max(1.0 - 2.0 * rho2, 0.0))
     achieved = 2.0 * a * b
-    if abs(achieved - rho1) > 0.05:
+    if abs(achieved - rho1) > RHO1_TOLERANCE:
         # rho1 and rho2 together over-determine (a, b): take the pair that
-        # matches rho1 exactly and is closest in rho2.
+        # matches rho1 exactly and is closest in rho2. Averaged channels have
+        # rho2 = 0 and a small rho1 (0.026 for 16), which only this pair keeps.
         # 2a sqrt(1 - 2a^2) = rho1  ->  a^2 = (1 - sqrt(1 - 2 rho1^2)) / 4
         a = np.sqrt((1.0 - np.sqrt(max(1.0 - 2.0 * rho1**2, 0.0))) / 4.0)
         b = np.sqrt(1.0 - 2.0 * a**2)
