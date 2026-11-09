@@ -91,7 +91,8 @@ def flip_alternate_integrations(ms: str, opener=None) -> dict[str, object]:
             for start in range(0, signs.size, CHUNK_ROWS):
                 chunk = signs[start : start + CHUNK_ROWS]
                 data = table.getcol(column, start, chunk.size)
-                table.putcol(column, data * chunk[:, None, None].astype(data.real.dtype), start)
+                flipped = data * chunk[:, None, None].astype(data.real.dtype)
+                table.putcol(column, flipped, start, chunk.size)
     return {"column": columns[0], "rows": int(signs.size)}
 
 

@@ -102,6 +102,28 @@ def test_the_flip_cancels_a_constant_sky_and_keeps_the_noise():
     assert np.std(sums.real) == pytest.approx(np.sqrt(n_t) * np.std(noise.real), rel=0.05)
 
 
+class StrictTable(FakeTable):
+    """casacore's putcol: without a row count it writes every row from startrow on."""
+
+    def putcol(self, name, value, startrow=0, nrow=-1):
+        rows = self.nrows() - startrow if nrow < 0 else nrow
+        if len(value) != rows:
+            raise RuntimeError(f"column {name} has {rows}, array has {len(value)} rows")
+        super().putcol(name, value, startrow, nrow)
+
+
+@pytest.mark.unit
+def test_the_flip_writes_a_long_ms_chunk_by_chunk(monkeypatch):
+    monkeypatch.setattr(jk, "CHUNK_ROWS", 3)  # 8 rows: chunks of 3, 3 and 2
+    a = np.zeros(8, dtype=int)
+    table = StrictTable(
+        {"ANTENNA1": a, "ANTENNA2": a + 1, "TIME": np.arange(8.0),
+         "DATA": np.ones((8, 2, 2), np.complex64)}
+    )  # fmt: skip
+    jk.flip_alternate_integrations("x.ms", opener=lambda *a, **k: table)
+    assert list(table.columns["DATA"][:, 0, 0].real) == [1, -1] * 4
+
+
 @pytest.mark.unit
 def test_the_corrected_column_is_flipped_and_read_when_present():
     a = np.zeros(4, dtype=int)
