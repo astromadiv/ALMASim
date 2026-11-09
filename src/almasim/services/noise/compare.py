@@ -10,6 +10,13 @@ visibility noise within ``noise_tolerance`` of the real, the simulated
 visibilities' variance within ``weight_tolerance`` of what their WEIGHT
 claims, no listed metric differing at p below ``min_p``, and no band or
 array group's median noise off by more than ``group_tolerance``.
+
+A group is judged on its jackknifed continuum noise (``jk.sigma``,
+:mod:`.jackknife`) when every one of its windows has it on both sides, and
+on its cleaned continuum noise (``cont.sigma``) otherwise. Grouped by band
+and array, a few bright fields can decide a group's median, and their
+cleaned residuals carry what the simulated sky lacks; the jackknife carries
+the noise alone.
 """
 
 from __future__ import annotations
@@ -26,6 +33,7 @@ from .measurements import WindowNoise
 # metric -> (ratio or difference)
 METRICS: dict[str, Literal["ratio", "difference"]] = {
     "cont.sigma": "ratio",
+    "jk.sigma": "ratio",
     "cube.sigma_median": "ratio",
     "visibility.unit_jy": "ratio",
     "cont.corr_area_beams": "ratio",
@@ -38,6 +46,7 @@ METRICS: dict[str, Literal["ratio", "difference"]] = {
     "antenna_shape.excess_rms": "difference",
 }
 NOISE_LEVELS = ("cont.sigma", "cube.sigma_median", "visibility.unit_jy")
+GROUP_METRICS = ("jk.sigma", "cont.sigma")  # the first every window of a group has
 
 
 class _Record(BaseModel):
@@ -89,7 +98,14 @@ class Comparison(_Record):
     windows: int
     criteria: Criteria
     metrics: dict[str, MetricSummary]
-    groups: dict[str, MetricSummary] = Field(description="cont.sigma by band and array.")
+    groups: dict[str, MetricSummary] = Field(
+        description="Continuum noise by band and array, of the metric in group_metrics."
+    )
+    group_metrics: dict[str, str] = Field(
+        default_factory=dict,
+        description="Per group, the metric judged: jk.sigma when every window has it, "
+        "else cont.sigma.",
+    )
     checks: list[Check]
     passed: bool
 
@@ -116,21 +132,38 @@ def compare(pairs: Sequence[Pair], model: dict, criteria: Criteria | None = None
         if (summary := _summary(sim, real, METRICS[metric])) is not None
     }
     groups: dict[str, MetricSummary] = {}
+    group_metrics: dict[str, str] = {}
     for key in sorted({p.band for p in pairs if p.band}):
         members = [p for p in pairs if p.band == key]
-        summary = _summary(*_values(members, "cont.sigma"), "ratio")
+        metric = group_metric(members)
+        summary = _summary(*_values(members, metric), "ratio")
         if summary is not None:
             groups[key] = summary
-    checks = _checks(metrics, groups, pairs, criteria)
+            group_metrics[key] = metric
+    checks = _checks(metrics, groups, group_metrics, pairs, criteria)
     return Comparison(
         model=model,
         windows=len(pairs),
         criteria=criteria,
         metrics=metrics,
         groups=groups,
+        group_metrics=group_metrics,
         checks=checks,
         passed=bool(checks) and all(c.passed for c in checks),
     )
+
+
+def group_metric(members: Sequence[Pair]) -> str:
+    """The metric a group is judged on: the first of ``GROUP_METRICS`` that
+    every member has, simulated and real (``cont.sigma`` when none has)."""
+    for metric in GROUP_METRICS:
+        if all(
+            _value(p, metric, simulated=True) is not None
+            and _value(p, metric, simulated=False) is not None
+            for p in members
+        ):
+            return metric
+    return GROUP_METRICS[-1]
 
 
 def _values(pairs: Sequence[Pair], metric: str) -> tuple[np.ndarray, np.ndarray]:
@@ -145,7 +178,7 @@ def _values(pairs: Sequence[Pair], metric: str) -> tuple[np.ndarray, np.ndarray]
 
 def _value(pair: Pair, metric: str, *, simulated: bool) -> float | None:
     head = metric.split(".", 1)[0]
-    if head in ("cont", "cube", "q"):
+    if head in ("cont", "cube", "q", "jk"):
         value = (pair.sim_image if simulated else pair.real_image).get(metric)
         if metric == "cube.sigma_median" and simulated and value is not None:
             value *= _cube_width_scale(pair)
@@ -210,6 +243,7 @@ def _summary(sim: np.ndarray, real: np.ndarray, kind: str) -> MetricSummary | No
 def _checks(
     metrics: dict[str, MetricSummary],
     groups: dict[str, MetricSummary],
+    group_metrics: dict[str, str],
     pairs: Sequence[Pair],
     criteria: Criteria,
 ) -> list[Check]:
@@ -249,7 +283,7 @@ def _checks(
         if summary.n >= 3:
             checks.append(
                 Check(
-                    name=f"cont.sigma of {key} within {criteria.group_tolerance:.0%}",
+                    name=f"{group_metrics[key]} of {key} within {criteria.group_tolerance:.0%}",
                     passed=abs(summary.median - 1) <= criteria.group_tolerance,
                     value=summary.median,
                     detail=f"{summary.n} windows",

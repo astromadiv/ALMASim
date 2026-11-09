@@ -150,6 +150,34 @@ def test_a_matching_model_passes_and_a_quiet_one_does_not():
 
 
 @pytest.mark.unit
+def test_a_group_is_judged_on_its_jackknifed_noise_when_every_window_has_it():
+    pairs = []
+    for p in _pairs(1.0):
+        # Band 3: bright fields whose real cleaned residuals carry sky the
+        # simulation lacks, so the cleaned continuum is low while the noise matches.
+        cont = p.sim_image["cont.sigma"] * (0.6 if p.band == "band 3 12 m" else 1.0)
+        pairs.append(
+            replace(
+                p,
+                sim_image={**p.sim_image, "cont.sigma": cont, "jk.sigma": 2e-3},
+                real_image={**p.real_image, "jk.sigma": 2e-3},
+            )
+        )
+    judged = compare(pairs, {"label": "jk"})
+    assert judged.group_metrics == {"band 3 12 m": "jk.sigma", "band 6 12 m": "jk.sigma"}
+    assert {c.name: c.passed for c in judged.checks}["jk.sigma of band 3 12 m within 10%"]
+    assert judged.metrics["jk.sigma"].median == pytest.approx(1.0)
+    # A window without it: its group is judged on the cleaned continuum noise.
+    last = pairs[-1]
+    pairs[-1] = replace(
+        last, sim_image={k: x for k, x in last.sim_image.items() if k != "jk.sigma"}
+    )
+    fallback = compare(pairs, {"label": "jk"})
+    assert fallback.group_metrics == {"band 3 12 m": "cont.sigma", "band 6 12 m": "jk.sigma"}
+    assert not {c.name: c.passed for c in fallback.checks}["cont.sigma of band 3 12 m within 10%"]
+
+
+@pytest.mark.unit
 def test_cube_noise_is_compared_at_the_real_cubes_channel_width():
     # The simulated cube has half the real cube's channels (its image is wider
     # and the size cap halves them), so its channels are twice as wide and its
@@ -266,6 +294,41 @@ def test_noise_validate_simulates_measures_and_judges(stubbed):
          "--measured", str(root / "measured"), "--out", str(root / "out")],
     )  # fmt: skip
     assert failing.exit_code == 1
+
+
+@pytest.mark.unit
+def test_each_window_carries_its_jackknifed_noise(stubbed, monkeypatch):
+    from almasim.cli.noise import noise_app
+
+    root, ratio = stubbed
+    seen = []
+
+    def jackknife(task_dir, ms, spw, fields, work, imaging):
+        seen.append((Path(ms).name, spw, fields))
+        return {"jk.sigma": 1e-3}
+
+    monkeypatch.setattr(v, "jackknife", jackknife)
+    result = CliRunner().invoke(
+        noise_app,
+        ["validate", "--model", "alma@1", "--windows", str(root / "windows.csv"),
+         "--metadata", str(root / "rows.csv"), "--measured", str(root / "measured"),
+         "--out", str(root / "out")],
+    )  # fmt: skip
+    assert result.exit_code == 0, result.output
+    base = v.validation_dir(root / "out", released_model("alma", 1))
+    for name in ("real_image.json", "sim_image.json"):
+        assert json.loads((base / "windows" / "w0" / name).read_text())["jk.sigma"] == 1e-3
+    assert ("w0.ms", 0, None) in seen  # the real window, from its own MS
+    assert ("sim.ms", 0, None) in seen  # the simulated one, before its MS is dropped
+    comparison = json.loads((base / "comparison.json").read_text())
+    assert comparison["group_metrics"] == {"band 6 12 m": "jk.sigma"}
+    assert "jk.sigma" in comparison["metrics"]
+
+
+@pytest.mark.unit
+def test_a_windows_fields_are_numbers():
+    assert v.field_ids(None) is None and v.field_ids("") is None
+    assert v.field_ids("5") == [5] and v.field_ids("5,6") == [5, 6]
 
 
 @pytest.mark.unit
