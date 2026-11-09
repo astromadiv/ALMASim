@@ -326,11 +326,17 @@ in images.
   efficiency with the measured Tsys and unit noise:
 
   ```
-  eta = 2 k Tsys / (2 A unit) / sqrt(EFFECTIVE_BW / w)
+  eta = 2 k Tsys_rms / (2 A unit) / sqrt(EFFECTIVE_BW / w)
   ```
 
   (`visibility.efficiency`, with the Tsys in kelvin and the unit noise
   converted to SI; it is eta_a x eta_c, 0.4 to 0.65 on real data).
+  `Tsys_rms` is the rms of the Tsys spectrum over the window, not its median:
+  the unit noise is the rms over the channels, and each channel's noise
+  follows its own Tsys. In the wing of an atmospheric line, where Tsys
+  climbs 10-20% across a band 8 window, the median would put that rise into
+  the efficiency, and the simulator, whose noise follows the same Tsys
+  spectrum, would then count it twice.
 
 **How it becomes the model's value** (`noise aggregate`):
 
