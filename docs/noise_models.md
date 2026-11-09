@@ -991,7 +991,22 @@ the real windows were imaged (`image compute-parameters`, `image image-from-ms
 --cube --uv-contsub`, `image clean-quality`), and measures the residuals of
 both images: their noise level, skew, kurtosis and 5-sigma tails, the area
 of their noise's autocorrelation in beams, and in the cube the spread of the
-channel noise and the correlation of neighbouring channels. All of it goes
+channel noise and the correlation of neighbouring channels.
+
+It also measures each window's noise with its sky cancelled, a jackknife
+(`jk.sigma`). The real and the simulated window are each extracted as their
+imaging extracted them (the same window and fields, rows over the maximum
+WEIGHT left out), and every other integration of each baseline has its sign
+flipped: whatever stays the same from one integration to the next, the sky,
+cancels, while the noise and the correlation of its channels stay. The
+result is imaged dirty over the whole band with that imaging task's own
+continuum WSClean command (the same grid, weighting and field, no cleaning),
+and `jk.sigma` is the robust noise of the image's inner part, where
+`cont.sigma` is measured. The cleaned residual (`cont.sigma`) also carries
+what cleaning leaves of the sky: calibration residue around a bright source
+and emission the simulated point source does not have. On a bright field the
+two residuals then differ by more than their noise, while their jackknifes
+compare the noise alone. All of it goes
 under `noise/validation/<the model's sha256, 12 characters>/`, so validations
 of different models never mix. At the end, `noise compare` writes
 `comparison.json` and prints a table: per metric, the median of the
@@ -1008,7 +1023,7 @@ The default criteria:
 | continuum, cube and visibility noise | each median ratio is within 5% of 1 |
 | simulated visibilities against their WEIGHT | the median `scale` is within 1% of 1 |
 | those three noise levels | none differs at p below 0.01 (p needs six or more windows) |
-| each band and array group | its median continuum noise ratio is within 10% of 1 (groups of 3 or more windows) |
+| each band and array group | its median continuum noise ratio is within 10% of 1 (groups of 3 or more windows): the jackknifed noise (`jk.sigma`) when every window of the group has it, the cleaned continuum's (`cont.sigma`) otherwise; `group_metrics` in `comparison.json` names the one judged |
 
 This is `alma@1` validated on four real windows (band 3 and band 6 12 m, a
 band 6 7 m one), 16 minutes in all:

@@ -9,7 +9,8 @@ flagged data and the rows imaging leaves out for their WEIGHT), measures it
 with ``noise extract`` and images it as the real window was
 imaged (``image compute-parameters``, ``image image-from-ms`` with the cube
 and continuum subtraction, ``image clean-quality``), then takes the image
-statistics of both. Everything goes under
+statistics of both, the jackknifed continuum noise among them
+(:mod:`.jackknife`). Everything goes under
 ``<out>/validation/<model sha256[:12]>/windows/<name>/``, so the results of
 different models never mix; :mod:`.compare` judges them.
 """
@@ -31,6 +32,7 @@ from ..noise_model import NoiseModel
 from .batch import WINDOW_FILE, WindowTask, _write_atomic
 from .compare import Comparison, Criteria, Pair, compare
 from .image_stats import image_noise_stats
+from .jackknife import jackknife_noise
 from .measurements import WindowNoise
 
 SIM_WINDOW = "sim_window.json"
@@ -99,7 +101,20 @@ def validate_window(
         _write_atomic(
             directory / REAL_IMAGE, json.dumps(image_noise_stats(task.task_dir), indent=1) + "\n"
         )
-    real_peak = json.loads((directory / REAL_IMAGE).read_text()).get("q.continuum.peak_jy_beam")
+    real_stats = json.loads((directory / REAL_IMAGE).read_text())
+    if "jk.sigma" not in real_stats:
+        noise = jackknife(
+            task.task_dir,
+            task.ms,
+            task.spw,
+            field_ids(task.field),
+            directory / "jackknife",
+            imaging,
+        )
+        if noise:
+            real_stats.update(noise)
+            _write_atomic(directory / REAL_IMAGE, json.dumps(real_stats, indent=1) + "\n")
+    real_peak = real_stats.get("q.continuum.peak_jy_beam")
     run = directory / "sim"
     if run.exists():
         shutil.rmtree(run)
@@ -115,10 +130,41 @@ def validate_window(
     sim_window = measure(ms, task.name, run)
     _write_atomic(directory / SIM_WINDOW, sim_window.model_dump_json(indent=2) + "\n")
     task_dir = image(run, imaging)
-    _write_atomic(directory / SIM_IMAGE, json.dumps(image_noise_stats(task_dir), indent=1) + "\n")
+    sim_stats = image_noise_stats(task_dir)
+    sim_stats.update(jackknife(task_dir, ms, 0, None, run / "jackknife", imaging))
+    _write_atomic(directory / SIM_IMAGE, json.dumps(sim_stats, indent=1) + "\n")
     if not keep_ms:
         shutil.rmtree(ms, ignore_errors=True)
     return directory
+
+
+def field_ids(field: str | None) -> list[int] | None:
+    """A window's fields (``"5"``, ``"5,6"``) as numbers; None for all."""
+    if not field:
+        return None
+    return [int(part) for part in str(field).split(",") if part.strip()]
+
+
+def jackknife(
+    task_dir: str | Path,
+    ms: str | Path,
+    spw: int,
+    fields: list[int] | None,
+    work: Path,
+    imaging: Imaging,
+) -> dict[str, float]:
+    """The window's jackknifed continuum noise (:func:`.jackknife.jackknife_noise`),
+    imaged with ``imaging``'s cores, timeout and WSClean."""
+    return jackknife_noise(
+        task_dir,
+        ms,
+        spw,
+        fields,
+        work,
+        threads=imaging.num_cores,
+        timeout=imaging.task_timeout,
+        wsclean_bin=imaging.wsclean_bin,
+    )
 
 
 def run_in_process(
