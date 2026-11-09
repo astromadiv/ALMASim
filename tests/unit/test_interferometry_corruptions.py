@@ -330,8 +330,8 @@ def test_channel_scales_each_baselines_noise_by_its_antennas():
 def test_simulation_parameters_take_a_model_json_or_file(tmp_path):
     from almasim.services.interferometry.corruptions import resolve_corruptions
 
-    # The released alma model sets what the preset set before it was a file.
-    assert CorruptionModel.from_mapping(resolve_corruptions("alma")) == CorruptionModel(
+    # alma@1 sets the preset's values; "alma" names the newest version.
+    assert CorruptionModel.from_mapping(resolve_corruptions("alma@1")) == CorruptionModel(
         spectral_rho1=2 / 3,
         spectral_rho2=1 / 6,
         scan_length_s=300.0,

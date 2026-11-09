@@ -617,7 +617,7 @@ def test_a_window_is_simulated_through_its_own_water_vapour():
     from almasim.services.interferometry.atmosphere import system_temperature
     from almasim.services.noise.measurements import Tsys
 
-    model = released_model("alma")
+    model = released_model("alma", 1)  # no forward efficiency: system_temperature's default
     row = pd.Series({"PWV": 5.186})
     window = _window("w")
     measured = window.model_copy(update={"input": WindowInput(ms="/d/w.ms", spw=0, pwv_mm=0.7)})

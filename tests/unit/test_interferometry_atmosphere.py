@@ -131,7 +131,7 @@ def test_switches_in_the_corruption_model():
     )
     with pytest.raises(ValueError, match="not a switch"):
         CorruptionModel.from_mapping({"atmospheric_tsys": "maybe"})
-    alma = CorruptionModel.from_mapping(released_model("alma").engine_fields())
+    alma = CorruptionModel.from_mapping(released_model("alma", 1).engine_fields())
     assert alma.atmospheric_tsys and alma.receiver_ripple_rms == pytest.approx(0.02)
     assert alma.radiometer_noise and not CorruptionModel().radiometer_noise
 

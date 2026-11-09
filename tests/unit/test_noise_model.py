@@ -57,7 +57,7 @@ def test_every_component_sets_only_simulator_fields():
 
 @pytest.mark.unit
 def test_components_are_selected_and_separable():
-    alma = released_model("alma")
+    alma = released_model("alma", 1)
     only = alma.select(only=["radiometer,channel_correlation"])
     assert only.enabled() == ["radiometer", "channel_correlation"]
     model = CorruptionModel.from_mapping(only.engine_fields())
@@ -135,9 +135,10 @@ def _params(tmp_path, **values):
 def test_simulation_parameters_hold_the_model_and_its_fields(tmp_path):
     params = _params(tmp_path, noise_model="alma@1")
     assert params.noise_model == released_model("alma", 1)
-    assert params.corruptions == released_model("alma").engine_fields()
+    assert params.corruptions == released_model("alma", 1).engine_fields()
     # The earlier keyword names the model as noise_model does.
-    assert _params(tmp_path, corruptions="alma").noise_model == params.noise_model
+    assert _params(tmp_path, corruptions="alma@1").noise_model == params.noise_model
+    assert _params(tmp_path, noise_model="alma").noise_model == released_model("alma")
     assert _params(tmp_path, noise_model=float("nan")).noise_model is None
     assert _params(tmp_path).corruptions is None
 
@@ -151,10 +152,10 @@ def test_products_record_the_model_that_made_them(tmp_path):
 
     params = _params(tmp_path, noise_model="alma")
     line = _noise_model_line(params)
-    assert line == f"alma@1 (sha256 {released_model('alma').sha256()})"
+    assert line == f"alma@2 (sha256 {released_model('alma').sha256()})"  # the newest
     assert _noise_model_line(_params(tmp_path)) is None
     identity = released_model("alma").identity()
-    assert identity["label"] == "alma@1" and identity["components"] == list(COMPONENT_NAMES)
+    assert identity["label"] == "alma@2" and identity["components"] == list(COMPONENT_NAMES)
     spec = history_table("p", np.array([0.0, 1.0]), (f"noise_model={json.dumps(identity)}",))
     assert list(spec.values["APP_PARAMS"])[1].startswith("noise_model=")
     assert list(history_table("p", np.array([0.0, 1.0])).values["APP_PARAMS"]) == ["p"]
@@ -214,7 +215,7 @@ def test_a_forward_efficiency_gives_the_handbook_tsys():
         system_equivalent_flux_density,
     )
 
-    alma = released_model("alma")
+    alma = released_model("alma", 1)
     assert "forward_efficiency" not in alma.canonical_json()
     handbook = NoiseModel.model_validate(
         {
@@ -250,7 +251,9 @@ def test_a_candidate_radiometer_changes_tsys_where_it_differs():
         system_equivalent_flux_density,
     )
 
-    alma = released_model("alma")
+    # alma@1's radiometer is the defaults', so a candidate setting only its
+    # receiver temperatures differs from it there alone.
+    alma = released_model("alma", 1)
     rows = [r.model_dump() for r in alma.components.radiometer.receiver_temperature_k]
     rows[4]["trx_k"] = 92.0  # band 6 twice as hot
     candidate = NoiseModel.model_validate(

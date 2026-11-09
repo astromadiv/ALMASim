@@ -57,8 +57,8 @@ What the visibilities carry besides white thermal noise is a noise model:
 a named, versioned JSON file made of components, each with its own switch and
 parameters. Released models ship with ALMASim in
 [`services/noise_model/models/`](../src/almasim/services/noise_model/models/)
-(today `alma`, version 1); a released file is never edited, a change is its
-next version.
+(today `alma`, versions 1 and 2; `alma` alone is version 2); a released file
+is never edited, a change is its next version.
 
 ```
 almasim simulation ... --noise-model alma              # the newest alma
@@ -95,7 +95,7 @@ quantisation and correlator efficiencies are instrument data,
 [`interferometry/data/alma_radiometer.json`](../src/almasim/services/interferometry/data/alma_radiometer.json),
 which every run uses for Tsys. A model's `radiometer` component may set its
 own values (`alma@1` states the instrument's, so the model reproduces on its
-own), and a candidate model can try other values without a code change.
+own; `alma@2` states the values measured on the real windows), and a candidate model can try other values without a code change.
 
 A model's `settings` hold what several components share: the scan length and
 the turbulent screens' outer scale. A selection (`--noise-only`,
@@ -329,8 +329,8 @@ JSON file of other values.
 **`noise promote`** writes a candidate as the next version of a released
 model, `models/<name>-<n+1>.json` in the working tree, only with a passing
 comparison of that very model (matched by its SHA-256). The pull request that
-adds the file moves `alma` to the new version (runs that name `alma@1` keep
-the old one) and updates the tests that pin the model's values; if the
+adds the file moves `alma` to the new version (runs that name an earlier
+one, such as `alma@1`, keep it) and updates the tests that pin the model's values; if the
 default model changes what runs produce, it is labelled `golden:supersede`
 with a new baseline. The golden simulation runs one case through
 `--noise-model alma@1`, so the noise components' code path is under the gate.
