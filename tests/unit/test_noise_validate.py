@@ -679,6 +679,18 @@ def test_a_window_with_its_pads_is_observed_by_the_mss_own_antennas():
     )
     assert v.with_exposure(row, window, seed=3)["antenna_arrays"] == " ".join(own)
 
+    # A 12 m MS's total-power dishes are correlated with it: they keep their
+    # pad, without the PM name that would send them to a total-power run.
+    with_pm = window.model_copy(
+        update={"exposure": window.exposure.model_copy(update={"pads": [*own, "T701:PM04"]})}
+    )
+    pads = v.with_exposure(row, with_pm, seed=3)["antenna_arrays"].split()
+    assert pads == [*own, "T701"]
+    from almasim.services.observation_plan import split_antenna_array_by_type
+
+    assert [kind for kind, _ in split_antenna_array_by_type(" ".join(pads))] == ["12m"]
+    assert v.interferometer_pads(["J505:CM01", "T701:PM01"], 7.0) == ["J505:CM01", "T701:PM01"]
+
 
 @pytest.mark.unit
 def test_a_window_is_observed_on_its_own_track():
@@ -784,3 +796,31 @@ def test_each_simulated_window_is_flagged_as_its_real_image(stubbed, monkeypatch
     result = CliRunner().invoke(noise_app, args)
     assert result.exit_code == 0, result.output
     assert sorted(flagged) == [("sim.ms", f"w{k}") for k in range(6)]
+
+
+@pytest.mark.unit
+def test_the_sky_models_grid_reaches_the_longest_baseline():
+    """The simulator flags visibilities beyond its model's uv grid, |u| <
+    1 / (2 cell): the field shrinks until 256 cells reach the array's longest
+    baseline at the window's top frequency; a compact array keeps the row's."""
+    import pandas as pd
+
+    import almasim
+
+    main_dir = Path(almasim.__file__).parent
+    window = _window("w")
+    e = window.exposure
+    long_array = "A001:DA41 P410:DV20"  # about 4.6 km apart
+    row = pd.Series({"FOV": 0.007, "antenna_arrays": long_array})
+    record = v.with_sampled_baselines(row, window, main_dir)
+    from almasim.services.data_paths import DataLayout, max_baseline_km
+
+    baseline_m = 1e3 * max_baseline_km(DataLayout(main_dir), long_array)
+    top_hz = e.frequency_ghz * 1e9 + e.channels * e.channel_width_hz / 2
+    cell_rad = np.radians(record["FOV"]) / v.SKY_PIXELS
+    assert baseline_m > 3000 and record["FOV"] < 0.007
+    assert baseline_m * top_hz / 299_792_458.0 < 1 / (2 * cell_rad)  # inside the grid
+    assert baseline_m * top_hz / 299_792_458.0 * v.UV_MARGIN == pytest.approx(1 / (2 * cell_rad))
+    assert row["FOV"] == 0.007, "the row itself is left alone"
+    compact = pd.Series({"FOV": 0.007, "antenna_arrays": "A001:DA41 A002:DA42"})
+    assert v.with_sampled_baselines(compact, window, main_dir)["FOV"] == 0.007

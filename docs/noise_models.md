@@ -1080,6 +1080,17 @@ Seven choices keep the comparison fair, and one limit remains:
   pixels are then smaller, its cube has fewer channels and its images'
   noise is a third to a half of the real noise. A window measured without
   its pads takes `exposure.antennas` of the row's antennas, one per pad.
+  A 12 m MS can correlate total-power dishes (PM antennas on the T70x pads)
+  with the 12 m array; they keep their pad and lose the PM name, which would
+  move them to a total-power observation of their own.
+- *The baselines.* The simulator samples its sky model's Fourier grid, and
+  flags what falls beyond it: `|u| < 1 / (2 cell)`. The model has 256
+  pixels across, so the row's field (the primary beam's) gives cells that
+  reach about 1.4 km on a 12 m array. For a longer configuration the field
+  shrinks until the grid reaches the array's longest baseline (with 5% to
+  spare) at the window's top frequency, so every baseline the MS has is
+  simulated; the source is a point at the centre, and the visibility noise
+  does not depend on the model's field.
 - *The track.* Each window is observed on its MS's track: the target's hour
   angle at the middle of its integrations (`exposure.hour_angle_h`), the
   span from the first to the last (`exposure.track_span_s`) and its scans

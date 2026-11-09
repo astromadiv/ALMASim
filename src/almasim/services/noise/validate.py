@@ -39,6 +39,8 @@ SIM_WINDOW = "sim_window.json"
 SIM_IMAGE = "sim_image.json"
 REAL_IMAGE = "real_image.json"
 MAX_CHANNELS = 960
+SKY_PIXELS = 256  # the simulated sky model's pixels across: the source is a point
+UV_MARGIN = 1.05  # the model's uv grid reaches this far past the longest baseline
 MAX_UNIMAGED = 0.95  # the most of a simulated window's data flag_as_imaged flags
 FLAG_CHUNK_ROWS = 10_000
 
@@ -232,6 +234,7 @@ def simulate(
     if support := frequency_support(window):
         record["Freq.sup."] = support
     record = with_exposure(record, window, seed)
+    record = with_sampled_baselines(record, window, main_dir)
     record = with_weather(record, window, model)
     rest_frequency, _ = astro.get_line_info(main_dir)
     record = with_redshifts(pd.DataFrame([record]), rest_frequency).iloc[0]
@@ -249,7 +252,7 @@ def simulate(
         save_mode="fits",
         persist=True,
         ml_dataset_path=None,
-        n_pix=256,
+        n_pix=SKY_PIXELS,
         n_channels=int(min(window.exposure.channels, MAX_CHANNELS)),
         seed=seed,
         noise_model=model,
@@ -322,7 +325,7 @@ def with_exposure(record: pd.Series, window: WindowNoise, seed: int) -> pd.Serie
     record["track_span_s"] = e.track_span_s
     record["scans"] = e.scans
     if e.pads:
-        record["antenna_arrays"] = " ".join(e.pads)
+        record["antenna_arrays"] = " ".join(interferometer_pads(e.pads, e.dish_diameter_m))
         return record
     pads: dict[str, str] = {}
     for token in str(record.get("antenna_arrays", "")).split():
@@ -333,6 +336,50 @@ def with_exposure(record: pd.Series, window: WindowNoise, seed: int) -> pd.Serie
         tokens = [tokens[i] for i in np.sort(picked)]
     if tokens:
         record["antenna_arrays"] = " ".join(tokens)
+    return record
+
+
+def interferometer_pads(pads: Sequence[str], dish_diameter_m: float) -> list[str]:
+    """The MS's pads as one interferometric array. A 12 m window's MS can
+    correlate total-power dishes (PM antennas on the T70x pads) with the 12 m
+    array; named PM, the simulator would move them to a total-power
+    observation of their own, so they keep their pad without the name."""
+    from ..instrument.array import antenna_array_type
+
+    if dish_diameter_m < 10:
+        return list(pads)
+    return [
+        token.split(":")[0] if antenna_array_type(token.split(":", 1)[-1]) == "TP" else token
+        for token in pads
+    ]
+
+
+def with_sampled_baselines(
+    record: pd.Series, window: WindowNoise, main_dir: Path, pixels: int = SKY_PIXELS
+) -> pd.Series:
+    """The archive row with a field (``FOV``) whose ``pixels`` cells are fine
+    enough that the sky model's uv grid reaches the array's longest baseline
+    at the window's top frequency. The simulator flags what falls beyond it
+    (``|u| < 1 / (2 cell)``), and the row's field over 256 pixels gives cells
+    that reach about 1.4 km on a 12 m array: a longer configuration would lose
+    its longest baselines. The source is a point at the centre and the noise
+    does not depend on the model's field. Unchanged when the row's field is
+    fine enough already."""
+    import numpy as np
+
+    from ..data_paths import DataLayout, max_baseline_km
+
+    baseline_m = 1e3 * max_baseline_km(DataLayout(main_dir), str(record["antenna_arrays"]))
+    e = window.exposure
+    top_hz = e.frequency_ghz * 1e9 + e.channels * e.channel_width_hz / 2
+    if baseline_m <= 0 or top_hz <= 0:
+        return record
+    cell_rad = 299_792_458.0 / (2 * UV_MARGIN * top_hz * baseline_m)
+    fov_deg = float(np.degrees(pixels * cell_rad))
+    if fov_deg >= float(record["FOV"]):
+        return record
+    record = record.copy()
+    record["FOV"] = fov_deg
     return record
 
 
