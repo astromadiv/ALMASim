@@ -320,16 +320,20 @@ def test_concatenate_assumes_12_m_dishes_without_diameters():
 
 
 @pytest.mark.unit
-def test_row_weights_carry_the_gain_amplitude():
-    """Calibrated data were scaled by their gains, and so was their noise: a row's
-    sigma is the channel's noise times |g|, its weight 1 / sigma^2."""
+def test_the_gains_scale_the_sky_not_the_noise():
+    """The gains are what calibration leaves on the sky; the calibrated data's
+    noise, and the weights that carry it, are the radiometer's whatever the
+    gains: a row's data is sky x g + noise, its sigma the channel's noise."""
     nbas, nh = 3, 2
     gains = np.full((nbas, nh), 2.0 * np.exp(0.3j), dtype=np.complex64)
     gains[0] = 1.0
+    noise = np.full((nbas, nh), 0.25 - 0.5j, dtype=np.complex64)
+    modelfft = np.zeros((16, 16), dtype=np.complex64)
+    modelfft[0, 0] = 1.0  # the zero spacing (fftshift moves it to the centre): (u, v) = 0
     rows = build_channel_visibility_rows(
-        modelfft=np.zeros((16, 16), dtype=np.complex64),
+        modelfft=modelfft,
         gains=gains,
-        noise_samples=np.zeros((nbas, nh), dtype=np.complex64),
+        noise_samples=noise,
         u_waves=np.zeros((nbas, nh)),
         v_waves=np.zeros((nbas, nh)),
         w_waves=np.zeros((nbas, nh)),
@@ -340,8 +344,11 @@ def test_row_weights_carry_the_gain_amplitude():
         noise_std=0.5,
         mean_wavelength_m=1e-3,
     )
-    np.testing.assert_allclose(rows["sigma"], np.repeat([0.5, 1.0, 1.0], nh), rtol=1e-6)
-    np.testing.assert_allclose(rows["weight"], 1.0 / rows["sigma"] ** 2, rtol=1e-6)
+    sky = rows["model_data"]
+    assert np.all(sky != 0)
+    np.testing.assert_allclose(rows["data"] - sky * gains.ravel(), noise.ravel(), atol=1e-6)
+    np.testing.assert_allclose(rows["sigma"], 0.5, rtol=1e-6)
+    np.testing.assert_allclose(rows["weight"], 4.0, rtol=1e-6)
 
 
 @pytest.mark.unit

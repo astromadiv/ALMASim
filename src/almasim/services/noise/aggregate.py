@@ -143,7 +143,6 @@ def aggregate(
             stats,
             notes,
             min_windows,
-            gain_noise=gain_noise_factor(components),
         )
 
     return NoiseModel.model_validate(
@@ -195,12 +194,8 @@ def _radiometer(
     stats: dict[str, ValueStats],
     notes: list[str],
     min_windows: int,
-    *,
-    gain_noise: float = 1.0,
 ) -> None:
-    """The receiver temperature per band edge and each dish's Ruze parameters.
-    Each window's efficiency is taken ``gain_noise`` higher: the real noise it
-    comes from carries the real gain errors, which the simulator adds again."""
+    """The receiver temperature per band edge and each dish's Ruze parameters."""
     from ..interferometry import noise
 
     config = noise.NoiseModelConfig(pwv_mm=1.0, **base.noise_config())
@@ -229,7 +224,7 @@ def _radiometer(
     correlator = config.correlator_efficiency
     for diameter in sorted(apertures):
         points = [
-            (w.exposure.frequency_ghz * 1e9, w.visibility.efficiency / correlator * gain_noise)
+            (w.exposure.frequency_ghz * 1e9, w.visibility.efficiency / correlator)
             for w in windows
             if w.visibility.efficiency and round(w.exposure.dish_diameter_m) == round(diameter)
         ]
@@ -251,26 +246,10 @@ def _radiometer(
         stats[key + ".surface_rms_m"] = ValueStats(
             n=len(points), median=fitted[1], q16=fitted[1], q84=fitted[1]
         )
-    if gain_noise != 1.0:
-        notes.append(f"radiometer.aperture: efficiencies x {gain_noise:.4f}, the gains' noise")
     radiometer["aperture"] = [
         {"diameter_m": d, "eta0": e, "surface_rms_m": r}
         for d, (e, r) in sorted(apertures.items(), reverse=True)
     ]
-
-
-def gain_noise_factor(components: dict[str, dict[str, Any]]) -> float:
-    """The rms factor by which the model's amplitude errors raise the simulated
-    noise. The simulator scales each visibility's noise by its gain's amplitude,
-    |g(i) g(j)| e^b for antenna amplitudes 1 + N(0, a) and a baseline amplitude
-    e^b with b from N(0, b_rms), whose mean square is (1 + a^2)^2 e^(2 b_rms^2)."""
-
-    def rms(component: str) -> float:
-        values = components.get(component) or {}
-        return float(values.get("amp_rms") or 0.0) if values.get("enabled", True) else 0.0
-
-    a, b = rms("antenna_gains"), rms("baseline_errors")
-    return float(np.sqrt((1.0 + a**2) ** 2 * np.exp(2.0 * b**2)))
 
 
 def _trx_needed(window: WindowNoise, forward_efficiency: float | None = None) -> float | None:

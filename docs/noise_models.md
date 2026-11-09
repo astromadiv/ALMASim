@@ -345,14 +345,8 @@ in images.
 - *Aperture efficiency.* For each dish size (12 m, 7 m), Ruze's law
   `eta_a(nu) = eta0 exp(-(4 pi eps nu / c)^2)`, the surface's rms `eps`
   costing more at higher frequency, is fitted (robustly, in log) to the
-  windows' `efficiency / eta_c`, each raised by the rms factor the model's
-  gain amplitudes put on the simulated noise, `sqrt((1 + a^2)^2 e^(2 b^2))`
-  with `a` the `antenna_gains` and `b` the `baseline_errors` amplitude rms
-  (1.023 for 0.110 and 0.102). The real noise the efficiency comes from
-  carries the real gain errors already, and the simulator scales its noise
-  by the gains again (see `antenna_gains`), so without the factor the
-  simulated noise would come out that much too high. A dish size needs at
-  least five windows (or `--min-windows`, if more).
+  windows' `efficiency / eta_c`. A dish size needs at least five windows
+  (or `--min-windows`, if more).
 
 **How the simulator applies it.** For each interferometric array
 configuration (total power keeps the S/N-scaled noise) ALMASim computes, per
@@ -363,8 +357,8 @@ radiometer equation with the window's noise bandwidth and the simulator's
 own integration time. Every visibility gets complex Gaussian noise of that
 sigma, the source keeping its modelled flux, so the S/N is what a real
 observation would reach. The exported MS's WEIGHT is
-`1 / mean over channels of (sigma^2 |g|^2 s)` (g: the gain errors below; s:
-the baseline's own noise scale, see `antenna_ripple`), as the ALMA
+`1 / mean over channels of (sigma^2 s)` (s: the baseline's own noise scale,
+see `antenna_ripple`), as the ALMA
 pipeline's `statwt` sets it. Its two hands carry independent noise, XX = I + d
 and YY = I - d, each at half the Stokes I weight. The difference d is drawn
 like I's own noise: at each visibility's own sigma (its channel's Tsys, its
@@ -605,12 +599,15 @@ base model's.
 (one per execution block) and each scan, each antenna draws an amplitude
 `1 + N(0, amp_rms)` (clipped at 0) and a phase `N(0, phase_rms_deg)`. Every
 visibility of baseline (i, j) in that scan
-has its sky part multiplied by `g(i) conj(g(j))`, and its noise by the gain's
-amplitude `|g(i) g(j)|` (as in real data, where calibration scales the noise
-with the gain; the exported WEIGHT includes it). The radiometer's aperture
-efficiencies are fitted with the noise this adds taken out, so the
-simulated noise keeps the real level on average. The draws come from the
-gains' own random stream.
+has its sky part multiplied by `g(i) conj(g(j))`; its noise and WEIGHT are
+left as they are. The gains are what calibration leaves on the sky: in
+calibrated data the noise is what the applied calibration makes it (and
+`statwt` measures), so a residual error in the gains multiplies the sky
+alone. Scaling the noise by `|g(i) g(j)|` too would spread the WEIGHTs
+over a baseline's scans by some 35% (log rms, against 6-24% between a real
+MS's rows, mostly between baselines), and natural weighting would bring
+the image noise some 5% below what the visibilities' rms noise gives. The
+draws come from the gains' own random stream.
 
 | Parameter | Meaning | alma@1 | alma@2 |
 | --- | --- | --- | --- |

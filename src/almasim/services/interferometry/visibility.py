@@ -127,12 +127,14 @@ def build_channel_visibility_rows(
         model_vis_grid = np.fft.fftshift(modelfft)
         sampled = model_vis_grid[p_v, m_u].astype(np.complex64)
         model_data[valid] = sampled
-        data[valid] = sampled * gains_flat[valid] + noise_flat[valid] * np.abs(gains_flat[valid])
+        # The gains are what calibration leaves: they scale the sky, while the
+        # noise is the calibrated data's, as the applied calibration and its
+        # weights (statwt) set it.
+        data[valid] = sampled * gains_flat[valid] + noise_flat[valid]
 
     # Each row's noise as calibrated data's weights carry it: the channel's noise
-    # times the gain amplitude the data were scaled by (1 without corruptions)
     # and the baseline's own noise scale.
-    sigma = (max(float(noise_std), 1e-12) * np.abs(gains_flat)).astype(np.float32)
+    sigma = np.full(nrows, max(float(noise_std), 1e-12), dtype=np.float32)
     if noise_scale is not None:
         sigma *= np.repeat(np.asarray(noise_scale, dtype=np.float32), nH)
     weight = (1.0 / np.square(np.maximum(sigma, 1e-12))).astype(np.float32)
