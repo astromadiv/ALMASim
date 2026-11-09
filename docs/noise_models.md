@@ -339,8 +339,14 @@ in images.
 - *Aperture efficiency.* For each dish size (12 m, 7 m), Ruze's law
   `eta_a(nu) = eta0 exp(-(4 pi eps nu / c)^2)`, the surface's rms `eps`
   costing more at higher frequency, is fitted (robustly, in log) to the
-  windows' `efficiency / eta_c`. A dish size needs at least five windows
-  (or `--min-windows`, if more).
+  windows' `efficiency / eta_c`, each raised by the rms factor the model's
+  gain amplitudes put on the simulated noise, `sqrt((1 + a^2)^2 e^(2 b^2))`
+  with `a` the `antenna_gains` and `b` the `baseline_errors` amplitude rms
+  (1.023 for 0.110 and 0.102). The real noise the efficiency comes from
+  carries the real gain errors already, and the simulator scales its noise
+  by the gains again (see `antenna_gains`), so without the factor the
+  simulated noise would come out that much too high. A dish size needs at
+  least five windows (or `--min-windows`, if more).
 
 **How the simulator applies it.** For each interferometric array
 configuration (total power keeps the S/N-scaled noise) ALMASim computes, per
@@ -498,7 +504,8 @@ window's averaging N (from the archive's spectral resolution, unless
 `average` sets it; see [Noise](noise.md#channels)), then builds a three-tap
 kernel (a, b, a) with unit norm whose output has those correlations
 (rho1 = 2ab, rho2 = a^2; when no such kernel exists, the one that matches
-rho1), and makes each channel's noise as `a w(k-1) + b w(k) + a w(k+1)` from
+rho1, as for averaged channels, whose rho2 is 0: 16 averaged channels keep
+their rho1 of 0.026), and makes each channel's noise as `a w(k-1) + b w(k) + a w(k+1)` from
 white draws `w`, each keyed by its channel, so that channel tasks running
 separately share their neighbours' draws. The exported MS's hands get the
 same kernel: real correlators smooth each polarisation on its own, so
@@ -594,7 +601,9 @@ base model's.
 visibility of baseline (i, j) in that scan
 has its sky part multiplied by `g(i) conj(g(j))`, and its noise by the gain's
 amplitude `|g(i) g(j)|` (as in real data, where calibration scales the noise
-with the gain; the exported WEIGHT includes it). The draws come from the
+with the gain; the exported WEIGHT includes it). The radiometer's aperture
+efficiencies are fitted with the noise this adds taken out, so the
+simulated noise keeps the real level on average. The draws come from the
 gains' own random stream.
 
 | Parameter | Meaning | alma@1 |

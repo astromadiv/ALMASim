@@ -5,6 +5,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
+from almasim.services.instrument.channels import averaged_correlation
 from almasim.services.interferometry.corruptions import (
     AntennaCorruptions,
     CorruptionModel,
@@ -58,6 +59,15 @@ def test_kernel_matches_rho1_when_rho2_disagrees():
     assert 2 * kernel[0] * kernel[1] == pytest.approx(0.3, abs=1e-6)
     with pytest.raises(ValueError):
         spectral_kernel(0.5, 0.4)
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("averaged", [2, 4, 8, 16, 32])
+def test_averaged_channels_keep_their_rho1(averaged):
+    rho1, rho2 = averaged_correlation(averaged)
+    kernel = spectral_kernel(rho1, rho2)
+    assert 2 * kernel[0] * kernel[1] == pytest.approx(rho1, rel=1e-6)
+    assert np.sum(kernel**2) == pytest.approx(1.0)
 
 
 @pytest.mark.unit

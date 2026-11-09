@@ -297,7 +297,7 @@ windows each comes from and their 16-84% spread in `provenance.values`:
 | `receiver_ripple` rms | the smooth part (Legendre modes 1-4) of the noise profile over SYSCAL's Tsys², halved |
 | `antenna_ripple` rms, scale_mhz | each antenna's noise shape, windows wider than 1 GHz |
 | `radiometer` receiver temperatures | per band, the Trx that gives SYSCAL's median Tsys under the simulator's Tsys model, the base model's equation (12 m windows, their PWV and elevation) |
-| `radiometer` aperture | per dish size, Ruze's law fitted to the efficiency the noise and Tsys imply |
+| `radiometer` aperture | per dish size, Ruze's law fitted to the efficiency the noise and Tsys imply, raised by the noise the model's gain amplitudes add in the simulator |
 | `slow_phase`, `fast_phase`, `antenna_gains`, `baseline_errors` | `noise fit` |
 
 A value fewer than `--min-windows` (3) windows measure keeps the base
