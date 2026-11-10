@@ -110,6 +110,8 @@ Each block's track ([`interferometry/observing.py`](../src/almasim/services/inte
 | scans | the time on source in scans of about 170 s | `scans` (`--scans`) | median 167 s between gaps |
 | span, first scan's start to last scan's end | 1.27 times the time on source, never less than it | `track_span_s` (`--track-span`, seconds) | median 1.27 |
 
+The samples observe the block's time on source in full. Their length is the shortest of 6, 8.064, 18.144 and 30.24 s that keeps the simulated blocks within 200 samples (30.24 s when none does), stretched or shrunk so that a whole number of them fills the time on source: a 16 s block is three samples of 5.4 s, a 4 s block one of 4 s ([`observing.py`](../src/almasim/services/interferometry/observing.py), `exact_samples`). Each visibility's radiometer noise is over its sample's length.
+
 The scans share the samples evenly and are spread evenly over the span; the gaps between them stand for the calibrators' scans and the other fields'. A metadata row can give the three values as `hour_angle_h`, `track_span_s` and `scans` columns; `noise validate` gives each window the track its MS measured. With a noise model's radiometer noise, the target's mean elevation over the track sets the Tsys (`elevation_deg` overrides it).
 
 The track sets the uv coverage, and with it the beam's sidelobes and how much noise cleaning removes. A block observed in one stretch at transit has a tighter coverage and stronger sidelobes than ALMA's: on window 1 of the noise study, observed in one stretch at transit, cleaning lowers the simulated continuum's noise to 0.71 of its dirty image's, and the real continuum's (ten scans over 57 minutes) to 0.83.

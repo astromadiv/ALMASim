@@ -14,7 +14,7 @@ from .. import interferometry as uin
 from ..instrument.constants import ALMA_LATITUDE_DEG
 from ..interferometry.atmosphere import receiver_ripple
 from ..interferometry.corruptions import CorruptionModel
-from ..interferometry.observing import Track, execution_track, hour_angle_samples
+from ..interferometry.observing import Track, exact_samples, execution_track, hour_angle_samples
 from .geometry import CubeGeometry
 from .params import SimulationParams
 from .rng import run_rng
@@ -191,7 +191,7 @@ def plan_observation_runs(
         )
         execution_time_s = config.total_time_s / n_executions
         _, sample_time_s = hour_angle_samples(execution_time_s * simulated)
-        samples = max(1, int(execution_time_s / sample_time_s))
+        samples, sample_time_s = exact_samples(execution_time_s, sample_time_s)
         lat_rad, dec_rad = math.radians(ALMA_LATITUDE_DEG), math.radians(float(params.dec))
         tracks = [
             execution_track(

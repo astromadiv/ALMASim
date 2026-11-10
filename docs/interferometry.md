@@ -13,7 +13,7 @@ The main code is in [`src/almasim/services/interferometry`](../src/almasim/servi
 | `core.py` | `Interferometer`: one interferometric run, from antenna positions to products |
 | `simulator.py` | the channel-by-channel imaging the `Interferometer` scatters over the compute backend |
 | `imaging.py` | per-channel uv gridding, primary beam, dirty beam and dirty image |
-| `observing.py` | the hour-angle track: number of samples, scan time, each execution block's track (`Track`, `execution_track`: its scans, their hour angles and span) and when the source is at each hour angle |
+| `observing.py` | the hour-angle track: number of samples and their length, which together observe the time on source in full (`exact_samples`), each execution block's track (`Track`, `execution_track`: its scans, their hour angles and span) and when the source is at each hour angle |
 | `antenna.py` | antenna configurations, maximum baseline, beam size estimates |
 | `baselines.py` | baseline preparation |
 | `frequency.py` | the spectral window from the metadata's frequency support |
