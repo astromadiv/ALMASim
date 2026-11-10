@@ -982,7 +982,7 @@ almasim noise validate --model noise/candidate.json --windows windows.csv \
 
 For each window, ALMASim simulates it from its archive row with the
 candidate (a point source at the window's frequency, with its channels, up
-to 960 of them, and their averaging as its MS gives them, one execution
+to 1024 of them, and their averaging as its MS gives them, one execution
 block). The source is as bright as the real image's continuum peak, so its
 cleaning residuals are those of the real field (see below). ALMASim then
 flags whole rows of the simulated MS, drawn at random, until it misses as

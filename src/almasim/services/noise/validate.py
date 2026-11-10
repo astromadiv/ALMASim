@@ -38,7 +38,7 @@ from .measurements import WindowNoise
 SIM_WINDOW = "sim_window.json"
 SIM_IMAGE = "sim_image.json"
 REAL_IMAGE = "real_image.json"
-MAX_CHANNELS = 960
+MAX_CHANNELS = 1024  # an ACA spectral window's: the continuum's noise follows the bandwidth
 SKY_PIXELS = 256  # the simulated sky model's pixels across: the source is a point
 UV_MARGIN = 1.05  # the model's uv grid reaches this far past the longest baseline
 MAX_UNIMAGED = 0.95  # the most of a simulated window's data flag_as_imaged flags

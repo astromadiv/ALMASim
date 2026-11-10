@@ -435,6 +435,13 @@ def test_a_window_is_simulated_from_its_row_with_the_model(monkeypatch, tmp_path
     assert params.n_channels == 64 and params.ms_export
     assert params.freq_support == row["Freq.sup."]  # no resolution measured: the row's
     assert params.int_time == pytest.approx(600.0) and params.n_executions == 1
+    # An ACA spectral window's 1024 channels, all of them: the continuum's noise
+    # follows the bandwidth simulated.
+    aca = window.model_copy(
+        update={"exposure": window.exposure.model_copy(update={"channels": 1024})}
+    )
+    v.simulate(row, aca, model, tmp_path / "run", seed=5)
+    assert seen["params"].n_channels == 1024
 
 
 @pytest.mark.unit
