@@ -224,6 +224,7 @@ def _radiometer(
 
     apertures = {float(d): (eta0, rms) for d, (eta0, rms) in (config.ruze or noise._RUZE).items()}
     correlator = config.correlator_efficiency
+    kept: set[float] = set()  # dishes whose aperture stays the base's
     for diameter in sorted(apertures):
         points = [
             (w.exposure.frequency_ghz * 1e9, w.visibility.efficiency / correlator)
@@ -236,6 +237,7 @@ def _radiometer(
         key = f"radiometer.aperture[{diameter:g} m]"
         if fitted is None:
             notes.append(f"{key}: {len(points)} window(s), kept the base's")
+            kept.add(diameter)
             continue
         apertures[diameter] = fitted
         efficiencies = [p[1] for p in points]
@@ -253,7 +255,19 @@ def _radiometer(
         for d, (e, r) in sorted(apertures.items(), reverse=True)
     ]
     scales = _efficiency_scales(windows, rows, edges, apertures, correlator)
-    radiometer["efficiency_scale"] = _scale_rows(scales, rows, stats, notes, min_windows) or None
+    fitted_rows = _scale_rows(
+        {key: v for key, v in scales.items() if key[0] not in kept}, rows, stats, notes, min_windows
+    )
+    # A scale is relative to its dish's Ruze curve: a dish that keeps the
+    # base's aperture keeps the base's scale rows with it.
+    base_rows = [
+        r
+        for r in radiometer.get("efficiency_scale") or []
+        if any(round(r["diameter_m"]) == round(d) for d in kept)
+    ]
+    # Stable sort: each dish's rows keep their rising edges.
+    merged = sorted(fitted_rows + base_rows, key=lambda r: -r["diameter_m"])
+    radiometer["efficiency_scale"] = merged or None
 
 
 def _efficiency_scales(

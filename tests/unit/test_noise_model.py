@@ -152,10 +152,10 @@ def test_products_record_the_model_that_made_them(tmp_path):
 
     params = _params(tmp_path, noise_model="alma")
     line = _noise_model_line(params)
-    assert line == f"alma@2 (sha256 {released_model('alma').sha256()})"  # the newest
+    assert line == f"alma@3 (sha256 {released_model('alma').sha256()})"  # the newest
     assert _noise_model_line(_params(tmp_path)) is None
     identity = released_model("alma").identity()
-    assert identity["label"] == "alma@2" and identity["components"] == list(COMPONENT_NAMES)
+    assert identity["label"] == "alma@3" and identity["components"] == list(COMPONENT_NAMES)
     spec = history_table("p", np.array([0.0, 1.0]), (f"noise_model={json.dumps(identity)}",))
     assert list(spec.values["APP_PARAMS"])[1].startswith("noise_model=")
     assert list(history_table("p", np.array([0.0, 1.0])).values["APP_PARAMS"]) == ["p"]
