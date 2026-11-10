@@ -87,6 +87,16 @@ class Radiometer(NoiseComponent):
     )
     quantisation_efficiency: float | None = Field(default=None, gt=0, le=1)
     correlator_efficiency: float | None = Field(default=None, gt=0, le=1)
+    tdm_efficiency: float | None = Field(
+        default=None,
+        gt=0,
+        le=2,
+        description=(
+            "A factor on the correlator efficiency of TDM windows (native channels of "
+            "7.8125 MHz or wider): what their measured efficiency departs from FDM "
+            "windows' of the same dish and band; unset: 1."
+        ),
+    )
     forward_efficiency: float | None = Field(
         default=None,
         gt=0,
@@ -121,7 +131,7 @@ class Radiometer(NoiseComponent):
     def _without_unset_forward_efficiency(self, handler: Any) -> dict[str, Any]:
         # A model that leaves them unset keeps the identity (sha256) it has without them.
         data = handler(self)
-        for field in ("forward_efficiency", "efficiency_scale"):
+        for field in ("forward_efficiency", "efficiency_scale", "tdm_efficiency"):
             if getattr(self, field) is None:
                 data.pop(field, None)
         return data
@@ -152,6 +162,8 @@ class Radiometer(NoiseComponent):
             values["correlator_efficiency"] = (
                 self.quantisation_efficiency or instrument["quantisation_efficiency"]
             ) * (self.correlator_efficiency or instrument["correlator_efficiency"])
+        if self.tdm_efficiency is not None:
+            values["tdm_efficiency"] = self.tdm_efficiency
         if self.forward_efficiency is not None:
             values["forward_efficiency"] = self.forward_efficiency
         return values

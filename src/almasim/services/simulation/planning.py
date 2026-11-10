@@ -223,6 +223,7 @@ def plan_observation_runs(
                     params.elevation_deg
                     or track.mean_elevation_deg(samples, sample_time_s, lat_rad, dec_rad),
                     antenna_diameter_m=config.antenna_diameter_m,
+                    tdm=geometry.tdm,
                 )
                 * (1.0 + ripple)
                 for track in tracks

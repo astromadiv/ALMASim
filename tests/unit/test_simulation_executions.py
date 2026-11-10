@@ -73,6 +73,7 @@ def _plan(
         observation_plan=SimpleNamespace(configs=configs, elevation_deg=60.0),
         channel_width_hz=1e6,
         noise_bandwidth_hz=1e6,
+        tdm=False,
         central_freq=100 * U.GHz,
         band_range=8 * U.MHz,
         fov=SimpleNamespace(value=20.0),

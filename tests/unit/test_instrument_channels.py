@@ -36,6 +36,20 @@ def test_resolution_gives_the_width_and_the_averaging(
     )
 
 
+@pytest.mark.parametrize(
+    ("resolution_khz", "bandwidth_mhz", "tdm"),
+    [
+        (31250.00, 2000.0, True),  # TDM, 128 channels
+        (62500.00, 2000.0, True),  # TDM, 64 channels
+        (122.07, 62.5, False),
+        (2257.81, 937.5, False),  # FDM's widest native channels, 976.6 kHz
+        (7812.01, 1875.0, False),
+    ],
+)
+def test_tdm_windows_have_wide_native_channels(resolution_khz, bandwidth_mhz, tdm):
+    assert channels_from_resolution(resolution_khz * 1e3, bandwidth_mhz * 1e6).tdm is tdm
+
+
 def test_a_resolution_off_the_grid_is_the_width():
     assert channels_from_resolution(1e6, 2e9) == Channels(1e6)
 
