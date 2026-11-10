@@ -53,6 +53,17 @@ class Aperture(BaseModel):
     surface_rms_m: float = Field(ge=0, lt=1e-3, description="Surface rms (m).")
 
 
+class EfficiencyScale(BaseModel):
+    """A factor on one dish's aperture efficiency for the frequencies up to an edge."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    diameter_m: float = Field(gt=0, description="Dish diameter (m).")
+    upper_ghz: float | None = Field(gt=0, description="Upper edge (GHz); null: no edge.")
+    scale: float = Field(gt=0, le=2, description="Factor on the Ruze efficiency.")
+    bands: str = Field(default="", description="The ALMA bands it covers.")
+
+
 class Radiometer(NoiseComponent):
     """Each visibility's thermal noise from the radiometer equation (Tsys,
     channel noise bandwidth, integration, dish), the source keeping its flux,
@@ -65,6 +76,14 @@ class Radiometer(NoiseComponent):
     )
     aperture: tuple[Aperture, ...] | None = Field(
         default=None, description="Each dish size's Ruze parameters."
+    )
+    efficiency_scale: tuple[EfficiencyScale, ...] | None = Field(
+        default=None,
+        description=(
+            "Factors on each dish's Ruze efficiency by frequency, edges rising per dish: "
+            "what the measured efficiency of a band's windows departs from the curve; "
+            "a dish or frequency without a row takes 1."
+        ),
     )
     quantisation_efficiency: float | None = Field(default=None, gt=0, le=1)
     correlator_efficiency: float | None = Field(default=None, gt=0, le=1)
@@ -85,14 +104,26 @@ class Radiometer(NoiseComponent):
             edges = [r.upper_ghz if r.upper_ghz is not None else float("inf") for r in rows]
             if not rows or edges != sorted(edges) or len(set(edges)) != len(edges):
                 raise ValueError("receiver_temperature_k: edges must rise, at most one null last")
+        for diameter in {s.diameter_m for s in self.efficiency_scale or ()}:
+            edges = [
+                s.upper_ghz if s.upper_ghz is not None else float("inf")
+                for s in self.efficiency_scale or ()
+                if s.diameter_m == diameter
+            ]
+            if edges != sorted(edges) or len(set(edges)) != len(edges):
+                raise ValueError(
+                    f"efficiency_scale: the {diameter:g} m dish's edges must rise, "
+                    "at most one null last"
+                )
         return self
 
     @model_serializer(mode="wrap")
     def _without_unset_forward_efficiency(self, handler: Any) -> dict[str, Any]:
-        # A model that leaves it unset keeps the identity (sha256) it has without it.
+        # A model that leaves them unset keeps the identity (sha256) it has without them.
         data = handler(self)
-        if self.forward_efficiency is None:
-            data.pop("forward_efficiency", None)
+        for field in ("forward_efficiency", "efficiency_scale"):
+            if getattr(self, field) is None:
+                data.pop(field, None)
         return data
 
     def engine_fields(self) -> dict[str, Any]:
@@ -110,6 +141,12 @@ class Radiometer(NoiseComponent):
             )
         if self.aperture is not None:
             values["ruze"] = {a.diameter_m: (a.eta0, a.surface_rms_m) for a in self.aperture}
+        if self.efficiency_scale is not None:
+            table: dict[float, list[tuple[float, float]]] = {}
+            for s in self.efficiency_scale:
+                edge = float("inf") if s.upper_ghz is None else s.upper_ghz
+                table.setdefault(s.diameter_m, []).append((edge, s.scale))
+            values["efficiency_scale"] = {d: tuple(rows) for d, rows in table.items()}
         if self.quantisation_efficiency is not None or self.correlator_efficiency is not None:
             instrument = noise.instrument_radiometer()
             values["correlator_efficiency"] = (

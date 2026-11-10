@@ -16,8 +16,8 @@ how:
 - radiometer: the receiver temperature per band edge that ALMA's Tsys
   implies under the simulator's Tsys model (12 m windows, PWV and the
   target's elevation), and each dish size's Ruze aperture efficiency fitted
-  to the efficiency the noise and Tsys imply, raised by the noise the model's
-  gain amplitudes add in the simulator (the real noise carries the real ones);
+  to the efficiency the noise and Tsys imply, with a factor per dish and
+  band where the band's windows depart from that curve (efficiency_scale);
 - slow_phase, fast_phase, antenna_gains, baseline_errors: the fits.
 
 The research that set alma@1 did the same by hand (research/noise_realism).
@@ -195,7 +195,9 @@ def _radiometer(
     notes: list[str],
     min_windows: int,
 ) -> None:
-    """The receiver temperature per band edge and each dish's Ruze parameters."""
+    """The receiver temperature per band edge, each dish's Ruze parameters and,
+    per dish and band, the factor by which the band's windows depart from the
+    Ruze curve (``efficiency_scale``)."""
     from ..interferometry import noise
 
     config = noise.NoiseModelConfig(pwv_mm=1.0, **base.noise_config())
@@ -250,6 +252,74 @@ def _radiometer(
         {"diameter_m": d, "eta0": e, "surface_rms_m": r}
         for d, (e, r) in sorted(apertures.items(), reverse=True)
     ]
+    scales = _efficiency_scales(windows, rows, edges, apertures, correlator)
+    radiometer["efficiency_scale"] = _scale_rows(scales, rows, stats, notes, min_windows) or None
+
+
+def _efficiency_scales(
+    windows: Sequence[WindowNoise],
+    rows: list[dict[str, Any]],
+    edges: np.ndarray,
+    apertures: dict[float, tuple[float, float]],
+    correlator: float,
+) -> dict[tuple[float, int], list[float]]:
+    """Per (dish, band row), each window's measured efficiency over the dish's
+    Ruze curve at the window's frequency: what one curve per dish leaves of a
+    band's efficiency (the receivers' and correlator's own, band by band)."""
+    from ..interferometry import noise
+
+    ratios: dict[tuple[float, int], list[float]] = {}
+    for w in windows:
+        diameter = next(
+            (d for d in apertures if round(d) == round(w.exposure.dish_diameter_m)), None
+        )
+        if diameter is None or not w.visibility.efficiency:
+            continue
+        hz = w.exposure.frequency_ghz * 1e9
+        curve = noise.aperture_efficiency(hz, diameter, {diameter: apertures[diameter]})
+        row = min(
+            int(np.searchsorted(edges, w.exposure.frequency_ghz, side="right")), len(rows) - 1
+        )
+        measured = w.visibility.efficiency / correlator
+        ratios.setdefault((diameter, row), []).append(measured / curve)
+    return ratios
+
+
+def _scale_rows(
+    ratios: dict[tuple[float, int], list[float]],
+    rows: list[dict[str, Any]],
+    stats: dict[str, ValueStats],
+    notes: list[str],
+    min_windows: int,
+) -> list[dict[str, Any]]:
+    """The efficiency_scale rows: per dish with a band of at least
+    ``max(min_windows, 3)`` windows, every band row, the band's median ratio
+    where it has that many windows and 1 elsewhere."""
+    needed = max(min_windows, 3)
+    out: list[dict[str, Any]] = []
+    for diameter in sorted({d for d, _ in ratios}, reverse=True):
+        fitted: dict[int, float] = {}
+        for k, row in enumerate(rows):
+            values = ratios.get((diameter, k), [])
+            key = f"radiometer.efficiency_scale[{diameter:g} m][{row.get('bands') or k}]"
+            if len(values) < needed:
+                if values:
+                    notes.append(f"{key}: {len(values)} window(s), kept 1")
+                continue
+            stats[key] = _stats(values)
+            fitted[k] = stats[key].median
+        if not fitted:
+            continue
+        out += [
+            {
+                "diameter_m": diameter,
+                "upper_ghz": row["upper_ghz"],
+                "scale": fitted.get(k, 1.0),
+                "bands": row.get("bands", ""),
+            }
+            for k, row in enumerate(rows)
+        ]
+    return out
 
 
 def _trx_needed(window: WindowNoise, forward_efficiency: float | None = None) -> float | None:

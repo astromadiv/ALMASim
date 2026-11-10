@@ -23,6 +23,8 @@ C_M_S = 299_792_458.0
 _INSTRUMENT = json.loads((Path(__file__).parent / "data" / "alma_radiometer.json").read_text())
 ReceiverTable = tuple[tuple[float, float], ...]
 RuzeTable = Mapping[float, tuple[float, float]]
+# Per dish diameter, (upper edge in GHz, factor) rows, edges rising.
+EfficiencyTable = Mapping[float, tuple[tuple[float, float], ...]]
 _RECEIVER_TEMPERATURE_K: ReceiverTable = tuple(
     (np.inf if row["upper_ghz"] is None else float(row["upper_ghz"]), float(row["trx_k"]))
     for row in _INSTRUMENT["receiver_temperature_k"]
@@ -65,6 +67,9 @@ class NoiseModelConfig:
     # None: ALMA's (data/alma_radiometer.json).
     receiver_temperatures: ReceiverTable | None = None
     ruze: RuzeTable | None = None
+    # Factors on the Ruze efficiency by dish and frequency (efficiency_scale());
+    # None: 1.
+    efficiency_scale: EfficiencyTable | None = None
     # The dishes' forward efficiency; set: Tsys from the ALMA Technical
     # Handbook's equations (atmosphere.system_temperature).
     forward_efficiency: float | None = None
@@ -94,6 +99,22 @@ def aperture_efficiency(
     ruze = _RUZE if ruze is None else ruze
     eta0, rms_m = ruze.get(round(float(antenna_diameter_m), 1), ruze.get(12.0, _RUZE[12.0]))
     return float(eta0 * np.exp(-((4 * np.pi * rms_m * float(frequency_hz) / C_M_S) ** 2)))
+
+
+def efficiency_scale(
+    frequency_hz: float, antenna_diameter_m: float, table: EfficiencyTable | None = None
+) -> float:
+    """The factor on a dish's Ruze efficiency at ``frequency_hz``: its row of
+    ``table`` whose edge is the first above the frequency (the last row past
+    every edge); 1 without a table or a row for the dish."""
+    rows = (table or {}).get(round(float(antenna_diameter_m), 1))
+    if not rows:
+        return 1.0
+    ghz = float(frequency_hz) / 1e9
+    for edge, scale in rows:
+        if ghz < edge:
+            return float(scale)
+    return float(rows[-1][1])
 
 
 def estimate_sky_temperature_k(
@@ -145,11 +166,13 @@ def system_equivalent_flux_density(
         tsys = np.clip(trx + tsky, 1.0, None)
 
     area_m2 = np.pi * (antenna_diameter_m / 2.0) ** 2
+    centre = float(np.mean(freqs_hz))
     efficiency = (
         config.aperture_efficiency
         if config.aperture_efficiency is not None
         # One efficiency for the window: it changes by well under 1% across one.
-        else aperture_efficiency(float(np.mean(freqs_hz)), antenna_diameter_m, config.ruze)
+        else aperture_efficiency(centre, antenna_diameter_m, config.ruze)
+        * efficiency_scale(centre, antenna_diameter_m, config.efficiency_scale)
     )
     a_eff = max(area_m2 * efficiency, 1e-6)
     return (2.0 * K_B * tsys / a_eff) / JY

@@ -389,3 +389,28 @@ def test_the_track_is_its_scans_over_their_span(fake_ms):
     lst = Time(middle / 86400.0, format="mjd").sidereal_time("apparent", alma_location().lon)
     expected = (lst.rad - 1.25 + np.pi) % (2 * np.pi) - np.pi
     assert e.hour_angle_h == pytest.approx(expected * 12 / np.pi, abs=1e-6)
+
+
+@pytest.mark.unit
+def test_the_efficiency_follows_the_tsys_the_noise_does():
+    """The noise is the rms over the channels, each following its own Tsys:
+    the efficiency it implies takes the Tsys spectrum's rms, not its median,
+    so a window on an atmospheric line's wing keeps its efficiency."""
+    from types import SimpleNamespace
+
+    from almasim.services.noise.measurements import Tsys
+
+    on = np.linspace(80.0, 120.0, 101)  # Tsys rising across the window
+    tsys = Tsys(
+        median_k=float(np.median(on)), profile=list(on**2 / np.mean(on**2)), spectral_window=1
+    )
+    assert extract.rms_tsys_k(tsys) == pytest.approx(np.sqrt(np.mean(on**2)), rel=1e-6)
+    flat = Tsys(median_k=100.0, profile=[1.0] * 101, spectral_window=1)
+    assert extract.rms_tsys_k(flat) == 100.0
+    exposure = SimpleNamespace(
+        integration_s=6.0, channel_width_hz=1e6, noise_bandwidth_hz=1e6, dish_diameter_m=12.0
+    )
+    sums = SimpleNamespace(stokes_sum=4.0, stokes_count=4, hands_identical=False)
+    sloped = extract._visibility(sums, exposure, tsys).efficiency
+    level = extract._visibility(sums, exposure, flat).efficiency
+    assert sloped / level == pytest.approx(np.sqrt(np.mean(on**2)) / 100.0, rel=1e-6)

@@ -36,6 +36,7 @@ def _window(
     trx: float = 40.0,
     ripple: float = 0.02,
     forward_efficiency: float | None = None,
+    efficiency_scale: float = 1.0,
 ) -> WindowNoise:
     rng = np.random.default_rng(k)
     x = np.linspace(-1, 1, NCHAN)
@@ -55,6 +56,7 @@ def _window(
     )
     eta0, eps = (0.75, 26e-6) if dish == 12 else (0.7, 24e-6)
     aperture = eta0 * np.exp(-((4 * np.pi * eps * ghz * 1e9 / C) ** 2)) * rng.normal(1, 0.02)
+    aperture *= efficiency_scale  # the band's own departure from the dish's curve
     return WindowNoise(
         name=f"w{k}",
         almasim_version="test",

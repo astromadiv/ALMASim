@@ -497,6 +497,19 @@ def _tsys(table: Any, ms: Path, spw: int, chan_freq: np.ndarray) -> Tsys:
     )
 
 
+def rms_tsys_k(tsys: Tsys) -> float:
+    """The rms of the window's Tsys spectrum: the Tsys the noise follows. The
+    noise is the rms over the channels, each channel's noise following its own
+    Tsys, so near an atmospheric line, where Tsys climbs across the window,
+    the median Tsys understates it. The profile is Tsys^2 over its mean, so
+    the median Tsys over the square root of the profile's median is the rms."""
+    profile = np.asarray(tsys.profile, dtype=float)
+    profile = profile[np.isfinite(profile) & (profile > 0)]
+    if profile.size == 0:
+        return tsys.median_k
+    return float(tsys.median_k / np.sqrt(np.median(profile)))
+
+
 def _visibility(sums: _Sums, exposure: Exposure, tsys: Tsys | None) -> VisibilityNoise:
     if sums.stokes_count == 0:
         raise ValueError("no unflagged Stokes I channel differences")
@@ -506,7 +519,7 @@ def _visibility(sums: _Sums, exposure: Exposure, tsys: Tsys | None) -> Visibilit
     if tsys is not None and unit > 0:
         area = np.pi * (exposure.dish_diameter_m / 2.0) ** 2
         ratio = exposure.noise_bandwidth_hz / exposure.channel_width_hz
-        efficiency = float(2 * K_B * tsys.median_k / (2 * area * unit) / JY / np.sqrt(ratio))
+        efficiency = float(2 * K_B * rms_tsys_k(tsys) / (2 * area * unit) / JY / np.sqrt(ratio))
     return VisibilityNoise(
         sigma_jy=sigma,
         unit_jy=unit,
