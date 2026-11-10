@@ -10,9 +10,9 @@
     "source": "workflow run 41708637706, commit 9dcccee7; MADIV-28: Each execution block observes on a track of its own (#538)"
   },
   "simulation_baseline": {
-    "url": "https://github.com/astromadiv/ALMASim/releases/download/golden-baseline-v16/golden-simulation-v16.tar.gz",
-    "sha256": "6257e1808bb9f7a0791751de7219fd558e40dc783058901766a056899bd2ceed",
-    "version": "v16",
-    "source": "workflow run 41708637706, commit 9dcccee7; MADIV-28: Each execution block observes on a track of its own (#538)"
+    "url": "https://github.com/astromadiv/ALMASim/releases/download/golden-baseline-v17/golden-simulation-v17.tar.gz",
+    "sha256": "eee08289b046dabbd1a4cd006507562debe67fc3abc2364ced01309bee0b2a67",
+    "version": "v17",
+    "source": "workflow run 42800271858, commit 5e76dc3a; MADIV-28: The simulated samples observe the whole time on source (#555)"
   }
 }
