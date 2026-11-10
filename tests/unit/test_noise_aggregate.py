@@ -205,6 +205,10 @@ def test_too_few_windows_keep_the_base():
     assert candidate.label() == "trial@7"
     assert candidate.components == base.components
     assert "kept the base's" in candidate.provenance.notes
+    # Kept apertures keep the scales relative to them (alma@3 sets both dishes').
+    scales = released_model("alma", 3).components.radiometer.efficiency_scale
+    kept = aggregate([Measured(_window(0))], released_model("alma", 3)).components.radiometer
+    assert scales and kept.efficiency_scale == scales
 
 
 @pytest.mark.unit
