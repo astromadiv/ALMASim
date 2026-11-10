@@ -9,7 +9,7 @@ import pytest
 from typer.testing import CliRunner
 
 from almasim.services.interferometry.atmosphere import system_temperature
-from almasim.services.noise.aggregate import Measured, aggregate, gain_noise_factor
+from almasim.services.noise.aggregate import Measured, aggregate
 from almasim.services.noise.measurements import (
     AntennaShape,
     Exposure,
@@ -163,27 +163,20 @@ def test_the_candidate_takes_the_windows_medians():
 
 
 @pytest.mark.unit
-def test_the_aperture_leaves_room_for_the_gains_noise():
-    """The simulator scales its noise by the gains' amplitude, and the real
-    noise the efficiencies come from carries the real gains already: the
-    aperture is fitted that much higher."""
+def test_the_aperture_does_not_depend_on_the_gains():
+    """The residual gains scale the simulated sky, not its noise: the aperture
+    fitted to the real noise is the same with or without them."""
     windows = [Measured(_window(20 + k, ghz=100.0 + 60 * k), _fit(k)) for k in range(6)]
     base = released_model("alma", 1)
     with_gains = aggregate(windows, base)
     without = aggregate(windows, base.select(without=["antenna_gains", "baseline_errors"]))
-    c = with_gains.components
-    a, b = c.antenna_gains.amp_rms, c.baseline_errors.amp_rms
-    factor = np.sqrt((1 + a**2) ** 2 * np.exp(2 * b**2))
-    assert factor > 1.005
-    assert gain_noise_factor(with_gains.model_dump()["components"]) == pytest.approx(factor)
-    assert gain_noise_factor(without.model_dump()["components"]) == 1.0
+    assert with_gains.components.antenna_gains.amp_rms > 0
 
     def dish(model):
         return {x.diameter_m: x for x in model.components.radiometer.aperture}[12.0]
 
-    assert dish(with_gains).eta0 / dish(without).eta0 == pytest.approx(factor, rel=1e-4)
-    assert dish(with_gains).surface_rms_m == pytest.approx(dish(without).surface_rms_m, rel=1e-3)
-    assert "the gains' noise" in with_gains.provenance.notes
+    assert dish(with_gains).eta0 == pytest.approx(dish(without).eta0, rel=1e-9)
+    assert "gains" not in with_gains.provenance.notes
 
 
 @pytest.mark.unit

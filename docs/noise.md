@@ -162,8 +162,10 @@ follows from the observation. A 12 m visibility at 230 GHz over 15.6 MHz and
 or CASA, to the S/N a real observation of that source would reach.
 
 The exported MS's WEIGHT is `1 / mean(sigma^2)` over a row's channels, with
-sigma scaled by the gain amplitude the data were multiplied by and by the
-baseline's own noise scale (below), as the ALMA pipeline's `statwt` sets it.
+sigma scaled by the baseline's own noise scale (below), as the ALMA
+pipeline's `statwt` sets it. The residual gain errors scale the sky, not the
+noise: in calibrated data the noise is what the applied calibration makes
+it, and a residual error in the gains multiplies the sky alone.
 Its two hands, XX and YY, each carry their own noise at each visibility's
 sigma and with the window's channel correlation, as two real polarisations
 do; (XX + YY) / 2 is the simulated Stokes I. See
@@ -298,7 +300,7 @@ windows each comes from and their 16-84% spread in `provenance.values`:
 | `receiver_ripple` rms | the smooth part (Legendre modes 1-4) of the noise profile over SYSCAL's Tsys², halved |
 | `antenna_ripple` rms, scale_mhz | each antenna's noise shape, windows wider than 1 GHz |
 | `radiometer` receiver temperatures | per band, the Trx that gives SYSCAL's median Tsys under the simulator's Tsys model, the base model's equation (12 m windows, their PWV and elevation) |
-| `radiometer` aperture | per dish size, Ruze's law fitted to the efficiency the noise and Tsys imply, raised by the noise the model's gain amplitudes add in the simulator |
+| `radiometer` aperture | per dish size, Ruze's law fitted to the efficiency the noise and Tsys imply |
 | `radiometer` efficiency_scale | per dish size and band of at least three windows, the median of the windows' efficiency over that curve |
 | `slow_phase`, `fast_phase`, `antenna_gains`, `baseline_errors` | `noise fit` |
 

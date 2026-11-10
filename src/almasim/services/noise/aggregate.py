@@ -16,8 +16,8 @@ how:
 - radiometer: the receiver temperature per band edge that ALMA's Tsys
   implies under the simulator's Tsys model (12 m windows, PWV and the
   target's elevation), and each dish size's Ruze aperture efficiency fitted
-  to the efficiency the noise and Tsys imply, raised by the noise the model's
-  gain amplitudes add in the simulator (the real noise carries the real ones);
+  to the efficiency the noise and Tsys imply, with a factor per dish and
+  band where the band's windows depart from that curve (efficiency_scale);
 - slow_phase, fast_phase, antenna_gains, baseline_errors: the fits.
 
 The research that set alma@1 did the same by hand (research/noise_realism).
@@ -143,7 +143,6 @@ def aggregate(
             stats,
             notes,
             min_windows,
-            gain_noise=gain_noise_factor(components),
         )
 
     return NoiseModel.model_validate(
@@ -195,14 +194,10 @@ def _radiometer(
     stats: dict[str, ValueStats],
     notes: list[str],
     min_windows: int,
-    *,
-    gain_noise: float = 1.0,
 ) -> None:
     """The receiver temperature per band edge, each dish's Ruze parameters and,
     per dish and band, the factor by which the band's windows depart from the
-    Ruze curve (``efficiency_scale``). Each window's efficiency is taken
-    ``gain_noise`` higher: the real noise it comes from carries the real gain
-    errors, which the simulator adds again."""
+    Ruze curve (``efficiency_scale``)."""
     from ..interferometry import noise
 
     config = noise.NoiseModelConfig(pwv_mm=1.0, **base.noise_config())
@@ -231,7 +226,7 @@ def _radiometer(
     correlator = config.correlator_efficiency
     for diameter in sorted(apertures):
         points = [
-            (w.exposure.frequency_ghz * 1e9, w.visibility.efficiency / correlator * gain_noise)
+            (w.exposure.frequency_ghz * 1e9, w.visibility.efficiency / correlator)
             for w in windows
             if w.visibility.efficiency and round(w.exposure.dish_diameter_m) == round(diameter)
         ]
@@ -253,13 +248,11 @@ def _radiometer(
         stats[key + ".surface_rms_m"] = ValueStats(
             n=len(points), median=fitted[1], q16=fitted[1], q84=fitted[1]
         )
-    if gain_noise != 1.0:
-        notes.append(f"radiometer.aperture: efficiencies x {gain_noise:.4f}, the gains' noise")
     radiometer["aperture"] = [
         {"diameter_m": d, "eta0": e, "surface_rms_m": r}
         for d, (e, r) in sorted(apertures.items(), reverse=True)
     ]
-    scales = _efficiency_scales(windows, rows, edges, apertures, correlator, gain_noise)
+    scales = _efficiency_scales(windows, rows, edges, apertures, correlator)
     radiometer["efficiency_scale"] = _scale_rows(scales, rows, stats, notes, min_windows) or None
 
 
@@ -269,7 +262,6 @@ def _efficiency_scales(
     edges: np.ndarray,
     apertures: dict[float, tuple[float, float]],
     correlator: float,
-    gain_noise: float,
 ) -> dict[tuple[float, int], list[float]]:
     """Per (dish, band row), each window's measured efficiency over the dish's
     Ruze curve at the window's frequency: what one curve per dish leaves of a
@@ -288,7 +280,7 @@ def _efficiency_scales(
         row = min(
             int(np.searchsorted(edges, w.exposure.frequency_ghz, side="right")), len(rows) - 1
         )
-        measured = w.visibility.efficiency / correlator * gain_noise
+        measured = w.visibility.efficiency / correlator
         ratios.setdefault((diameter, row), []).append(measured / curve)
     return ratios
 
@@ -328,20 +320,6 @@ def _scale_rows(
             for k, row in enumerate(rows)
         ]
     return out
-
-
-def gain_noise_factor(components: dict[str, dict[str, Any]]) -> float:
-    """The rms factor by which the model's amplitude errors raise the simulated
-    noise. The simulator scales each visibility's noise by its gain's amplitude,
-    |g(i) g(j)| e^b for antenna amplitudes 1 + N(0, a) and a baseline amplitude
-    e^b with b from N(0, b_rms), whose mean square is (1 + a^2)^2 e^(2 b_rms^2)."""
-
-    def rms(component: str) -> float:
-        values = components.get(component) or {}
-        return float(values.get("amp_rms") or 0.0) if values.get("enabled", True) else 0.0
-
-    a, b = rms("antenna_gains"), rms("baseline_errors")
-    return float(np.sqrt((1.0 + a**2) ** 2 * np.exp(2.0 * b**2)))
 
 
 def _trx_needed(window: WindowNoise, forward_efficiency: float | None = None) -> float | None:
