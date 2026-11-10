@@ -326,11 +326,17 @@ in images.
   efficiency with the measured Tsys and unit noise:
 
   ```
-  eta = 2 k Tsys / (2 A unit) / sqrt(EFFECTIVE_BW / w)
+  eta = 2 k Tsys_rms / (2 A unit) / sqrt(EFFECTIVE_BW / w)
   ```
 
   (`visibility.efficiency`, with the Tsys in kelvin and the unit noise
   converted to SI; it is eta_a x eta_c, 0.4 to 0.65 on real data).
+  `Tsys_rms` is the rms of the Tsys spectrum over the window, not its median:
+  the unit noise is the rms over the channels, and each channel's noise
+  follows its own Tsys. In the wing of an atmospheric line, where Tsys
+  climbs 10-20% across a band 8 window, the median would put that rise into
+  the efficiency, and the simulator, whose noise follows the same Tsys
+  spectrum, would then count it twice.
 
 **How it becomes the model's value** (`noise aggregate`):
 
@@ -353,12 +359,20 @@ in images.
   by the gains again (see `antenna_gains`), so without the factor the
   simulated noise would come out that much too high. A dish size needs at
   least five windows (or `--min-windows`, if more).
+- *Efficiency by band.* One Ruze curve per dish does not follow every
+  band: each receiver band has its own optics, receiver and correlator
+  losses. For each dish and each row of the receiver-temperature table, the
+  median over the band's windows of their efficiency (as above) over the
+  fitted curve at their frequency becomes that band's `efficiency_scale`.
+  A band needs at least three windows (or `--min-windows`, if more) and
+  otherwise takes 1; a dish without any such band gets no rows.
 
 **How the simulator applies it.** For each interferometric array
 configuration (total power keeps the S/N-scaled noise) ALMASim computes, per
 channel, the Tsys (receiver temperature from the model's table by
 frequency, plus the sky; see `atmospheric_tsys`), the SEFD with the
-dish's Ruze efficiency at the window's mean frequency, and sigma from the
+dish's Ruze efficiency at the window's mean frequency (times its band's
+`efficiency_scale`), and sigma from the
 radiometer equation with the window's noise bandwidth and the simulator's
 own integration time. Every visibility gets complex Gaussian noise of that
 sigma, the source keeping its modelled flux, so the S/N is what a real
@@ -382,6 +396,7 @@ window follows Tsys.
 | --- | --- | --- | --- |
 | `receiver_temperature_k` | Trx by frequency: rows of `upper_ghz` (the row's upper edge, GHz; null for the last), `trx_k` (K) and `bands`, edges rising | 32 (band 1), 39 (2-3), 37 (4), 50 (5), 46 (6), 63 (7), 110 (8), 160 (9-10) | 17 (band 1), 33 (2-3), 34 (4), 47 (5), 42 (6), 65 (7), 122 (8), 105 (9), 230 (10) |
 | `aperture` | Ruze parameters per dish: rows of `diameter_m`, `eta0` and `surface_rms_m` (another diameter takes the 12 m dish's) | 12 m: 0.76, 27 um; 7 m: 0.72, 24 um | 12 m: 0.744, 30 um; 7 m: 0.738, 24 um |
+| `efficiency_scale` | factors on a dish's Ruze efficiency by frequency: rows of `diameter_m`, `upper_ghz` (as in `receiver_temperature_k`), `scale` and `bands`, edges rising per dish; a dish or frequency without a row takes 1 | not set | not set |
 | `quantisation_efficiency`, `correlator_efficiency` | eta_c = their product | 0.96 x 0.88 | 0.96 x 0.88 |
 | `forward_efficiency` | eta_f, the fraction of the beam on the sky; set, Tsys follows the ALMA Technical Handbook's equations (see `atmospheric_tsys`), the receiver temperatures of bands 9 and 10 being double sideband | not set | 0.95 |
 

@@ -110,7 +110,8 @@ class VisibilityNoise(_Record):
     efficiency: float | None = Field(
         default=None,
         description="The aperture x correlator efficiency the noise and Tsys imply: "
-        "2 k Tsys / (2 A unit) over sqrt(noise bandwidth / width).",
+        "2 k Tsys / (2 A unit) over sqrt(noise bandwidth / width), Tsys the rms of "
+        "the window's Tsys spectrum.",
     )
 
 

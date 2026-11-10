@@ -286,6 +286,51 @@
       "title": "Components",
       "type": "object"
     },
+    "EfficiencyScale": {
+      "additionalProperties": false,
+      "description": "A factor on one dish's aperture efficiency for the frequencies up to an edge.",
+      "properties": {
+        "diameter_m": {
+          "description": "Dish diameter (m).",
+          "exclusiveMinimum": 0,
+          "title": "Diameter M",
+          "type": "number"
+        },
+        "upper_ghz": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Upper edge (GHz); null: no edge.",
+          "title": "Upper Ghz"
+        },
+        "scale": {
+          "description": "Factor on the Ruze efficiency.",
+          "exclusiveMinimum": 0,
+          "maximum": 2,
+          "title": "Scale",
+          "type": "number"
+        },
+        "bands": {
+          "default": "",
+          "description": "The ALMA bands it covers.",
+          "title": "Bands",
+          "type": "string"
+        }
+      },
+      "required": [
+        "diameter_m",
+        "upper_ghz",
+        "scale"
+      ],
+      "title": "EfficiencyScale",
+      "type": "object"
+    },
     "FastPhase": {
       "additionalProperties": false,
       "description": "The atmospheric phase within each scan, which decorrelates the scan's average.",
@@ -462,6 +507,22 @@
           "default": null,
           "description": "Each dish size's Ruze parameters.",
           "title": "Aperture"
+        },
+        "efficiency_scale": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/EfficiencyScale"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Factors on each dish's Ruze efficiency by frequency, edges rising per dish: what the measured efficiency of a band's windows departs from the curve; a dish or frequency without a row takes 1.",
+          "title": "Efficiency Scale"
         },
         "quantisation_efficiency": {
           "anyOf": [

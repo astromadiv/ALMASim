@@ -80,7 +80,7 @@ candidate model can therefore be used for a run before it is released.
 
 | Component | What it adds | Parameters |
 | --- | --- | --- |
-| `radiometer` | each visibility's noise from the radiometer equation (below) | `receiver_temperature_k`, `aperture`, `quantisation_efficiency`, `correlator_efficiency`, `forward_efficiency` |
+| `radiometer` | each visibility's noise from the radiometer equation (below) | `receiver_temperature_k`, `aperture`, `efficiency_scale`, `quantisation_efficiency`, `correlator_efficiency`, `forward_efficiency` |
 | `atmospheric_tsys` | the atmosphere's lines in Tsys across the window | |
 | `receiver_ripple` | the receiver's smooth ripple of Tsys | `rms` |
 | `channel_correlation` | correlated noise of neighbouring channels | `rho1`, `rho2`, `average` |
@@ -152,7 +152,8 @@ from the same Tsys, per real and imaginary part:
 sigma = SEFD / (eta_c sqrt(2 n_pol dnu t))      with      SEFD = 2 k Tsys / (A eta_a)
 ```
 
-with `A` the dish's area and `eta_a` its Ruze aperture efficiency,
+with `A` the dish's area and `eta_a` its Ruze aperture efficiency (times
+the model's `efficiency_scale` for the band, when it sets one),
 `eta_c = 0.96 x 0.88` (quantisation and correlator), `n_pol = 2`, `dnu` the
 channel's noise bandwidth (see [Channels](#channels) below) and `t` the
 simulator's integration time. The source keeps its modelled flux, so its S/N
@@ -298,6 +299,7 @@ windows each comes from and their 16-84% spread in `provenance.values`:
 | `antenna_ripple` rms, scale_mhz | each antenna's noise shape, windows wider than 1 GHz |
 | `radiometer` receiver temperatures | per band, the Trx that gives SYSCAL's median Tsys under the simulator's Tsys model, the base model's equation (12 m windows, their PWV and elevation) |
 | `radiometer` aperture | per dish size, Ruze's law fitted to the efficiency the noise and Tsys imply, raised by the noise the model's gain amplitudes add in the simulator |
+| `radiometer` efficiency_scale | per dish size and band of at least three windows, the median of the windows' efficiency over that curve |
 | `slow_phase`, `fast_phase`, `antenna_gains`, `baseline_errors` | `noise fit` |
 
 A value fewer than `--min-windows` (3) windows measure keeps the base
