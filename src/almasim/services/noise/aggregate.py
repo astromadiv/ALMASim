@@ -123,6 +123,11 @@ def aggregate(
     )
     reduce("fast_phase.slope", [s.slope for s in fast], setter("fast_phase", "slope"))
     reduce(
+        "fast_phase.coherence_s",
+        [s.coherence_s for s in fast if s.coherence_s is not None],
+        setter("fast_phase", "coherence_s"),
+    )
+    reduce(
         "antenna_gains.amp_rms", [f.gain_amp_rms for f in fits], setter("antenna_gains", "amp_rms")
     )
     reduce(

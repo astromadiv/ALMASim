@@ -245,6 +245,54 @@ def scan_index(times_s: np.ndarray, scan_length_s: float) -> np.ndarray:
     return ((times_s - times_s[0]) // scan_length_s).astype(int)
 
 
+def fast_screen_draws(
+    rng: np.random.Generator, xy: np.ndarray, ntime: int, outer_scale_km: float, slope: float
+) -> np.ndarray:
+    """One fresh turbulent screen per integration, sampled at the antennas
+    (``(ntime, nant)``): what the in-scan screen blends (:func:`in_scan_path`)."""
+    xy = np.asarray(xy, dtype=np.float64)[:, :2]
+    origin = xy.min(axis=0) - 500.0
+    extent = float(np.ptp(xy, axis=0).max()) + 1_000.0
+    ix = ((xy[:, 0] - origin[0]) / SCREEN_STEP_M).astype(int)
+    iy = ((xy[:, 1] - origin[1]) / SCREEN_STEP_M).astype(int)
+    return np.stack(
+        [turbulent_screen(rng, extent, outer_scale_km, slope)[iy, ix] for _ in range(ntime)]
+    )
+
+
+def in_scan_path(
+    model: CorruptionModel,
+    xy: np.ndarray,
+    times_s: np.ndarray,
+    scans: np.ndarray,
+    fresh: np.ndarray,
+) -> np.ndarray:
+    """The in-scan screen's path (m, ``(nant, ntime)``) from its fresh draws:
+    each integration blended with the last over ``fast_coherence_s``, less
+    each antenna's mean over its scan, scaled so the median antenna pair's rms
+    path difference is ``fast_path_um_1km (separation / 1 km)^fast_slope``."""
+    xy = np.asarray(xy, dtype=np.float64)[:, :2]
+    ntime, nant = fresh.shape
+    fast = np.zeros((ntime, nant))
+    for t in range(ntime):
+        if t and scans[t] == scans[t - 1]:
+            a = np.exp(-(times_s[t] - times_s[t - 1]) / model.fast_coherence_s)
+            fast[t] = a * fast[t - 1] + np.sqrt(1.0 - a**2) * fresh[t]
+        else:
+            fast[t] = fresh[t]
+    for s in np.unique(scans):
+        fast[scans == s] -= fast[scans == s].mean(axis=0)
+    i, j = np.triu_indices(nant, 1)
+    separation = np.hypot(*(xy[i] - xy[j]).T)
+    keep = separation > SCREEN_STEP_M
+    if keep.any() and np.any(fast):
+        rms = np.sqrt(np.mean((fast[:, i[keep]] - fast[:, j[keep]]) ** 2, axis=0))
+        scale = np.median(rms / (separation[keep] / 1_000.0) ** model.fast_slope)
+        if scale > 0:
+            return (fast * model.fast_path_um_1km * 1e-6 / scale).T
+    return np.zeros((nant, ntime))
+
+
 def draw_antenna_corruptions(
     model: CorruptionModel,
     antenna_xy_m: np.ndarray,
@@ -288,26 +336,8 @@ def draw_antenna_corruptions(
             path[:, scans == s] += (screen[iy, ix] * model.slow_path_um_1km * 1e-6)[:, None]
 
     if model.fast_path_um_1km > 0 and nant > 1:
-        fast = np.zeros((ntime, nant))
-        for t in range(ntime):
-            fresh = turbulent_screen(fast_rng, extent, model.outer_scale_km, model.fast_slope)[
-                iy, ix
-            ]
-            if t and scans[t] == scans[t - 1]:
-                a = np.exp(-(times_s[t] - times_s[t - 1]) / model.fast_coherence_s)
-                fast[t] = a * fast[t - 1] + np.sqrt(1.0 - a**2) * fresh
-            else:
-                fast[t] = fresh
-        for s in range(nscan):
-            fast[scans == s] -= fast[scans == s].mean(axis=0)
-        i, j = np.triu_indices(nant, 1)
-        separation = np.hypot(*(xy[i] - xy[j]).T)
-        keep = separation > SCREEN_STEP_M
-        if keep.any() and np.any(fast):
-            rms = np.sqrt(np.mean((fast[:, i[keep]] - fast[:, j[keep]]) ** 2, axis=0))
-            scale = np.median(rms / (separation[keep] / 1_000.0) ** model.fast_slope)
-            if scale > 0:
-                path += (fast * model.fast_path_um_1km * 1e-6 / scale).T
+        fresh = fast_screen_draws(fast_rng, xy, ntime, model.outer_scale_km, model.fast_slope)
+        path += in_scan_path(model, xy, times_s, scans, fresh)
 
     baseline = _baseline_errors(model, nant, scans, baseline_rng)
     return AntennaCorruptions(amplitude=amplitude, phase=phase, path_m=path, baseline=baseline)

@@ -181,6 +181,7 @@ def test_the_in_scan_phase_is_found(window_ms, tmp_path):
     result = fit.fit_window("ms", 0, None, _task_dir(tmp_path), window, realizations=2, seed=6)
     assert result.fast_phase is not None
     assert result.fast_phase.path_um_1km == pytest.approx(80.0, rel=0.5)
+    assert result.fast_phase.coherence_s in (5.0, 10.0, 20.0)
 
 
 @pytest.mark.unit

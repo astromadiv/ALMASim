@@ -606,9 +606,9 @@ built), and the gain amplitude error is the excess in quadrature:
 gain_amp_rms = sqrt(real ant_lnamp_rms^2 - reference ant_lnamp_rms^2)
 ```
 
-It is fitted twice: once against the slow screen alone (so the fast screen
-can be fitted against the gains), and once more with the fast screen too
-(its decorrelation also scatters the antennas' amplitudes).
+It is fitted twice: once against the slow screen alone, and once more with
+the fast screen too (its decorrelation also scatters the antennas'
+amplitudes).
 
 **How it becomes the model's value.** The median of `gain_amp_rms` over the
 fitted windows. The phase error is not fitted, so `phase_rms_deg` keeps the
@@ -704,32 +704,31 @@ visibilities, constant over the scan.
 faster than calibration follows. Within a scan, the phase wanders around its
 scan average.
 
-**How it shows in real data.** Averaging a scan's wandering phases lowers
-the average's amplitude (*decorrelation*): for a phase of rms sigma about
-its mean, `|A| = exp(-sigma^2 / 2)`. So on bright sources, the scan-averaged
-data over model is a little *smaller* than 1, the more so on longer
-baselines.
+**How it shows in real data.** On a bright source, a baseline's data over
+the model, `x(t)` row by row, changes from one integration to the next by
+more than its thermal noise, and the more so the further apart the two
+integrations are, up to the time the phase stays coherent. The per-scan
+phase, the gains and a model whose flux is a little off are the same all
+scan long, so they leave that change alone.
 
-**How it is fitted** (`noise fit`): from the mean of ln|r| per bin. The loss
-is the reference's mean ln|r| minus the data's, `loss(b)`. The reference
-holds the slow screen and the gains already found, because gain amplitude
-errors also lower ln|r|, by the same amount on every baseline. The loss is
-fitted, through the engine as for the slow phase, as
+**How it is fitted** (`noise fit`): a structure function in time. Over the
+rows of the bright (baseline, scan) groups, every pair 1 to 20 integrations
+apart gives `|x(t') - x(t)|^2` less its known thermal part
+(`2 kappa (1 / den(t) + 1 / den(t'))`, `den` a row's weighted model power).
+Pooled by baseline length and by time apart (1, 2, 3-4, 5-8, 9-14 and 15-20
+integrations), weighted by the inverse of each pair's thermal variance, and
+normalised by the groups' mean `|<x>|^2`, it is the phase's structure
+function, measured even where single rows have an S/N well below 1. The
+engine's fast screen, drawn on the same rows (of at most 8 scans spread
+over the observation) at a starting strength of 100 um for each slope
+(0.25, 0.5 and 0.75) and coherence time (5, 10, 20, 40 and 80 s), gives the
+same cells. Their least-squares scale to the real cells
+sets the strength, at the slope and coherence that fit best, refined once
+at the strength found. A fast screen is kept only if that scale exceeds
+three times its error.
 
-```
-loss(b) = c + a x (simulated loss of the engine's fast screen at strength P0)(b)
-```
-
-The constant `c` takes what lowers ln|r| on every baseline alike (leftover
-gain errors, a clean model whose flux is a little off), which is not
-decorrelation. A fast screen is kept only if the loss grows with baseline by
-more than three times the fit's scatter. A window whose data rise above
-the model (mean ln|r| above 0.05 in any bin) has a clean model that does not
-match its source, and gets no fast fit.
-
-**How it becomes the model's value.** The medians of `path_um_1km` and
-`slope` over the fitted windows. The coherence time is not fitted:
-`coherence_s` keeps the base model's.
+**How it becomes the model's value.** The medians of `path_um_1km`,
+`slope` and `coherence_s` over the fitted windows.
 
 **How the simulator applies it.** Per integration, a fresh turbulent screen,
 blended with the previous one as `a x previous + sqrt(1 - a^2) x fresh` with
@@ -954,7 +953,7 @@ This is SPT0441-46 (band 7), shortened:
     ...
   ],
   "slow_phase": {"path_um_1km": 93.8, "slope": 0.5, "bins": 9},
-  "fast_phase": {"path_um_1km": 56.9, "slope": 0.05, "bins": 9},
+  "fast_phase": {"path_um_1km": 56.9, "slope": 0.35, "bins": 41, "coherence_s": 10.0},
   "gain_amp_rms": 0.090,
   "baseline_amp_rms": 0.0,
   "baseline_phase_rms_deg": 6.53
@@ -1248,7 +1247,7 @@ none another component sets.
 | `... has no component(s) ...` | the model does not hold that component (it was left out of its file) |
 | `run noise extract first` (noise fit) | `fit` needs the window's `window.json`, made by `extract` for the same MS, spw and field |
 | `too faint to fit` in `fit.json` | fewer than 20 bright (baseline, scan) groups: the window cannot show calibration residuals; its values come from other windows |
-| `the data rise above the model` in `fit.json` | the clean model does not match the source (often extended emission it lacks): no fast phase from this window |
+| `no in-scan phase above their noise` in `fit.json` | the structure function in time does not rise above its scatter: no fast phase from this window |
 | `kept the base's` in a candidate's notes | fewer than `--min-windows` windows measured that value |
 | `... did not pass its validation` (promote) | the comparison's failed checks are listed; fix the model, validate again |
 | `the comparison is of ...` (promote) | the comparison was made for another model (or the candidate changed since); validate this one |
