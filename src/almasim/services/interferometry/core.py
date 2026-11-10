@@ -29,6 +29,7 @@ from .observing import (
     Track,
     alma_location,
     clip_to_horizon,
+    exact_samples,
     hour_angle_coverage,
     hour_angle_samples,
 )
@@ -294,12 +295,12 @@ class Interferometer:
 
     def _get_nH(self) -> None:
         """Number of hour-angle samples (one per scan) and the scan time in seconds:
-        the run's own sample time when it has one (an execution block sampled as
-        all the MOUS's blocks are)."""
+        about the run's own sample time when it has one (an execution block
+        sampled as all the MOUS's blocks are). The samples observe the
+        integration time in full (``observing.exact_samples``)."""
         duration_s = float(self.integration_time) * 3600.0
         if self.sample_time_s:
-            self.scan_time = float(self.sample_time_s)
-            self.nH = max(1, int(duration_s / self.scan_time))
+            self.nH, self.scan_time = exact_samples(duration_s, self.sample_time_s)
         else:
             self.nH, self.scan_time = hour_angle_samples(duration_s)
         self.header.append(("EPOCH", self.nH))

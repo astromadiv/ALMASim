@@ -24,17 +24,30 @@ SCAN_TIMES_S = (6.0, 8.064, 18.144, 30.24)
 MAX_EPOCHS = 200
 
 
+def exact_samples(duration_s: float, sample_time_s: float) -> tuple[int, float]:
+    """(number of samples, sample time in s) that observe ``duration_s`` in
+    full: the whole number of samples nearest to ``duration_s / sample_time_s``
+    (at least one), each lasting ``duration_s`` divided by that number. The
+    samples add up to the time on source, which a short observation would
+    otherwise gain or lose a large share of (16 s in 6 s scans)."""
+    duration_s = float(duration_s)
+    samples = max(1, round(duration_s / float(sample_time_s)))
+    return samples, duration_s / samples if duration_s > 0 else float(sample_time_s)
+
+
 def hour_angle_samples(integration_time_s: float) -> tuple[int, float]:
     """(number of epochs, scan time in s) for an integration time in seconds.
 
     The shortest scan that keeps the track at ``MAX_EPOCHS`` samples or fewer
-    is used; a longer integration keeps the longest scan. At least one epoch.
+    is used; a longer integration keeps the longest scan. The epochs observe
+    the integration time in full (``exact_samples``), so the scan time is
+    within half a scan of the length chosen.
     """
     for scan_time in SCAN_TIMES_S:
-        n_epochs = int(float(integration_time_s) / scan_time)
+        n_epochs, exact = exact_samples(integration_time_s, scan_time)
         if n_epochs <= MAX_EPOCHS:
             break
-    return max(1, n_epochs), scan_time
+    return n_epochs, exact
 
 
 def _wrap(angle_rad: float) -> float:

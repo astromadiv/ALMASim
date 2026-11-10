@@ -9,7 +9,7 @@ import astropy.units as U
 import numpy as np
 import pytest
 
-from almasim.services.interferometry.observing import hour_angle_samples
+from almasim.services.interferometry.observing import exact_samples, hour_angle_samples
 from almasim.services.interferometry.visibility import concatenate_visibility_tables
 from almasim.services.observation_plan import ObservationConfig
 from almasim.services.simulation.planning import (
@@ -99,8 +99,12 @@ def test_a_mous_is_one_run_per_execution_of_its_share_of_the_time():
     assert all(run.integration_time * 3600.0 == pytest.approx(36469.44 / 13) for run in runs)
     assert runs[0].observation_date == "2026-04-21"
     assert runs[12].observation_date == "2026-05-03"
-    # Sampled alike, within one track's budget of hour-angle samples.
-    assert {run.sample_time_s for run in runs} == {hour_angle_samples(36469.44)[1]}
+    # Sampled alike, within one track's budget of hour-angle samples (30.24 s),
+    # stretched or shrunk so that each block's samples fill its time on source.
+    block_s = 36469.44 / 13
+    expected = exact_samples(block_s, hour_angle_samples(36469.44)[1])
+    assert all(run.sample_time_s == pytest.approx(expected[1]) for run in runs)
+    assert expected[0] * expected[1] == pytest.approx(block_s)
 
 
 @pytest.mark.unit
@@ -195,8 +199,9 @@ def test_an_execution_is_sampled_at_its_given_sample_time():
     block.integration_time, block.header = 2805.0 / 3600.0, fits.Header()
     block.sample_time_s = 30.24
     block._get_nH()
-    assert (block.nH, block.scan_time) == (92, 30.24)
-    assert block.header["EPOCH"] == 92
+    # 2805 s is 92.76 samples of 30.24 s: 93 samples of 30.16 s observe all of it.
+    assert block.nH == 93 and block.scan_time == pytest.approx(2805.0 / 93)
+    assert block.header["EPOCH"] == 93
     block.sample_time_s, block.header = None, fits.Header()
     block._get_nH()
     assert (block.nH, block.scan_time) == hour_angle_samples(2805.0)

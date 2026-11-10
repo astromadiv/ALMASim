@@ -22,6 +22,7 @@ from almasim.services.interferometry.observing import (
     TRACK_SPAN_FACTOR,
     Track,
     elevation_rad,
+    exact_samples,
     execution_track,
     hour_angle_coverage,
     hour_angle_samples,
@@ -42,13 +43,25 @@ LAT = math.radians(ALMA_LATITUDE_DEG)
     [
         (450.0, (75, 6.0)),
         (1200.0, (200, 6.0)),
-        (1500.0, (186, 8.064)),
+        (1500.0, (186, 1500.0 / 186)),  # 8.064 s scans, stretched to fill 1500 s
         (13970.88, (462, 30.24)),
-        (1.0, (1, 6.0)),
+        (16.128, (3, 5.376)),  # not two 6 s scans: 12 s of 16
+        (1.0, (1, 1.0)),  # not one 6 s scan: 6 s of 1
     ],
 )
 def test_one_epoch_per_scan_in_seconds(integration_s, expected):
-    assert hour_angle_samples(integration_s) == expected
+    n_epochs, scan_time = hour_angle_samples(integration_s)
+    assert n_epochs == expected[0] and scan_time == pytest.approx(expected[1])
+    assert n_epochs * scan_time == pytest.approx(integration_s), "the time on source in full"
+
+
+@pytest.mark.parametrize("duration_s", [16.128, 20.16, 167.328, 2805.0, 3.0])
+@pytest.mark.parametrize("sample_s", [6.0, 18.144, 30.24])
+def test_samples_observe_the_time_on_source_in_full(duration_s, sample_s):
+    samples, length = exact_samples(duration_s, sample_s)
+    assert samples >= 1 and samples * length == pytest.approx(duration_s)
+    if duration_s >= sample_s / 2:  # the nearest whole number: within half a sample in all
+        assert abs(length - sample_s) <= sample_s / (2 * samples) + 1e-9
 
 
 @pytest.mark.parametrize("ra_deg", [0.0, 36.6, 180.0, 359.9])
