@@ -1135,6 +1135,13 @@ Seven choices keep the comparison fair, and one limit remains:
   MADIV-16 cubes use 1.12 lambda/D) has fewer pixels, so the cap can give the
   simulated cube half the real one's channels (w51: 120 against 240) and a
   noise lower by the square root of 2.
+- *The band.* `noise compare` compares the continuum noise (`cont.sigma`
+  and `jk.sigma`) over the real window's band: it scales the simulated
+  values by the square root of the simulated over the real window's
+  bandwidth (channels times channel width). A window with more than 1024
+  channels is simulated with 1024 of them, so its simulated continuum
+  averages less of the band (w99: 1024 of 1920 channels, noise higher by
+  1.37).
 - *Each hand.* `noise extract` measures the simulated MS per hand, as the
   real one, and each simulated hand carries the model's channel correlation
   and antenna ripple (see `channel_correlation` and `antenna_ripple`).

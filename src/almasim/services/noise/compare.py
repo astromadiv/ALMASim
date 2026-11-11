@@ -46,6 +46,8 @@ METRICS: dict[str, Literal["ratio", "difference"]] = {
     "antenna_shape.excess_rms": "difference",
 }
 NOISE_LEVELS = ("cont.sigma", "cube.sigma_median", "visibility.unit_jy")
+# Continuum noise, measured over the whole band (scaled to the real window's band).
+BAND_METRICS = ("cont.sigma", "jk.sigma")
 GROUP_METRICS = ("jk.sigma", "cont.sigma")  # the first every window of a group has
 
 
@@ -182,6 +184,8 @@ def _value(pair: Pair, metric: str, *, simulated: bool) -> float | None:
         value = (pair.sim_image if simulated else pair.real_image).get(metric)
         if metric == "cube.sigma_median" and simulated and value is not None:
             value *= _cube_width_scale(pair)
+        if metric in BAND_METRICS and simulated and value is not None:
+            value *= _bandwidth_scale(pair)
         return value
     window = pair.sim_window if simulated else pair.real_window
     if window is None:
@@ -210,6 +214,19 @@ def _cube_width_scale(pair: Pair) -> float:
     sim = _cube_channel_hz(pair.sim_image, pair.sim_window)
     real = _cube_channel_hz(pair.real_image, pair.real_window)
     return float(np.sqrt(sim / real)) if sim and real else 1.0
+
+
+def _bandwidth_scale(pair: Pair) -> float:
+    """sqrt(simulated / real bandwidth): the simulated continuum's noise over
+    the real window's band. ``noise validate`` simulates at most 1024 of a
+    window's channels, and the continuum's noise goes as one over the square
+    root of the band it averages (1 when either window is unknown)."""
+    sim, real = pair.sim_window, pair.real_window
+    if sim is None or real is None:
+        return 1.0
+    simulated = sim.exposure.channels * sim.exposure.channel_width_hz
+    measured = real.exposure.channels * real.exposure.channel_width_hz
+    return float(np.sqrt(simulated / measured)) if simulated > 0 and measured > 0 else 1.0
 
 
 def _summary(sim: np.ndarray, real: np.ndarray, kind: str) -> MetricSummary | None:
