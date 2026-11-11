@@ -57,7 +57,7 @@ What the visibilities carry besides white thermal noise is a noise model:
 a named, versioned JSON file made of components, each with its own switch and
 parameters. Released models ship with ALMASim in
 [`services/noise_model/models/`](../src/almasim/services/noise_model/models/)
-(today `alma`, versions 1, 2 and 3; `alma` alone is version 3); a released file
+(today `alma`, versions 1 to 4; `alma` alone is version 4); a released file
 is never edited, a change is its next version.
 
 ```
@@ -95,7 +95,7 @@ quantisation and correlator efficiencies are instrument data,
 [`interferometry/data/alma_radiometer.json`](../src/almasim/services/interferometry/data/alma_radiometer.json),
 which every run uses for Tsys. A model's `radiometer` component may set its
 own values (`alma@1` states the instrument's, so the model reproduces on its
-own; `alma@2` and `alma@3` state the values measured on the real windows), and a candidate model can try other values without a code change.
+own; `alma@2` to `alma@4` state the values measured on the real windows), and a candidate model can try other values without a code change.
 
 A model's `settings` hold what several components share: the scan length and
 the turbulent screens' outer scale. A selection (`--noise-only`,
@@ -244,7 +244,7 @@ almasim simulation ... --noise-model noise/candidate.json               # try it
 almasim noise validate --model noise/candidate.json --windows windows.csv \
     --metadata rows.csv --measured noise/ --out noise/ --backend slurm      # comparison.json
 almasim noise promote noise/candidate.json \
-    --comparison noise/validation/<sha>/comparison.json                     # models/alma-4.json
+    --comparison noise/validation/<sha>/comparison.json                     # models/alma-5.json
 ```
 
 Each command also takes a single MS (`almasim noise extract
