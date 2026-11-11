@@ -727,8 +727,13 @@ sets the strength, at the slope and coherence that fit best, refined once
 at the strength found. A fast screen is kept only if that scale exceeds
 three times its error.
 
-**How it becomes the model's value.** The medians of `path_um_1km`,
-`slope` and `coherence_s` over the fitted windows.
+**How it becomes the model's value.** The median `coherence_s` and the
+median `slope` over the fitted windows. A window's strength and coherence
+trade off (a slow screen needs more strength for the same change over a
+few seconds), so each window's `path_um_1km` is first taken at the median
+coherence with its phase change over 18.1 s (the simulator's usual sample)
+kept, `P x sqrt((1 - exp(-18.1 / c)) / (1 - exp(-18.1 / c_median)))`, and the
+median of those is the model's.
 
 **How the simulator applies it.** Per integration, a fresh turbulent screen,
 blended with the previous one as `a x previous + sqrt(1 - a^2) x fresh` with
