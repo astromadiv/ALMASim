@@ -80,7 +80,7 @@ candidate model can therefore be used for a run before it is released.
 
 | Component | What it adds | Parameters |
 | --- | --- | --- |
-| `radiometer` | each visibility's noise from the radiometer equation (below) | `receiver_temperature_k`, `aperture`, `efficiency_scale`, `quantisation_efficiency`, `correlator_efficiency`, `forward_efficiency` |
+| `radiometer` | each visibility's noise from the radiometer equation (below) | `receiver_temperature_k`, `aperture`, `efficiency_scale`, `quantisation_efficiency`, `correlator_efficiency`, `tdm_efficiency`, `forward_efficiency` |
 | `atmospheric_tsys` | the atmosphere's lines in Tsys across the window | |
 | `receiver_ripple` | the receiver's smooth ripple of Tsys | `rms` |
 | `channel_correlation` | correlated noise of neighbouring channels | `rho1`, `rho2`, `average` |
@@ -154,7 +154,8 @@ sigma = SEFD / (eta_c sqrt(2 n_pol dnu t))      with      SEFD = 2 k Tsys / (A e
 
 with `A` the dish's area and `eta_a` its Ruze aperture efficiency (times
 the model's `efficiency_scale` for the band, when it sets one),
-`eta_c = 0.96 x 0.88` (quantisation and correlator), `n_pol = 2`, `dnu` the
+`eta_c = 0.96 x 0.88` (quantisation and correlator; times the model's
+`tdm_efficiency` for a TDM window, when it sets one), `n_pol = 2`, `dnu` the
 channel's noise bandwidth (see [Channels](#channels) below) and `t` the
 simulator's integration time. The source keeps its modelled flux, so its S/N
 follows from the observation. A 12 m visibility at 230 GHz over 15.6 MHz and
@@ -302,7 +303,8 @@ windows each comes from and their 16-84% spread in `provenance.values`:
 | `antenna_ripple` rms, scale_mhz | each antenna's noise shape, windows wider than 1 GHz |
 | `radiometer` receiver temperatures | per band, the Trx that gives SYSCAL's median Tsys under the simulator's Tsys model, the base model's equation (12 m windows, their PWV and elevation) |
 | `radiometer` aperture | per dish size, Ruze's law fitted to the efficiency the noise and Tsys imply |
-| `radiometer` efficiency_scale | per dish size and band of at least three windows, the median of the windows' efficiency over that curve; a dish that keeps the base's aperture keeps the base's rows |
+| `radiometer` tdm_efficiency | TDM windows' efficiency over FDM windows' of the same dish size and band, over the bands with both |
+| `radiometer` efficiency_scale | per dish size and band of at least three windows, the median of the windows' efficiency over that curve (a TDM window's divided by `tdm_efficiency`); a dish that keeps the base's aperture keeps the base's rows |
 | `slow_phase`, `fast_phase`, `antenna_gains`, `baseline_errors` | `noise fit` |
 
 A value fewer than `--min-windows` (3) windows measure keeps the base

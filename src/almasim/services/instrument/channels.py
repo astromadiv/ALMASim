@@ -24,6 +24,9 @@ NATIVE_CHANNELS = 3840  # a window's native (FDM) channels
 ON_GRID_HZ = 10.0  # the archive gives resolutions to 0.01 kHz
 HANNING_RHO = (2 / 3, 1 / 6)  # native channels' noise correlation, lags 1 and 2
 HANNING_VARIANCE = 0.375  # (1/4)^2 + (1/2)^2 + (1/4)^2: a native channel's noise
+# TDM's native channels are 7.8125 MHz or wider (2 GHz in 256 or fewer); FDM's
+# are under 1 MHz (976.6 kHz at the widest, 937.5 MHz in 960).
+TDM_NATIVE_HZ = 7.8125e6
 
 
 @dataclass(frozen=True)
@@ -35,6 +38,12 @@ class Channels:
     # The bandwidth of the radiometer equation (the MS's EFFECTIVE_BW): wider
     # than the channel, since smoothing and averaging keep less noise.
     noise_bandwidth_hz: float | None = None
+
+    @property
+    def tdm(self) -> bool:
+        """Whether the correlator made them in TDM: native channels of
+        ``TDM_NATIVE_HZ`` or wider."""
+        return self.width_hz / max(self.averaged, 1) >= TDM_NATIVE_HZ * (1 - 1e-6)
 
 
 def _on_grid(hz: float) -> float:

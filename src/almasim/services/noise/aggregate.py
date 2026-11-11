@@ -16,8 +16,10 @@ how:
 - radiometer: the receiver temperature per band edge that ALMA's Tsys
   implies under the simulator's Tsys model (12 m windows, PWV and the
   target's elevation), and each dish size's Ruze aperture efficiency fitted
-  to the efficiency the noise and Tsys imply, with a factor per dish and
-  band where the band's windows depart from that curve (efficiency_scale);
+  to the efficiency the noise and Tsys imply, a factor for TDM windows
+  where they depart from FDM windows of the same dish and band
+  (tdm_efficiency), and a factor per dish and band where the band's windows
+  depart from that curve (efficiency_scale);
 - slow_phase, fast_phase, antenna_gains, baseline_errors: the fits; the in-scan
   screen's strengths at the windows' median coherence time, each keeping
   its phase change over one simulated sample.
@@ -284,7 +286,14 @@ def _radiometer(
         {"diameter_m": d, "eta0": e, "surface_rms_m": r}
         for d, (e, r) in sorted(apertures.items(), reverse=True)
     ]
-    scales = _efficiency_scales(windows, rows, edges, apertures, correlator)
+    ratios = _efficiency_ratios(windows, rows, edges, apertures, correlator)
+    tdm = _tdm_efficiency(ratios, max(min_windows, 3), stats, notes)
+    if tdm is not None:
+        radiometer["tdm_efficiency"] = tdm
+    factor = radiometer.get("tdm_efficiency") or 1.0
+    scales: dict[tuple[float, int], list[float]] = {}
+    for diameter, row, is_tdm, ratio in ratios:
+        scales.setdefault((diameter, row), []).append(ratio / (factor if is_tdm else 1.0))
     fitted_rows = _scale_rows(
         {key: v for key, v in scales.items() if key[0] not in kept}, rows, stats, notes, min_windows
     )
@@ -300,19 +309,30 @@ def _radiometer(
     radiometer["efficiency_scale"] = merged or None
 
 
-def _efficiency_scales(
+def window_tdm(window: WindowNoise) -> bool:
+    """Whether the window's channels are TDM (instrument.channels): from its
+    resolution, or its channel width when it has none."""
+    from ..instrument.channels import TDM_NATIVE_HZ, channels_from_resolution
+
+    e = window.exposure
+    if not e.resolution_hz:
+        return e.channel_width_hz >= TDM_NATIVE_HZ * (1 - 1e-6)
+    return channels_from_resolution(e.resolution_hz, e.channels * e.channel_width_hz).tdm
+
+
+def _efficiency_ratios(
     windows: Sequence[WindowNoise],
     rows: list[dict[str, Any]],
     edges: np.ndarray,
     apertures: dict[float, tuple[float, float]],
     correlator: float,
-) -> dict[tuple[float, int], list[float]]:
-    """Per (dish, band row), each window's measured efficiency over the dish's
-    Ruze curve at the window's frequency: what one curve per dish leaves of a
+) -> list[tuple[float, int, bool, float]]:
+    """Each window's (dish, band row, TDM, measured efficiency over the dish's
+    Ruze curve at the window's frequency): what one curve per dish leaves of a
     band's efficiency (the receivers' and correlator's own, band by band)."""
     from ..interferometry import noise
 
-    ratios: dict[tuple[float, int], list[float]] = {}
+    ratios: list[tuple[float, int, bool, float]] = []
     for w in windows:
         diameter = next(
             (d for d in apertures if round(d) == round(w.exposure.dish_diameter_m)), None
@@ -325,8 +345,50 @@ def _efficiency_scales(
             int(np.searchsorted(edges, w.exposure.frequency_ghz, side="right")), len(rows) - 1
         )
         measured = w.visibility.efficiency / correlator
-        ratios.setdefault((diameter, row), []).append(measured / curve)
+        ratios.append((diameter, row, window_tdm(w), measured / curve))
     return ratios
+
+
+def _tdm_efficiency(
+    ratios: list[tuple[float, int, bool, float]],
+    needed: int,
+    stats: dict[str, ValueStats],
+    notes: list[str],
+) -> float | None:
+    """TDM windows' efficiency over FDM windows' of the same dish and band.
+    Over the (dish, band) groups of at least ``needed`` windows with both
+    kinds (in a group of TDM windows only, the band's own scale takes it),
+    alternately each group's median with the TDM windows divided by the
+    factor, and the factor as the median of the TDM windows over their
+    group's. None, with a note, when fewer than ``needed`` TDM windows are in
+    such groups."""
+    key = "radiometer.tdm_efficiency"
+    groups: dict[tuple[float, int], list[tuple[bool, float]]] = {}
+    for diameter, row, is_tdm, ratio in ratios:
+        if ratio > 0:
+            groups.setdefault((diameter, row), []).append((is_tdm, float(np.log(ratio))))
+    mixed = {
+        g: v
+        for g, v in groups.items()
+        if len(v) >= needed and any(t for t, _ in v) and not all(t for t, _ in v)
+    }
+    count = sum(t for v in mixed.values() for t, _ in v)
+    if count < needed:
+        notes.append(f"{key}: {count} window(s), kept the base's")
+        return None
+    factor = 0.0
+    residuals: list[float] = []
+    for _ in range(50):
+        residuals = []
+        for v in mixed.values():
+            centre = float(np.median([log - (factor if t else 0.0) for t, log in v]))
+            residuals += [log - centre for t, log in v if t]
+        new = float(np.median(residuals))
+        if abs(new - factor) < 1e-9:
+            break
+        factor = new
+    stats[key] = _stats(list(np.exp(residuals)))
+    return float(np.exp(factor))
 
 
 def _scale_rows(

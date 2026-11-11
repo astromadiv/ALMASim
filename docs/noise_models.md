@@ -355,11 +355,22 @@ in images.
   costing more at higher frequency, is fitted (robustly, in log) to the
   windows' `efficiency / eta_c`. A dish size needs at least five windows
   (or `--min-windows`, if more).
+- *TDM windows.* ALMA's correlator makes a window's channels in one of two
+  modes: TDM, whose native channels are 7.8125 MHz or wider (a 2 GHz window
+  in 128 channels, for continuum), and FDM, whose native channels are under
+  1 MHz. On the same dish and band, TDM windows show a higher efficiency
+  than FDM ones (the 100 cycle 11 windows: 1.049, 17 TDM windows, 16-84%
+  1.030-1.097). Over the bands of at least three windows with both modes,
+  alternately each band's median (its TDM windows divided by the factor)
+  and the factor as the TDM windows' median over their band's give
+  `tdm_efficiency`; it needs at least three such TDM windows (or
+  `--min-windows`, if more) and otherwise keeps the base's.
 - *Efficiency by band.* One Ruze curve per dish does not follow every
   band: each receiver band has its own optics, receiver and correlator
   losses. For each dish and each row of the receiver-temperature table, the
-  median over the band's windows of their efficiency (as above) over the
-  fitted curve at their frequency becomes that band's `efficiency_scale`.
+  median over the band's windows of their efficiency (as above, a TDM
+  window's divided by `tdm_efficiency`) over the fitted curve at their
+  frequency becomes that band's `efficiency_scale`.
   A band needs at least three windows (or `--min-windows`, if more) and
   otherwise takes 1; a dish without any such band gets no rows. A dish
   that keeps the base model's aperture (too few windows to fit it) keeps
@@ -371,8 +382,10 @@ channel, the Tsys (receiver temperature from the model's table by
 frequency, plus the sky; see `atmospheric_tsys`), the SEFD with the
 dish's Ruze efficiency at the window's mean frequency (times its band's
 `efficiency_scale`), and sigma from the
-radiometer equation with the window's noise bandwidth and the simulator's
-own integration time. Every visibility gets complex Gaussian noise of that
+radiometer equation with the window's noise bandwidth, the simulator's
+own integration time and eta_c (times `tdm_efficiency` when the window is
+TDM: its native channels, the archive's resolution over the channels
+averaged, are 7.8125 MHz or wider). Every visibility gets complex Gaussian noise of that
 sigma, the source keeping its modelled flux, so the S/N is what a real
 observation would reach. The exported MS's WEIGHT is
 `1 / mean over channels of (sigma^2 s)` (s: the baseline's own noise scale,
@@ -396,6 +409,7 @@ window follows Tsys.
 | `aperture` | Ruze parameters per dish: rows of `diameter_m`, `eta0` and `surface_rms_m` (another diameter takes the 12 m dish's) | 12 m: 0.76, 27 um; 7 m: 0.72, 24 um | 12 m: 0.744, 30 um; 7 m: 0.738, 24 um | 12 m: 0.735, 29 um; 7 m: 0.728, 25 um |
 | `efficiency_scale` | factors on a dish's Ruze efficiency by frequency: rows of `diameter_m`, `upper_ghz` (as in `receiver_temperature_k`), `scale` and `bands`, edges rising per dish; a dish or frequency without a row takes 1 | not set | not set | 12 m: 0.935 (band 1), 0.995 (2-3), 1.024 (4), 0.995 (5), 1.006 (6), 1.007 (7), 1.002 (8), 1 (9-10); 7 m: 0.998 (2-3), 0.991 (6), 1 (others) |
 | `quantisation_efficiency`, `correlator_efficiency` | eta_c = their product | 0.96 x 0.88 | 0.96 x 0.88 | 0.96 x 0.88 |
+| `tdm_efficiency` | a factor on eta_c for TDM windows (native channels of 7.8125 MHz or wider) | not set | not set | not set |
 | `forward_efficiency` | eta_f, the fraction of the beam on the sky; set, Tsys follows the ALMA Technical Handbook's equations (see `atmospheric_tsys`), the receiver temperatures of bands 9 and 10 being double sideband | not set | 0.95 | 0.95 |
 
 Left out, these take ALMA's values from
@@ -1139,6 +1153,13 @@ Seven choices keep the comparison fair, and one limit remains:
   MADIV-16 cubes use 1.12 lambda/D) has fewer pixels, so the cap can give the
   simulated cube half the real one's channels (w51: 120 against 240) and a
   noise lower by the square root of 2.
+- *The band.* `noise compare` compares the continuum noise (`cont.sigma`
+  and `jk.sigma`) over the real window's band: it scales the simulated
+  values by the square root of the simulated over the real window's
+  bandwidth (channels times channel width). A window with more than 1024
+  channels is simulated with 1024 of them, so its simulated continuum
+  averages less of the band (w99: 1024 of 1920 channels, noise higher by
+  1.37).
 - *Each hand.* `noise extract` measures the simulated MS per hand, as the
   real one, and each simulated hand carries the model's channel correlation
   and antenna ripple (see `channel_correlation` and `antenna_ripple`).

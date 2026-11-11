@@ -11,6 +11,7 @@ from almasim.services.interferometry.noise import (
     aperture_efficiency,
     estimate_receiver_temperature_k,
     system_equivalent_flux_density,
+    visibility_noise,
 )
 
 
@@ -44,3 +45,15 @@ def test_the_sefd_uses_the_dish_efficiency_unless_one_is_given():
         NoiseModelConfig(pwv_mm=1.0, aperture_efficiency=0.5), freqs, 60.0, antenna_diameter_m=12.0
     )
     np.testing.assert_allclose(given / own, aperture_efficiency(230e9, 12.0) / 0.5)
+
+
+@pytest.mark.unit
+def test_tdm_channels_take_the_tdm_efficiency():
+    config = NoiseModelConfig(pwv_mm=1.0, tdm_efficiency=1.05)
+    freqs = np.array([230e9, 231e9])
+    fdm = visibility_noise(config, freqs, 1e6, 6.0, 60.0, antenna_diameter_m=12.0)
+    tdm = visibility_noise(config, freqs, 1e6, 6.0, 60.0, antenna_diameter_m=12.0, tdm=True)
+    assert tdm == pytest.approx(fdm / 1.05)
+    plain = visibility_noise(NoiseModelConfig(pwv_mm=1.0), freqs, 1e6, 6.0, 60.0,
+                             antenna_diameter_m=12.0, tdm=True)  # fmt: skip
+    assert plain == pytest.approx(fdm)

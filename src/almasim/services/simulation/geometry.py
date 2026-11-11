@@ -58,6 +58,11 @@ class CubeGeometry:
         return self.channels.averaged if self.channels is not None else 1
 
     @property
+    def tdm(self) -> bool:
+        """Whether ALMA's correlator makes these channels in TDM (Channels.tdm)."""
+        return self.channels is not None and self.channels.tdm
+
+    @property
     def noise_bandwidth_hz(self) -> float:
         """The bandwidth of each channel's radiometer noise."""
         if self.channels is not None and self.channels.noise_bandwidth_hz is not None:

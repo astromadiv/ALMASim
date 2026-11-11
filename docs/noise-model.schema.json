@@ -552,6 +552,21 @@
           "default": null,
           "title": "Correlator Efficiency"
         },
+        "tdm_efficiency": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 2,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A factor on the correlator efficiency of TDM windows (native channels of 7.8125 MHz or wider): what their measured efficiency departs from FDM windows' of the same dish and band; unset: 1.",
+          "title": "Tdm Efficiency"
+        },
         "forward_efficiency": {
           "anyOf": [
             {

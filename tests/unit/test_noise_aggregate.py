@@ -37,13 +37,16 @@ def _window(
     ripple: float = 0.02,
     forward_efficiency: float | None = None,
     efficiency_scale: float = 1.0,
+    tdm: float | None = None,
 ) -> WindowNoise:
     rng = np.random.default_rng(k)
     x = np.linspace(-1, 1, NCHAN)
     tsys_shape = 1 + 0.05 * x  # Tsys^2 slope, as SYSCAL shows it
     receiver = 1 + ripple * np.sqrt(2) * np.cos(np.pi * (x + rng.uniform(0, 1)))  # rms ~ ripple
     profile = tsys_shape * receiver**2 + rng.normal(0, 0.002, NCHAN)
-    width = 7.8125e6
+    # TDM: native 15.625 MHz channels (resolution twice the width), ``tdm``
+    # times the efficiency of FDM's.
+    width = 7.8125e6 if tdm is None else 15.625e6
     freq = ghz * 1e9 + np.linspace(-0.5, 0.5, 64) * NCHAN * width
     elevation, pwv = 60.0, 1.2
     airmass = 1 / np.sin(np.radians(elevation))
@@ -57,6 +60,7 @@ def _window(
     eta0, eps = (0.75, 26e-6) if dish == 12 else (0.7, 24e-6)
     aperture = eta0 * np.exp(-((4 * np.pi * eps * ghz * 1e9 / C) ** 2)) * rng.normal(1, 0.02)
     aperture *= efficiency_scale  # the band's own departure from the dish's curve
+    aperture *= tdm or 1.0
     return WindowNoise(
         name=f"w{k}",
         almasim_version="test",
@@ -71,6 +75,7 @@ def _window(
             channels=NCHAN,
             channel_width_hz=width,
             noise_bandwidth_hz=width,
+            resolution_hz=width if tdm is None else 2 * width,
             frequency_ghz=ghz,
             correlations=2,
             flagged_fraction=0.01,
@@ -199,6 +204,19 @@ def test_the_receiver_temperature_follows_the_bases_tsys_equation():
 
 
 @pytest.mark.unit
+def test_tdm_windows_get_their_own_efficiency():
+    """A band's TDM windows over its FDM windows, apart from the band's own scale."""
+    fdm = [Measured(_window(k, efficiency_scale=0.95)) for k in range(6)]
+    tdm = [Measured(_window(10 + k, efficiency_scale=0.95, tdm=1.05)) for k in range(4)]
+    curve = [Measured(_window(20 + k, ghz=100.0 + 60 * k)) for k in range(6)]
+    radiometer = aggregate(fdm + tdm + curve, released_model("alma", 3)).components.radiometer
+    assert radiometer.tdm_efficiency == pytest.approx(1.05, rel=0.02)
+    without = aggregate(fdm + curve, released_model("alma", 3))
+    assert without.components.radiometer.tdm_efficiency is None
+    assert "radiometer.tdm_efficiency: 0 window(s), kept the base's" in without.provenance.notes
+
+
+@pytest.mark.unit
 def test_too_few_windows_keep_the_base():
     base = released_model("alma")
     candidate = aggregate([Measured(_window(0))], base, name="trial", version=7)
@@ -266,3 +284,16 @@ def test_in_scan_strengths_are_brought_to_the_median_coherence():
     expected = np.sqrt(np.median(change) / (1 - np.exp(-FAST_REFERENCE_S / 20.0)))
     assert fast.path_um_1km == pytest.approx(expected)
     assert fast.slope == 0.5
+
+
+@pytest.mark.unit
+def test_a_model_sets_the_tdm_efficiency():
+    alma = json.loads(released_model("alma", 3).model_dump_json())
+    radiometer = {**alma["components"]["radiometer"], "tdm_efficiency": 1.05}
+    model = resolve_noise_model(
+        {**alma, "components": {**alma["components"], "radiometer": radiometer}}
+    )
+    assert model.noise_config()["tdm_efficiency"] == 1.05
+    # Unset, it leaves the released models' identity as it is.
+    assert "tdm_efficiency" not in released_model("alma", 3).canonical_json()
+    assert "tdm_efficiency" not in released_model("alma", 3).noise_config()
