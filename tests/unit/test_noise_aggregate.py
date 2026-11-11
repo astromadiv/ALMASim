@@ -254,6 +254,39 @@ def test_noise_aggregate_writes_the_candidate(tmp_path):
 
 
 @pytest.mark.unit
+def test_in_scan_strengths_are_brought_to_the_median_coherence():
+    """Strength and coherence trade off: each window's strength is taken at the
+    median coherence with its phase change over one simulated sample kept."""
+    from almasim.services.noise.aggregate import FAST_REFERENCE_S
+    from almasim.services.noise.measurements import PhaseFit
+
+    coherences = [10.0, 20.0, 20.0, 40.0, 80.0]
+    windows = [
+        Measured(
+            _window(k),
+            _fit(k).model_copy(
+                update={
+                    "fast_phase": PhaseFit(
+                        bins=20,
+                        slope=0.5,
+                        phase_1km_deg=10.0,
+                        path_um_1km=100.0,
+                        coherence_s=c,
+                    )  # fmt: skip
+                }
+            ),
+        )
+        for k, c in enumerate(coherences)
+    ]
+    fast = aggregate(windows, released_model("alma", 3)).components.fast_phase
+    assert fast.coherence_s == 20.0
+    change = [100.0**2 * (1 - np.exp(-FAST_REFERENCE_S / c)) for c in coherences]
+    expected = np.sqrt(np.median(change) / (1 - np.exp(-FAST_REFERENCE_S / 20.0)))
+    assert fast.path_um_1km == pytest.approx(expected)
+    assert fast.slope == 0.5
+
+
+@pytest.mark.unit
 def test_a_model_sets_the_tdm_efficiency():
     alma = json.loads(released_model("alma", 3).model_dump_json())
     radiometer = {**alma["components"]["radiometer"], "tdm_efficiency": 1.05}

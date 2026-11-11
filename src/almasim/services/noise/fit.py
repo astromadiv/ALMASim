@@ -5,11 +5,16 @@ slow_phase, fast_phase, antenna_gains and baseline_errors components draw
 The data over the window's clean model, per (baseline, scan), where the model
 is bright (S/N above 10 in the group): their phase scatter beyond what the
 thermal noise alone gives, by baseline length, is the per-scan atmospheric
-phase (a power law in baseline length); the loss of their amplitude below the
-thermal one's is the phase that varies within a scan, |A| = exp(-sigma^2/2).
-Split per scan into antenna terms, the amplitude scatter beyond what the
-screens give is the antenna gains' error, and what does not close beyond the
-screens and gains is the baselines' own.
+phase (a power law in baseline length). The phase that varies within a scan
+is measured in time: each row's data over the model, x(t), against the same
+baseline's x one, two, ... integrations later in the scan, |x(t') - x(t)|^2
+less their known thermal part, pooled by baseline length and time apart over
+the groups' |<x>|^2 (a structure function, which the per-scan phase, the gains
+and the model's flux all leave alone); the engine's in-scan screen on the same
+rows gives the same, for its strength, slope and coherence time. Split per
+scan into antenna terms, the amplitude scatter beyond what the screens give
+is the antenna gains' error, and what does not close beyond the screens and
+gains is the baselines' own.
 
 One pass over the data. The references are built from it without reading it
 again: a group's sum over its rows of w V M* (w = WEIGHT / scale) is, for data
@@ -41,7 +46,17 @@ NBINS = 10
 MIN_DEN = 100.0  # S/N 10 in a (baseline, scan) group
 MIN_GROUPS = 20  # groups a uv bin needs to count in a fit
 SLOPES = (0.05, 0.95)  # the screens' slopes; outside them the strength is refitted at the edge
-FAST_MODEL_MISMATCH = 0.05  # data above the model by this much in ln|A|: the model does not match
+# The in-scan phase's structure function: row pairs up to MAX_LAG integrations
+# apart, pooled in these bins of the lag; a (baseline-length, lag) cell needs
+# MIN_PAIRS pairs. Its coherence time is searched over COHERENCES_S.
+MAX_LAG = 20
+LAG_BINS = ((1, 1), (2, 2), (3, 4), (5, 8), (9, 14), (15, 20))
+MIN_PAIRS = 50
+COHERENCES_S = (5.0, 10.0, 20.0, 40.0, 80.0)
+FAST_SLOPES = (0.25, 0.5, 0.75)
+FAST_START_UM = 100.0
+MODEL_SCANS = 8  # scans the engine draws the in-scan screen on, at most
+OUTER_SCALE_KM = CorruptionModel().outer_scale_km  # the engine's, as the fast screen draws it
 
 
 @dataclass
@@ -168,25 +183,14 @@ def fit_window(
     # what does not close against all of them.
     thermal, _ = ref.stats(CorruptionModel())
     slow = _engine_fit(
-        ref, real, thermal, CorruptionModel(),
-        _power_law_fit(baseline_m, real, thermal, freq_hz, kind="phase"), kind="phase",
-    )  # fmt: skip
+        ref, real, thermal, CorruptionModel(), _power_law_fit(baseline_m, real, thermal, freq_hz)
+    )
     gain_amp = None
     if real_solve:
         gain_amp = _gain_excess(real_solve, ref.stats(_screens(slow, None, None))[1])
     elif bright.sum() >= MIN_GROUPS:
         notes.append("antenna terms: too few bright groups per scan to solve")
-    fast = None
-    if any(a is not None and a > FAST_MODEL_MISMATCH for a in real["lnamp_mean"]):
-        notes.append("fast_phase: the data rise above the model, which does not match the source")
-    else:
-        base = _screens(slow, None, gain_amp)
-        before_fast, _ = ref.stats(base)
-        fast = _engine_fit(
-            ref, real, before_fast, base,
-            _power_law_fit(baseline_m, real, before_fast, freq_hz, kind="amplitude"),
-            kind="amplitude",
-        )  # fmt: skip
+    fast = _temporal_fit(ref, notes) if bright.sum() >= MIN_GROUPS else None
     baselines = None
     if real_solve:
         if fast is not None:
@@ -420,43 +424,28 @@ def _mean_stats(runs: list[dict[str, list]]) -> dict[str, list]:
 
 
 def _power_law_fit(
-    baseline_m: np.ndarray, real: dict, reference: dict, freq_hz: float, *, kind: str
+    baseline_m: np.ndarray, real: dict, reference: dict, freq_hz: float
 ) -> PhaseFit | None:
     """A screen sigma(b) = sigma_1km (b / 1 km)^slope from the bins with enough
-    groups. ``kind`` "phase": the phase rms beyond the reference's, in
-    quadrature, fitted in log-log. "amplitude": the in-scan phase from the
-    loss of ln|A| below the reference's, sigma^2 / 2, fitted with a constant
-    besides (:func:`_decorrelation_fit`)."""
+    groups: the phase rms beyond the reference's, in quadrature, fitted in
+    log-log."""
     b, y = [], []
     for k in range(NBINS):
         if real["n"][k] < MIN_GROUPS:
             continue
-        if kind == "phase":
-            pr, pt = real["phase_rms_deg"][k], reference["phase_rms_deg"][k]
-            if pr is None or pt is None or pr <= pt:
-                continue
-            b.append(baseline_m[k])
-            y.append(np.radians(np.sqrt(pr**2 - pt**2)))
-        else:
-            ar, at = real["lnamp_mean"][k], reference["lnamp_mean"][k]
-            if ar is None or at is None:
-                continue
-            b.append(baseline_m[k])
-            y.append(at - ar)
-    if kind == "amplitude":
-        fitted = _decorrelation_fit(np.asarray(b) / 1_000, np.asarray(y))
-        if fitted is None:
-            return None
-        slope, sigma_1km = float(fitted[0]), float(fitted[1])
-    else:
-        if len(b) < 3:
-            return None
-        x, logs = np.log(np.asarray(b) / 1_000), np.log(y)
-        slope, intercept = np.polyfit(x, logs, 1)
-        if not SLOPES[0] <= slope <= SLOPES[1]:
-            slope = min(max(slope, SLOPES[0]), SLOPES[1])
-            intercept = float(np.mean(logs - slope * x))
-        sigma_1km = float(np.exp(intercept))
+        pr, pt = real["phase_rms_deg"][k], reference["phase_rms_deg"][k]
+        if pr is None or pt is None or pr <= pt:
+            continue
+        b.append(baseline_m[k])
+        y.append(np.radians(np.sqrt(pr**2 - pt**2)))
+    if len(b) < 3:
+        return None
+    x, logs = np.log(np.asarray(b) / 1_000), np.log(y)
+    slope, intercept = np.polyfit(x, logs, 1)
+    if not SLOPES[0] <= slope <= SLOPES[1]:
+        slope = min(max(slope, SLOPES[0]), SLOPES[1])
+        intercept = float(np.mean(logs - slope * x))
+    sigma_1km = float(np.exp(intercept))
     wavelength = C_M_S / freq_hz
     return PhaseFit(
         bins=len(b),
@@ -475,16 +464,13 @@ def _engine_fit(
     base: dict,
     base_model: CorruptionModel,
     initial: PhaseFit | None,
-    *,
-    kind: str,
 ) -> PhaseFit | None:
-    """The screen the simulator's engine must draw to reproduce the real data:
-    for each slope, the engine's screen at the initial strength P0 (on top of
-    ``base_model``) gives each bin's excess over ``base`` (phase variance, or
-    ln|A| loss), which grows as the strength squared; the strength is the
-    least-squares scale of that to the real excess (with a constant beside it
-    for the amplitude, as in :func:`_decorrelation_fit`), at the slope that
-    fits best. None without an initial screen or a positive scale."""
+    """The per-scan screen the simulator's engine must draw to reproduce the
+    real data: for each slope, the engine's screen at the initial strength P0
+    (on top of ``base_model``) gives each bin's phase variance over ``base``,
+    which grows as the strength squared; the strength is the least-squares
+    scale of that to the real excess, at the slope that fits best. None
+    without an initial screen or a positive scale."""
     from dataclasses import replace
 
     if initial is None:
@@ -492,24 +478,14 @@ def _engine_fit(
     p0 = initial.path_um_1km
     best: tuple[float, float, float, int] | None = None
     for slope in ENGINE_SLOPES:
-        if kind == "phase":
-            trial = replace(base_model, slow_path_um_1km=p0, slow_slope=slope)
-        else:
-            trial = replace(base_model, fast_path_um_1km=p0, fast_slope=slope)
-        sim, _ = ref.stats(trial)
-        y, x = _excess(real, base, sim, kind)
+        sim, _ = ref.stats(replace(base_model, slow_path_um_1km=p0, slow_slope=slope))
+        y, x = _excess(real, base, sim)
         if y.size < 3:
             continue
-        design = np.stack([x, np.ones_like(x)], axis=1) if kind == "amplitude" else x[:, None]
-        coef, *_ = np.linalg.lstsq(design, y, rcond=None)
-        a = float(coef[0])
+        a = float(np.dot(x, y) / np.dot(x, x)) if np.dot(x, x) > 0 else 0.0
         if a <= 0:
             continue
-        sse = float(np.sum((y - design @ coef) ** 2))
-        if kind == "amplitude":
-            scatter = np.sqrt(sse / max(y.size - 2, 1))
-            if a * float(np.ptp(x)) <= 3 * scatter:
-                continue
+        sse = float(np.sum((y - a * x) ** 2))
         if best is None or sse < best[0]:
             best = (sse, float(slope), a, int(y.size))
     if best is None:
@@ -524,57 +500,20 @@ def _engine_fit(
     )
 
 
-def _excess(real: dict, base: dict, sim: dict, kind: str) -> tuple[np.ndarray, np.ndarray]:
-    """Per bin with enough groups: the real data's excess over ``base`` and the
-    simulated screen's (phase variance in rad^2, or ln|A| loss)."""
+def _excess(real: dict, base: dict, sim: dict) -> tuple[np.ndarray, np.ndarray]:
+    """Per bin with enough groups: the real data's phase variance (rad^2) over
+    ``base``'s, and the simulated screen's."""
     y, x = [], []
     for k in range(NBINS):
         if real["n"][k] < MIN_GROUPS:
             continue
-        if kind == "phase":
-            values = (real["phase_rms_deg"][k], base["phase_rms_deg"][k], sim["phase_rms_deg"][k])
-            if None in values:
-                continue
-            r, b, m = (np.radians(v) for v in values)
-            y.append(r**2 - b**2)
-            x.append(m**2 - b**2)
-        else:
-            values = (real["lnamp_mean"][k], base["lnamp_mean"][k], sim["lnamp_mean"][k])
-            if None in values:
-                continue
-            r, b, m = values
-            y.append(b - r)
-            x.append(b - m)
-    return np.asarray(y, dtype=float), np.asarray(x, dtype=float)
-
-
-def _decorrelation_fit(b_km: np.ndarray, loss: np.ndarray) -> tuple[float, float] | None:
-    """(slope, sigma_1km) of loss(b) = c + sigma_1km^2 (b / 1 km)^(2 slope) / 2.
-
-    The constant c takes what lowers ln|A| on every baseline alike (the
-    antennas' amplitude errors, a model whose flux is a little off), which
-    is not decorrelation; the slope is searched over the screens' range. None
-    unless the loss grows with baseline by more than three times the fit's
-    residual scatter."""
-    if b_km.size < 4:
-        return None
-    best: tuple[float, float, float] | None = None
-    for slope in np.linspace(SLOPES[0], SLOPES[1], 19):
-        design = np.stack([np.ones_like(b_km), 0.5 * b_km ** (2 * slope)], axis=1)
-        (c, v), *_ = np.linalg.lstsq(design, loss, rcond=None)
-        if v <= 0:
+        values = (real["phase_rms_deg"][k], base["phase_rms_deg"][k], sim["phase_rms_deg"][k])
+        if None in values:
             continue
-        sse = float(np.sum((loss - design @ (c, v)) ** 2))
-        if best is None or sse < best[0]:
-            best = (sse, float(slope), float(v))
-    if best is None:
-        return None
-    best_sse, best_slope, best_v = best
-    rise = 0.5 * best_v * (b_km.max() ** (2 * best_slope) - b_km.min() ** (2 * best_slope))
-    scatter = np.sqrt(best_sse / max(b_km.size - 3, 1))
-    if rise <= 3 * scatter:
-        return None
-    return best_slope, float(np.sqrt(best_v))
+        r, b, m = (np.radians(v) for v in values)
+        y.append(r**2 - b**2)
+        x.append(m**2 - b**2)
+    return np.asarray(y, dtype=float), np.asarray(x, dtype=float)
 
 
 def _antenna_solve(ratio: np.ndarray, scan, a1, a2) -> dict[str, float]:
@@ -660,24 +599,237 @@ class _Reference:
         )
         return _mean_stats(bins), solve
 
-    def _signal(self, model: Any) -> np.ndarray:
-        """Each bright group's sum over its rows of G w |M|^2."""
+    def row_gains(self, model: Any, rng: np.random.Generator | None = None) -> np.ndarray:
+        """Each row's baseline gain G under ``model``'s errors, drawn per scan
+        on the rows of the bright groups (1 elsewhere)."""
         from ..interferometry.corruptions import draw_antenna_corruptions
 
         r, bright_rows = self.rows, self.bright[self.inverse]
-        if not model.has_antenna_errors:
-            return self.den[self.bright].astype(np.complex128)
         gain = np.ones(self.inverse.size, dtype=np.complex128)
         for s in np.unique(r["scan"][bright_rows]):
             on = bright_rows & (r["scan"] == s)
             times, t_index = np.unique(r["time"][on], return_inverse=True)
-            errors = draw_antenna_corruptions(model, self.xy, times - times[0], self.rng)
+            errors = draw_antenna_corruptions(model, self.xy, times - times[0], rng or self.rng)
             phase = errors.phase + 2 * np.pi * errors.path_m / self.wavelength_m
             g = errors.amplitude * np.exp(1j * phase)
             gain[on] = g[r["a1"][on], t_index] * np.conj(g[r["a2"][on], t_index])
-        weighted = gain * r["den"]
+        return gain
+
+    def _signal(self, model: Any) -> np.ndarray:
+        """Each bright group's sum over its rows of G w |M|^2."""
+        r = self.rows
+        if not model.has_antenna_errors:
+            return self.den[self.bright].astype(np.complex128)
+        weighted = self.row_gains(model) * r["den"]
         size = self.den.size
         signal = np.bincount(self.inverse, weighted.real, size) + 1j * np.bincount(
             self.inverse, weighted.imag, size
         )
         return signal[self.bright]
+
+
+# -- the in-scan phase, in time ----------------------------------------------
+
+
+@dataclass
+class _Pairs:
+    """Pairs of rows (i, j) of one bright group, j up to MAX_LAG integrations
+    after i: each pair's (baseline-length bin, lag bin) cell, the thermal part
+    of |x_j - x_i|^2 and its weight, and each group's |<x>|^2 normalisation."""
+
+    i: np.ndarray
+    j: np.ndarray
+    cell: np.ndarray
+    noise: np.ndarray
+    weight: np.ndarray
+    group: np.ndarray
+    cells: int
+
+
+def _row_pairs(ref: _Reference) -> _Pairs | None:
+    """The bright groups' row pairs, from the rows' times (the integration is
+    the median step between a group's rows)."""
+    r = ref.rows
+    rows = np.flatnonzero(ref.bright[ref.inverse] & (r["den"] > 0))
+    if rows.size < 2:
+        return None
+    group = ref.inverse[rows]
+    rows = rows[np.lexsort((r["time"][rows], group))]
+    group = ref.inverse[rows]
+    time = r["time"][rows]
+    same = group[1:] == group[:-1]
+    steps = np.diff(time)[same]
+    if not np.any(steps > 0):
+        return None
+    dt = float(np.median(steps[steps > 0]))
+    # The bright groups' baseline-length bins (ref.uvbin follows the bright groups).
+    bright_index = np.cumsum(ref.bright) - 1
+    uvbin = ref.uvbin[bright_index[group]]
+    lag_bin = np.full(MAX_LAG + 1, -1)
+    for k, (lo, hi) in enumerate(LAG_BINS):
+        lag_bin[lo : hi + 1] = k
+    i_all, j_all = [], []
+    for offset in range(1, MAX_LAG + 1):
+        a, b = np.arange(rows.size - offset), np.arange(offset, rows.size)
+        keep = group[a] == group[b]
+        lag = np.round((time[b] - time[a]) / dt).astype(int)
+        keep &= (lag >= 1) & (lag <= MAX_LAG)
+        i_all.append(a[keep])
+        j_all.append(b[keep])
+    i, j = np.concatenate(i_all), np.concatenate(j_all)
+    if i.size == 0:
+        return None
+    lag = np.round((time[j] - time[i]) / dt).astype(int)
+    cell = uvbin[i] * len(LAG_BINS) + lag_bin[lag]
+    den = r["den"][rows]
+    noise = 2.0 * ref.kappa * (1.0 / den[i] + 1.0 / den[j])
+    return _Pairs(
+        i=rows[i],
+        j=rows[j],
+        cell=cell,
+        noise=noise,
+        weight=1.0 / noise**2,
+        group=group[i],
+        cells=NBINS * len(LAG_BINS),
+    )
+
+
+def _structure(pairs: _Pairs, ref: _Reference, x: np.ndarray, power: np.ndarray) -> np.ndarray:
+    """Per cell, the weighted sum over its pairs of |x_j - x_i|^2 less their
+    thermal part (``pairs.noise``, which noiseless ``x`` lack: pass zeros) over
+    the weighted sum of their group's |<x>|^2 (``power``); NaN where a cell has
+    too few pairs."""
+    diff = np.abs(x[pairs.j] - x[pairs.i]) ** 2 - pairs.noise
+    num = np.bincount(pairs.cell, pairs.weight * diff, pairs.cells)
+    den = np.bincount(pairs.cell, pairs.weight * power[pairs.group], pairs.cells)
+    count = np.bincount(pairs.cell, minlength=pairs.cells)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        out = num / den
+    out[(count < MIN_PAIRS) | (den <= 0)] = np.nan
+    return out
+
+
+def _group_power(ref: _Reference, x: np.ndarray, noisy: bool) -> np.ndarray:
+    """Each group's |sum w x |M|^2 / sum w |M|^2|^2: its mean ratio's power,
+    less the thermal part when ``noisy``."""
+    r = ref.rows
+    size = ref.den.size
+    weighted = x * r["den"]
+    total = np.bincount(ref.inverse, weighted.real, size) + 1j * np.bincount(
+        ref.inverse, weighted.imag, size
+    )
+    with np.errstate(invalid="ignore", divide="ignore"):
+        power = np.abs(total / ref.den) ** 2
+        if noisy:
+            power -= 2.0 * ref.kappa / ref.den
+    return np.nan_to_num(power)
+
+
+class _FastScreens:
+    """The engine's in-scan screen on the bright rows of ``ref``, as the
+    structure function's cells (:func:`_structure`). Its fresh draws are made
+    once per slope, per scan: the coherence time only blends them
+    (corruptions.in_scan_path). The cells are expectations normalised by the
+    groups' power, so ``MODEL_SCANS`` scans spread over the observation give
+    them; the pairs are those scans'."""
+
+    def __init__(self, ref: _Reference, pairs: _Pairs):
+        r = ref.rows
+        self.ref = ref
+        bright_rows = ref.bright[ref.inverse]
+        scans = np.unique(r["scan"][bright_rows])
+        if scans.size > MODEL_SCANS:
+            scans = scans[np.round(np.linspace(0, scans.size - 1, MODEL_SCANS)).astype(int)]
+        keep = np.isin(r["scan"][pairs.i], scans)
+        self.pairs = _Pairs(
+            i=pairs.i[keep],
+            j=pairs.j[keep],
+            cell=pairs.cell[keep],
+            noise=np.zeros(int(keep.sum())),
+            weight=pairs.weight[keep],
+            group=pairs.group[keep],
+            cells=pairs.cells,
+        )
+        self.scans = []
+        for s in scans:
+            on = bright_rows & (r["scan"] == s)
+            times, t_index = np.unique(r["time"][on], return_inverse=True)
+            self.scans.append((on, times - times[0], t_index))
+        self.seed = int(ref.rng.integers(2**31))
+        self.draws: dict[float, list[np.ndarray]] = {}
+
+    def cells(self, path: float, slope: float, coherence: float) -> np.ndarray:
+        from ..interferometry.corruptions import fast_screen_draws, in_scan_path
+
+        ref, r = self.ref, self.ref.rows
+        if slope not in self.draws:
+            rng = np.random.default_rng(self.seed)
+            self.draws[slope] = [
+                fast_screen_draws(rng, ref.xy, times.size, OUTER_SCALE_KM, slope)
+                for _, times, _ in self.scans
+            ]
+        model = CorruptionModel(fast_path_um_1km=path, fast_slope=slope, fast_coherence_s=coherence)
+        g = np.ones(ref.inverse.size, dtype=np.complex128)
+        for (on, times, t_index), fresh in zip(self.scans, self.draws[slope], strict=True):
+            one_scan = np.zeros(times.size, dtype=int)
+            phase = (
+                2 * np.pi * in_scan_path(model, ref.xy, times, one_scan, fresh) / ref.wavelength_m
+            )
+            g[on] = np.exp(1j * (phase[r["a1"][on], t_index] - phase[r["a2"][on], t_index]))
+        return _structure(self.pairs, ref, g, _group_power(ref, g, noisy=False))
+
+
+def _scale(real: np.ndarray, cells: np.ndarray) -> tuple[float, float, int]:
+    """The least-squares scale of ``cells`` to ``real`` over the cells both
+    have, its error and how many cells."""
+    ok = np.isfinite(real) & np.isfinite(cells)
+    y, m = real[ok], cells[ok]
+    norm = float(np.dot(m, m))
+    if y.size < 3 or norm <= 0:
+        return 0.0, np.inf, 0
+    a = float(np.dot(m, y) / norm)
+    sse = float(np.sum((y - a * m) ** 2))
+    return a, float(np.sqrt(sse / max(y.size - 1, 1) / norm)), int(y.size)
+
+
+def _temporal_fit(ref: _Reference, notes: list[str]) -> PhaseFit | None:
+    """The in-scan screen the engine must draw for the real data's structure
+    function in time (:func:`_structure`): for each slope and coherence time,
+    the engine's screen at a starting strength on the same rows gives each
+    (baseline-length, lag) cell's, which grows about as the strength squared;
+    the strength is the least-squares scale of that to the real cells, at the
+    slope and coherence that fit best, refined once at the strength found.
+    None, with a note, unless the scale exceeds three times its error."""
+    pairs = _row_pairs(ref)
+    if pairs is None:
+        notes.append("fast_phase: no bright rows an integration or more apart")
+        return None
+    r = ref.rows
+    with np.errstate(invalid="ignore", divide="ignore"):
+        x = np.where(r["den"] > 0, r["num"] / r["den"], 0.0)
+    real = _structure(pairs, ref, x, _group_power(ref, x, noisy=True))
+    screens = _FastScreens(ref, pairs)
+    trials = [
+        (_scale(real, screens.cells(FAST_START_UM, slope, coherence)), slope, coherence)
+        for slope in FAST_SLOPES
+        for coherence in COHERENCES_S
+    ]
+    fitted = [t for t in trials if t[0][0] > 0]
+    if not fitted:
+        notes.append("fast_phase: the data show no in-scan phase")
+        return None
+    # The best fit: the smallest error relative to its scale, at that scale.
+    (a, _, _), slope, coherence = min(fitted, key=lambda t: t[0][1] / t[0][0])
+    path = FAST_START_UM * np.sqrt(a)
+    a, error, n = _scale(real, screens.cells(path, slope, coherence))
+    if a <= 3 * error:
+        notes.append("fast_phase: the data show no in-scan phase above their noise")
+        return None
+    path *= np.sqrt(a)
+    return PhaseFit(
+        bins=n,
+        slope=float(slope),
+        phase_1km_deg=float(np.degrees(2 * np.pi * path * 1e-6 / ref.wavelength_m)),
+        path_um_1km=float(path),
+        coherence_s=float(coherence),
+    )

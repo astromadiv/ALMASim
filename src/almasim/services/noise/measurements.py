@@ -151,6 +151,9 @@ class PhaseFit(_Record):
     slope: float
     phase_1km_deg: float
     path_um_1km: float = Field(description="The rms path difference at 1 km (microns).")
+    coherence_s: float | None = Field(
+        default=None, description="How long it stays coherent (s); in-scan screens only."
+    )
 
 
 class FitBin(_Record):

@@ -20,7 +20,9 @@ how:
   where they depart from FDM windows of the same dish and band
   (tdm_efficiency), and a factor per dish and band where the band's windows
   depart from that curve (efficiency_scale);
-- slow_phase, fast_phase, antenna_gains, baseline_errors: the fits.
+- slow_phase, fast_phase, antenna_gains, baseline_errors: the fits; the in-scan
+  screen's strengths at the windows' median coherence time, each keeping
+  its phase change over one simulated sample.
 
 The research that set alma@1 did the same by hand (research/noise_realism).
 """
@@ -35,10 +37,14 @@ from typing import Any
 import numpy as np
 
 from ..noise_model import NoiseModel, Provenance, ValueStats
-from .measurements import WindowFit, WindowNoise
+from .measurements import PhaseFit, WindowFit, WindowNoise
 
 HANNING_RHO1 = 0.5  # rho1 above this: native channels, not averaged
 WIDE_WINDOW_HZ = 1e9
+# The time over which windows' in-scan screens keep their phase change when
+# their strengths are brought to one coherence time: the simulator's usual
+# sample (observing.SCAN_TIMES_S).
+FAST_REFERENCE_S = 18.144
 C_M_S = 299_792_458.0
 
 
@@ -121,7 +127,18 @@ def aggregate(
     )
     reduce("slow_phase.slope", [s.slope for s in slow], setter("slow_phase", "slope"))
     reduce(
-        "fast_phase.path_um_1km", [s.path_um_1km for s in fast], setter("fast_phase", "path_um_1km")
+        "fast_phase.coherence_s",
+        [s.coherence_s for s in fast if s.coherence_s is not None],
+        setter("fast_phase", "coherence_s"),
+    )
+    coherence = stats.get("fast_phase.coherence_s")
+    reduce(
+        "fast_phase.path_um_1km",
+        [
+            s.path_um_1km if coherence is None else _path_at_coherence(s, coherence.median)
+            for s in fast
+        ],  # fmt: skip
+        setter("fast_phase", "path_um_1km"),
     )
     reduce("fast_phase.slope", [s.slope for s in fast], setter("fast_phase", "slope"))
     reduce(
@@ -166,6 +183,19 @@ def aggregate(
             ).model_dump(mode="json"),
         }
     )
+
+
+def _path_at_coherence(fit: PhaseFit, coherence_s: float) -> float:
+    """A window's in-scan screen strength at another coherence time, with the
+    same phase change over ``FAST_REFERENCE_S``: its strength and coherence
+    trade off, so medians of each over the windows would draw a faster screen
+    than any of them. An AR(1) screen of variance P^2 changes by
+    2 P^2 (1 - exp(-t / coherence)) over t."""
+    if fit.coherence_s is None:
+        return fit.path_um_1km
+    own = 1.0 - np.exp(-FAST_REFERENCE_S / fit.coherence_s)
+    other = 1.0 - np.exp(-FAST_REFERENCE_S / coherence_s)
+    return float(fit.path_um_1km * np.sqrt(own / other))
 
 
 def _stats(values: Sequence[float]) -> ValueStats:
