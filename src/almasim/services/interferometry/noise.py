@@ -63,6 +63,9 @@ class NoiseModelConfig:
     # ALMA's quantisation and correlator efficiencies (eta_q eta_c): what a
     # visibility's noise carries beyond the radiometer equation.
     correlator_efficiency: float = _CORRELATOR_EFFICIENCY
+    # A factor on correlator_efficiency for a TDM window's channels
+    # (instrument.channels.Channels.tdm); an FDM window's take 1.
+    tdm_efficiency: float = 1.0
     # The receiver temperatures by frequency and the dishes' Ruze parameters;
     # None: ALMA's (data/alma_radiometer.json).
     receiver_temperatures: ReceiverTable | None = None
@@ -208,11 +211,13 @@ def visibility_noise(
     elevation_deg: float,
     *,
     antenna_diameter_m: float,
+    tdm: bool = False,
 ) -> np.ndarray:
     """Each channel's noise (Jy) of one visibility, per real and imaginary part:
     the radiometer equation for a baseline's Stokes I from ``n_polarizations``
     over ``channel_width_hz`` and ``sample_time_s``,
-    SEFD / (eta sqrt(2 n_pol dnu t)). Imaged with natural weighting, N such
+    SEFD / (eta sqrt(2 n_pol dnu t)), eta the correlator efficiency (times
+    ``tdm_efficiency`` for a TDM window's channels). Imaged with natural weighting, N such
     visibilities give SEFD / (eta sqrt(n_pol N(N-1) dnu t_total)), ALMA's
     image sensitivity."""
     sefd_jy = system_equivalent_flux_density(
@@ -224,7 +229,8 @@ def visibility_noise(
         * max(float(channel_width_hz), 1.0)
         * max(float(sample_time_s), 1e-6)
     )
-    return sefd_jy / (max(config.correlator_efficiency, 1e-6) * np.sqrt(product))
+    eta = config.correlator_efficiency * (config.tdm_efficiency if tdm else 1.0)
+    return sefd_jy / (max(eta, 1e-6) * np.sqrt(product))
 
 
 def calibrate_noise_profile(
