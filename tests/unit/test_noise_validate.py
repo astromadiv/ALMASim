@@ -204,6 +204,39 @@ def test_cube_noise_is_compared_at_the_real_cubes_channel_width():
     assert unknown.metrics["cube.sigma_median"].median == pytest.approx(1 / np.sqrt(2))
 
 
+@pytest.mark.unit
+def test_continuum_noise_is_compared_over_the_real_windows_band():
+    # The simulated window has 1024 of the real window's 1920 channels, so its
+    # continuum averages 1024/1920 of the band and its noise is
+    # sqrt(1920/1024) higher: the same noise per unit bandwidth.
+    high = np.sqrt(1920 / 1024)
+    pairs = []
+    for p in _pairs(1.0):
+        assert p.sim_window is not None and p.real_window is not None
+        sim = p.sim_window.model_copy(
+            update={"exposure": p.sim_window.exposure.model_copy(update={"channels": 1024})}
+        )
+        real = p.real_window.model_copy(
+            update={"exposure": p.real_window.exposure.model_copy(update={"channels": 1920})}
+        )
+        pairs.append(
+            replace(
+                p,
+                sim_image={**p.sim_image, "cont.sigma": p.real_image["cont.sigma"] * high,
+                           "jk.sigma": 2e-3 * high},
+                real_image={**p.real_image, "jk.sigma": 2e-3},
+                sim_window=sim,
+                real_window=real,
+            )
+        )  # fmt: skip
+    judged = compare(pairs, {"label": "band"})
+    assert judged.metrics["cont.sigma"].median == pytest.approx(1.0)
+    assert judged.metrics["jk.sigma"].median == pytest.approx(1.0)
+    # Without the simulated window its band is unknown: no scaling.
+    unknown = compare([replace(p, sim_window=None) for p in pairs], {"label": "unknown"})
+    assert unknown.metrics["jk.sigma"].median == pytest.approx(high)
+
+
 @pytest.fixture
 def stubbed(monkeypatch, tmp_path):
     """noise validate with the simulation, extraction and imaging stubbed:
