@@ -314,7 +314,8 @@ model's, with a note in `provenance.notes`.
 source as bright as the real image's continuum peak, the window's frequency,
 channels and channel averaging from its MS's `RESOLUTION`, one execution
 block of the MS's time on source by the MS's antennas on their pads (a 12 m MS's
-total-power dishes among them), every baseline inside the sky model's uv grid, through the
+total-power dishes among them), sampled at the MS's integration time (or the shortest
+whole multiple of it that keeps the window within 300 million visibilities), every baseline inside the sky model's uv grid, through the
 window's PWV or, without one, the PWV its SYSCAL Tsys implies), exports the MS, flags as large a share of its rows as the real
 image misses (the window's flagged data and its rows over the imaging's
 maximum WEIGHT, `exposure.high_weight_fraction`), measures it with `noise extract` (in a process of

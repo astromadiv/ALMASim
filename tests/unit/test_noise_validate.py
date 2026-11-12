@@ -750,6 +750,29 @@ def test_a_window_is_observed_on_its_own_track():
     assert all(picked[name] == (name,) for name in track), "a row's track reaches the run"
 
 
+@pytest.mark.unit
+def test_a_window_is_sampled_at_its_dump_time_within_the_budget():
+    import pandas as pd
+
+    from almasim.services.simulation.params import SimulationParams
+
+    window = _window("w")  # 600 s in 6 s integrations, 780 baselines, 64 channels
+    assert v.sample_time(window) == 6.0
+    record = v.with_exposure(pd.Series({"Int.Time": 3000.0}), window, seed=3)
+    assert record["sample_time_s"] == 6.0
+    assert SimulationParams._OPTIONAL_ROW_COLUMNS["sample_time_s"] == ("sample_time_s",)
+
+    def exposed(**update):
+        return window.model_copy(update={"exposure": window.exposure.model_copy(update=update)})
+
+    # 3,000 s in 2 s integrations of 1,035 baselines and 1,024 (of 3,840) channels:
+    # 1.59 billion visibilities, so every sixth integration's length.
+    big = exposed(integration_s=2.0, time_on_source_s=3000.0, baselines=1035, channels=3840)
+    assert 1500 * 1035 * 1024 / 6 <= v.MAX_VISIBILITIES < 1500 * 1035 * 1024 / 5
+    assert v.sample_time(big) == 12.0
+    assert v.sample_time(exposed(integration_s=0.0)) is None
+
+
 def _lossy(window: WindowNoise, flagged: float, high_weight: float) -> WindowNoise:
     e = window.exposure.model_copy(
         update={"flagged_fraction": flagged, "high_weight_fraction": high_weight}

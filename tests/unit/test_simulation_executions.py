@@ -45,7 +45,13 @@ def test_each_execution_observes_on_its_own_day():
 
 
 def _plan(
-    total_time_s: float, *, n_executions=None, executions=None, configs=None, hour_angle_h=None
+    total_time_s: float,
+    *,
+    n_executions=None,
+    executions=None,
+    configs=None,
+    hour_angle_h=None,
+    sample_time_s=None,
 ):
     params = SimpleNamespace(
         pwv=1.0,
@@ -57,6 +63,7 @@ def _plan(
         hour_angle_h=hour_angle_h,
         track_span_s=None,
         scans=None,
+        sample_time_s=sample_time_s,
         elevation_deg=None,
         idx=0,
         main_dir="/tmp",
@@ -106,6 +113,17 @@ def test_a_mous_is_one_run_per_execution_of_its_share_of_the_time():
     expected = exact_samples(block_s, hour_angle_samples(36469.44)[1])
     assert all(run.sample_time_s == pytest.approx(expected[1]) for run in runs)
     assert expected[0] * expected[1] == pytest.approx(block_s)
+
+
+@pytest.mark.unit
+def test_a_given_sample_time_samples_every_block():
+    # 2,276 s in 2.016 s integrations: 1,129 samples, past one track's budget.
+    runs, _ = _plan(2276.0, sample_time_s=2.016)
+    samples, sample_time_s = exact_samples(2276.0, 2.016)
+    assert samples == 1129
+    assert runs[0].sample_time_s == pytest.approx(sample_time_s)
+    runs, _ = _plan(9000.0, n_executions=3, sample_time_s=6.048)
+    assert all(run.sample_time_s == pytest.approx(3000.0 / 496) for run in runs)
 
 
 @pytest.mark.unit

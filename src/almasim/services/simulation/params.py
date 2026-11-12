@@ -160,6 +160,10 @@ class SimulationParams:
     hour_angle_h: float | None = _coerced(_optional(float), default=None)
     track_span_s: float | None = _coerced(_optional(float), default=None)
     scans: int | None = _coerced(_optional(int), default=None)
+    # Seconds per sample of each execution block (None: from its time on source,
+    # interferometry.observing.hour_angle_samples); the samples still observe
+    # the time on source in full (observing.exact_samples).
+    sample_time_s: float | None = _coerced(_optional(float), default=None)
 
     def __post_init__(self) -> None:
         if self.noise_model is None and self.corruptions is not None:
@@ -211,6 +215,7 @@ class SimulationParams:
         "hour_angle_h": ("hour_angle_h",),
         "track_span_s": ("track_span_s",),
         "scans": ("scans",),
+        "sample_time_s": ("sample_time_s",),
     }
 
     @classmethod
