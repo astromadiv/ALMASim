@@ -4,15 +4,15 @@
     "sha256": "c96c2ab387d9ca3883efe1d7438a748e0a2f69844bde6b401278800f59bc7019"
   },
   "baseline": {
-    "url": "https://github.com/astromadiv/ALMASim/releases/download/golden-baseline-v16/golden-baseline-v16.tar.gz",
-    "sha256": "1c9d35d355db82f53a947ab3d2f037c635c17bbc600710c57b724cf98d90afa8",
-    "version": "v16",
-    "source": "workflow run 41708637706, commit 9dcccee7; MADIV-28: Each execution block observes on a track of its own (#538)"
+    "url": "https://github.com/astromadiv/ALMASim/releases/download/golden-baseline-v18/golden-baseline-v18.tar.gz",
+    "sha256": "8107e1eb1434319c2e5e85d53fda418921b61fd74ed7bf953296e090c027822e",
+    "version": "v18",
+    "source": "workflow run 43290341162, commit dc7c4a7e; MADIV-28: A diverged continuum clean is reported, not measured as noise (#567)"
   },
   "simulation_baseline": {
-    "url": "https://github.com/astromadiv/ALMASim/releases/download/golden-baseline-v17/golden-simulation-v17.tar.gz",
-    "sha256": "eee08289b046dabbd1a4cd006507562debe67fc3abc2364ced01309bee0b2a67",
-    "version": "v17",
-    "source": "workflow run 42800271858, commit 5e76dc3a; MADIV-28: The simulated samples observe the whole time on source (#555)"
+    "url": "https://github.com/astromadiv/ALMASim/releases/download/golden-baseline-v18/golden-simulation-v18.tar.gz",
+    "sha256": "c3074f94447110916d25772a5f1e86361eaf83904266348e34377b2aaa8f010f",
+    "version": "v18",
+    "source": "workflow run 43290341162, commit dc7c4a7e; MADIV-28: Correlate averaged channels' noise at both lags exactly (#564)"
   }
 }
