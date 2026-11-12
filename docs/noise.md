@@ -316,7 +316,7 @@ channels and channel averaging from its MS's `RESOLUTION`, one execution
 block of the MS's time on source by the MS's antennas on their pads (a 12 m MS's
 total-power dishes among them), every baseline inside the sky model's uv grid, through the
 window's PWV or, without one, the PWV its SYSCAL Tsys implies), exports the MS, flags as large a share of its rows as the real
-image misses (the window's flagged data and its rows over the imaging's
+image misses (the window's flagged data and the unflagged data of its rows over the imaging's
 maximum WEIGHT, `exposure.high_weight_fraction`), measures it with `noise extract` (in a process of
 its own) and images it as the real one was imaged. It also measures the real
 and the simulated window's continuum noise with the sky cancelled

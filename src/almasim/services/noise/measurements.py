@@ -54,9 +54,9 @@ class Exposure(_Record):
     )
     high_weight_fraction: float = Field(
         default=0.0,
-        description="The share of rows, on the baselines between the antennas, whose WEIGHT "
-        "exceeds the imaging's maximum (image image-from-ms --max-weight), which the image "
-        "leaves out.",
+        description="The share of the values, on the baselines between the antennas, that are "
+        "unflagged in rows whose WEIGHT exceeds the imaging's maximum (image image-from-ms "
+        "--max-weight), which the image leaves out besides the flagged ones.",
     )
     elevation_deg: float | None = Field(default=None, description="The target's median elevation.")
     hour_angle_h: float | None = Field(
