@@ -1029,7 +1029,10 @@ almasim noise validate --model noise/candidate.json --windows windows.csv \
 For each window, ALMASim simulates it from its archive row with the
 candidate (a point source at the window's frequency, with its channels, up
 to 1024 of them, and their averaging as its MS gives them, one execution
-block). The source is as bright as the real image's continuum peak, so its
+block in samples as long as its MS's integrations). The simulation peaks at
+about 0.3 GB per million visibilities, up to about 100 GB at the 300 million
+a window is held to (see *The samples* below), so the Slurm workers take
+128 GB by default (`--slurm-memory`). The source is as bright as the real image's continuum peak, so its
 cleaning residuals are those of the real field (see below). ALMASim then
 flags whole rows of the simulated MS, drawn at random, until it misses as
 large a share of its data as the real image does: the window's
@@ -1148,6 +1151,18 @@ Seven choices keep the comparison fair, and one limit remains:
   stretch at transit (81°) its simulated continuum is cleaned to 0.71 of
   its dirty noise, the real one to 0.83. A window measured without a track is observed on one drawn as
   any run's (see [Execution blocks](simulation.md#execution-blocks)).
+- *The samples.* Each window is simulated in samples as long as its MS's
+  integrations (`exposure.integration_s`, 1 to 10 s on the MADIV-16
+  windows), or the shortest whole multiple of that keeping it within 300
+  million visibilities (samples x baselines x channels), about 100 GB at the
+  simulator's peak. The jackknife alternates the MS's integrations, and how
+  much of the sky it leaves depends on how far the in-scan phase moves from
+  one integration to the next. In the simulator's own samples (18 s on most
+  windows) the phase moves further, and a bright window's simulated
+  jackknife keeps more of its source than the real one. Jackknife ratios in
+  18 s samples and in the MS's own: w86 1.17 and 1.02 (6 s), w91 1.25 and
+  1.07 (2 s), w23 (7 m) 1.17 and 1.00 (10 s), w52 (7 m, 6 s samples) 1.17
+  and 1.08 (1 s); their visibility noise does not change.
 - *The weather.* Each window is simulated through its own PWV (its `pwv`).
   A window without one, a 7 m array's, takes the PWV at which the model's
   Tsys at its frequency and elevation is ALMA's (its median SYSCAL Tsys):

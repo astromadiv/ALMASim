@@ -39,6 +39,9 @@ SIM_WINDOW = "sim_window.json"
 SIM_IMAGE = "sim_image.json"
 REAL_IMAGE = "real_image.json"
 MAX_CHANNELS = 1024  # an ACA spectral window's: the continuum's noise follows the bandwidth
+# The most visibilities (samples x baselines x channels) a window is simulated
+# with: about 100 GB at the simulator's peak (some 0.34 GB per million).
+MAX_VISIBILITIES = 300_000_000
 SKY_PIXELS = 256  # the simulated sky model's pixels across: the source is a point
 UV_MARGIN = 1.05  # the model's uv grid reaches this far past the longest baseline
 MAX_UNIMAGED = 0.95  # the most of a simulated window's data flag_as_imaged flags
@@ -309,7 +312,8 @@ def with_exposure(record: pd.Series, window: WindowNoise, seed: int) -> pd.Serie
     """The archive row observed as the window's MS was: its time on source in
     one execution block, on the MS's own track (``exposure.hour_angle_h``,
     ``track_span_s`` and ``scans``; drawn as any run's when the window was
-    measured without them), by the MS's own antennas on their pads
+    measured without them), sampled as the MS was (``sample_time``), by the
+    MS's own antennas on their pads
     (``exposure.pads``). The row's Int.Time is the whole observing unit's,
     which may be several of the MS's blocks, and its antennas are the union
     over them, configurations and the total-power antennas included. A window
@@ -324,6 +328,7 @@ def with_exposure(record: pd.Series, window: WindowNoise, seed: int) -> pd.Serie
     record["hour_angle_h"] = e.hour_angle_h
     record["track_span_s"] = e.track_span_s
     record["scans"] = e.scans
+    record["sample_time_s"] = sample_time(window)
     if e.pads:
         record["antenna_arrays"] = " ".join(interferometer_pads(e.pads, e.dish_diameter_m))
         return record
@@ -337,6 +342,25 @@ def with_exposure(record: pd.Series, window: WindowNoise, seed: int) -> pd.Serie
     if tokens:
         record["antenna_arrays"] = " ".join(tokens)
     return record
+
+
+def sample_time(window: WindowNoise) -> float | None:
+    """Seconds per simulated sample: the MS's own integration (its dump time),
+    or the shortest whole multiple of it that keeps the window within
+    ``MAX_VISIBILITIES``. The jackknife alternates the MS's integrations, and
+    how much of the sky it leaves depends on how far the in-scan phase moves
+    from one to the next: in samples three times longer, a bright source
+    leaves more of itself in the simulated jackknife than in the real one.
+    None (the simulator's own sampling) without an integration time."""
+    import math
+
+    e = window.exposure
+    if not (e.integration_s > 0 and e.time_on_source_s > 0):
+        return None
+    # Visibilities per sample: every baseline's simulated channels.
+    per_sample = max(e.baselines, 1) * min(max(e.channels, 1), MAX_CHANNELS)
+    samples = e.time_on_source_s / e.integration_s
+    return math.ceil(samples * per_sample / MAX_VISIBILITIES) * e.integration_s
 
 
 def interferometer_pads(pads: Sequence[str], dish_diameter_m: float) -> list[str]:

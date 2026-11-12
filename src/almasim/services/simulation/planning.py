@@ -181,8 +181,9 @@ def plan_observation_runs(
             reference_noise=base_noise_reference,
         )
         # A MOUS is observed in execution blocks, each a track of its own on its
-        # own day, sampled alike; the samples of the blocks simulated stay within
-        # one track's budget (observing.hour_angle_samples).
+        # own day, sampled alike: every params.sample_time_s when given, else so
+        # that the samples of the blocks simulated stay within one track's budget
+        # (observing.hour_angle_samples).
         n_executions = execution_count(config.total_time_s, params.n_executions)
         simulated = (
             n_executions
@@ -190,7 +191,7 @@ def plan_observation_runs(
             else min(max(int(params.executions), 1), n_executions)
         )
         execution_time_s = config.total_time_s / n_executions
-        _, sample_time_s = hour_angle_samples(execution_time_s * simulated)
+        sample_time_s = params.sample_time_s or hour_angle_samples(execution_time_s * simulated)[1]
         samples, sample_time_s = exact_samples(execution_time_s, sample_time_s)
         lat_rad, dec_rad = math.radians(ALMA_LATITUDE_DEG), math.radians(float(params.dec))
         tracks = [
