@@ -349,9 +349,9 @@ def sample_time(window: WindowNoise) -> float | None:
     or the shortest whole multiple of it that keeps the window within
     ``MAX_VISIBILITIES``. The jackknife alternates the MS's integrations, and
     how much of the sky it leaves depends on how far the in-scan phase moves
-    from one to the next: on samples three times longer, a bright source
-    leaves several percent of the image's noise. None (the simulator's own
-    sampling) without an integration time."""
+    from one to the next: in samples three times longer, a bright source
+    leaves more of itself in the simulated jackknife than in the real one.
+    None (the simulator's own sampling) without an integration time."""
     import math
 
     e = window.exposure
