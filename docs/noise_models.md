@@ -539,10 +539,12 @@ is applied on top.
 **How the simulator applies it.** It first dilutes rho1 and rho2 over the
 window's averaging N (from the archive's spectral resolution, unless
 `average` sets it; see [Noise](noise.md#channels)), then builds a three-tap
-kernel (a, b, a) with unit norm whose output has those correlations
-(rho1 = 2ab, rho2 = a^2; when no such kernel exists, the one that matches
-rho1, as for averaged channels, whose rho2 is 0: 16 averaged channels keep
-their rho1 of 0.026), and makes each channel's noise as `a w(k-1) + b w(k) + a w(k+1)` from
+kernel (c0, c1, c2) with unit norm whose output has those correlations
+(rho1 = c0 c1 + c1 c2, rho2 = c0 c2): the symmetric (a, b, a) for native
+channels (Hanning's (1, 2, 1) / sqrt(6)), and for averaged channels, whose
+rho2 is 0 and whose rho1 no symmetric kernel gives on its own, the
+moving-average kernel factored from the two (2 averaged channels: rho1 0.30,
+rho2 0; 16: rho1 0.026). Each channel's noise is `c0 w(k-1) + c1 w(k) + c2 w(k+1)` from
 white draws `w`, each keyed by its channel, so that channel tasks running
 separately share their neighbours' draws. The exported MS's hands get the
 same kernel: real correlators smooth each polarisation on its own, so

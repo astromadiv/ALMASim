@@ -53,21 +53,46 @@ def test_hanning_kernel_and_correlated_noise():
     assert np.array_equal(correlated_noise((7, 1), 3, shape, 2.0, kernel), cube[3])
 
 
+def _correlations(kernel: np.ndarray) -> tuple[float, float, float]:
+    """The kernel's output: rho1, rho2 and its variance."""
+    c0, c1, c2 = kernel
+    return c0 * c1 + c1 * c2, c0 * c2, float(np.sum(kernel**2))
+
+
 @pytest.mark.unit
-def test_kernel_matches_rho1_when_rho2_disagrees():
-    kernel = spectral_kernel(0.3, 0.2)
-    assert 2 * kernel[0] * kernel[1] == pytest.approx(0.3, abs=1e-6)
+@pytest.mark.parametrize("rho", [(0.3, 0.2), (0.5, 0.4), (0.2, -0.1), (0.5, 0.0)])
+def test_a_kernel_has_both_correlations_when_no_symmetric_one_does(rho):
+    assert _correlations(spectral_kernel(*rho)) == pytest.approx((*rho, 1.0), abs=1e-9)
+
+
+@pytest.mark.unit
+def test_no_kernel_has_correlations_whose_spectrum_goes_negative():
     with pytest.raises(ValueError):
-        spectral_kernel(0.5, 0.4)
+        spectral_kernel(0.9, 0.2)
+    with pytest.raises(ValueError):
+        spectral_kernel(0.6, 0.0)
+
+
+@pytest.mark.unit
+def test_the_released_models_correlations_keep_their_symmetric_kernel():
+    kernel = spectral_kernel(0.6667848474717812, 0.16637600345165515)
+    assert kernel[0] == kernel[2] == pytest.approx(np.sqrt(0.16637600345165515))
 
 
 @pytest.mark.unit
 @pytest.mark.parametrize("averaged", [2, 4, 8, 16, 32])
-def test_averaged_channels_keep_their_rho1(averaged):
+def test_averaged_channels_keep_their_correlations(averaged):
     rho1, rho2 = averaged_correlation(averaged)
+    assert rho2 == 0.0
     kernel = spectral_kernel(rho1, rho2)
-    assert 2 * kernel[0] * kernel[1] == pytest.approx(rho1, rel=1e-6)
-    assert np.sum(kernel**2) == pytest.approx(1.0)
+    assert _correlations(kernel) == pytest.approx((rho1, 0.0, 1.0), abs=1e-9)
+    # And so does the noise drawn through it.
+    shape = (400, 100)
+    cube = np.stack([correlated_noise((5, averaged), c, shape, 1.0, kernel) for c in range(4)])
+    lag2 = np.mean(
+        [np.corrcoef(cube[c].real.ravel(), cube[c + 2].real.ravel())[0, 1] for c in (0, 1)]
+    )
+    assert abs(lag2) < 0.01
 
 
 @pytest.mark.unit

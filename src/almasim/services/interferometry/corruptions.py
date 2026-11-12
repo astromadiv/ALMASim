@@ -143,27 +143,49 @@ def resolve_corruptions(spec: Any) -> dict[str, Any] | None:
     return None if model is None else model.engine_fields()
 
 
-# How far the kernel's rho1 may sit from the one asked for before rho2 gives way.
+# How far the symmetric kernel's rho1 may sit from the one asked for before the
+# kernel is factored from both correlations instead.
 RHO1_TOLERANCE = 1e-3
 
 
 def spectral_kernel(rho1: float, rho2: float) -> np.ndarray:
-    """A 3-tap symmetric kernel (a, b, a), unit norm, whose output's channel
-    correlations are ``rho1`` and ``rho2``: rho1 = 2ab, rho2 = a^2 (with
-    2a^2 + b^2 = 1). Hanning smoothing gives rho1 = 2/3, rho2 = 1/6."""
-    if not 0.0 <= rho2 <= 0.25 or not 0.0 <= rho1 <= 1.0:
+    """A 3-tap kernel (c0, c1, c2), unit norm, whose output's channel
+    correlations are ``rho1`` (c0 c1 + c1 c2) and ``rho2`` (c0 c2). The
+    symmetric (a, b, a) when it has them to within ``RHO1_TOLERANCE``
+    (rho1 = 2ab, rho2 = a^2; Hanning smoothing's 2/3 and 1/6 give
+    (1, 2, 1) / sqrt(6)); otherwise the kernel factored from the two
+    correlations (``_factored_kernel``): averaged channels, whose rho2 is 0
+    and rho1 small (0.30 for 2, 0.026 for 16), which no symmetric kernel gives
+    without a rho2 of its own."""
+    if not -1.0 <= rho1 <= 1.0 or not -1.0 <= rho2 <= 1.0:
         raise ValueError(f"no 3-tap kernel has rho1={rho1}, rho2={rho2}")
-    a = np.sqrt(rho2)
-    b = np.sqrt(max(1.0 - 2.0 * rho2, 0.0))
-    achieved = 2.0 * a * b
-    if abs(achieved - rho1) > RHO1_TOLERANCE:
-        # rho1 and rho2 together over-determine (a, b): take the pair that
-        # matches rho1 exactly and is closest in rho2. Averaged channels have
-        # rho2 = 0 and a small rho1 (0.026 for 16), which only this pair keeps.
-        # 2a sqrt(1 - 2a^2) = rho1  ->  a^2 = (1 - sqrt(1 - 2 rho1^2)) / 4
-        a = np.sqrt((1.0 - np.sqrt(max(1.0 - 2.0 * rho1**2, 0.0))) / 4.0)
-        b = np.sqrt(1.0 - 2.0 * a**2)
-    return np.array([a, b, a])
+    if 0.0 <= rho2 <= 0.25:
+        a = np.sqrt(rho2)
+        b = np.sqrt(max(1.0 - 2.0 * rho2, 0.0))
+        if abs(2.0 * a * b - rho1) <= RHO1_TOLERANCE:
+            return np.array([a, b, a])
+    return _factored_kernel(rho1, rho2)
+
+
+def _factored_kernel(rho1: float, rho2: float) -> np.ndarray:
+    """The unit-norm kernel of the moving average whose correlations are
+    ``rho1`` and ``rho2`` (an MA(2) process): the spectral factor of
+    1 + rho1 (z + 1/z) + rho2 (z^2 + 1/z^2) with its zeros inside the unit
+    circle. Raises when that spectrum goes negative, where no kernel exists."""
+    omega = np.linspace(0.0, np.pi, 1025)
+    if np.min(1.0 + 2.0 * rho1 * np.cos(omega) + 2.0 * rho2 * np.cos(2.0 * omega)) < -1e-12:
+        raise ValueError(f"no 3-tap kernel has rho1={rho1}, rho2={rho2}")
+    if abs(rho2) < 1e-12:
+        # An MA(1): c0 c1 = rho1 with c0^2 + c1^2 = 1.
+        root = np.sqrt(max(1.0 - 4.0 * rho1**2, 0.0))
+        return np.array(
+            [np.sqrt((1.0 + root) / 2.0), np.sign(rho1) * np.sqrt((1.0 - root) / 2.0), 0.0]
+        )
+    # The zeros of z^2 times the spectrum pair up as r and 1/r: the kernel's
+    # polynomial takes the two smallest.
+    zeros = np.roots([rho2, rho1, 1.0, rho1, rho2])
+    kernel = np.real(np.poly(zeros[np.argsort(np.abs(zeros))[:2]]))
+    return kernel / np.linalg.norm(kernel)
 
 
 def correlated_noise(
