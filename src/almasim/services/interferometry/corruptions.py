@@ -189,8 +189,10 @@ def turbulent_screen(
 ) -> np.ndarray:
     """A square periodic screen covering ``extent_m`` whose rms difference grows as
     separation^slope (power spectrum k^-(2 slope + 2)) up to the outer scale,
-    scaled so the rms difference 1 km apart would be 1 (set at
-    REFERENCE_SEPARATION_M, where the periodic screen still follows its law)."""
+    scaled so the rms difference is (separation / 1 km)^slope at
+    REFERENCE_SEPARATION_M, where the periodic screen still follows its law.
+    The outer scale bends it below the law further out: 1 km apart it is
+    about 0.81 at slope 0.35 and 0.74 at 0.45, whatever ``extent_m``."""
     n = int(2 ** np.ceil(np.log2(max(extent_m, 2_500.0) / SCREEN_STEP_M)))
     k = np.fft.fftfreq(n, SCREEN_STEP_M)
     k2 = k[None, :] ** 2 + k[:, None] ** 2 + (1.0 / (outer_km * 1e3)) ** 2

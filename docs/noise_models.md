@@ -704,16 +704,21 @@ any of the fits (`fit.json` says so in `notes`).
 
 **How the simulator applies it.** For each scan it draws a turbulent screen
 (power spectrum `k^-(2 slope + 2)` with the outer scale, on 10 m pixels over
-the array), scaled so its rms path difference 1 km apart is `path_um_1km`
-microns (set at 150 m, where the screen follows its power law, and carried
-to 1 km along it), and reads each antenna's extra path at its position. The
+the array), scaled so its rms path difference 150 m apart is the power
+law's there, `path_um_1km x 0.15^slope` microns, and reads each antenna's
+extra path at its position. Further out the outer scale bends the screen
+below that law: 1 km apart it realises 0.81 of `path_um_1km` at slope 0.35
+(alma@2 to alma@4), 0.74 at 0.45 (alma@1), and 0.66 at 0.35 2 km apart, on
+any array's extent. `path_um_1km` is the law's value at 1 km, not the
+screen's; `noise fit` measures through the same screens, so the fitted value
+gives the real data's phases all the same. The
 phase of baseline (i, j) is `2 pi (path(i) - path(j)) / wavelength`, so it is larger
 at higher frequencies, as in real data. It multiplies the sky part of the
 visibilities, constant over the scan.
 
 | Parameter | Meaning | alma@1 | alma@2 | alma@3 | alma@4 |
 | --- | --- | --- | --- | --- | --- |
-| `path_um_1km` | rms path difference of antennas 1 km apart (microns) | 80 | 134 | 134 | 134 |
+| `path_um_1km` | rms path difference of antennas 1 km apart on the screen's power law (microns) | 80 | 134 | 134 | 134 |
 | `slope` | growth of the difference with separation | 0.45 | 0.35 | 0.35 | 0.35 |
 
 ### `fast_phase`: the atmospheric phase within a scan
