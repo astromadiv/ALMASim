@@ -232,7 +232,10 @@ the clean left in the residuals of each task. It writes `quality.json` per
 task (continuum and cube statistics), moment maps of the line and of the
 residual for cubes (`quality/cube-*.fits`), and a summary CSV
 (`clean-quality.csv`). `almasim.services.imaging.quality` documents each
-statistic.
+statistic. `continuum.diverged` and `cube.diverged` count how many times
+WSClean stopped a clean for divergence (from the task's log, over every
+pass): a continuum that diverged holds the diverged model in its restored
+image and residual.
 
 ## Web console
 

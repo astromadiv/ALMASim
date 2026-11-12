@@ -27,6 +27,10 @@ Continuum, around the brightest pixel of the restored image (the source):
   major cycle over the one in its last (from the log). Well above 1, the
   auto-mask was built while sidelobes inflated the noise and misses the
   source's fainter parts.
+* ``diverged``: how many times WSClean stopped the continuum's clean for
+  divergence (its total flux growing instead of converging), over every
+  pass (from the log). Above 0, the restored image and residual carry the
+  diverged model and are not a measure of the noise.
 
 Cube, with the source's spectrum (or the channel ranges a visibility-plane
 continuum subtraction logged) split into line and line-free channels:
@@ -39,7 +43,9 @@ continuum subtraction logged) split into line and line-free channels:
   ``line_residual_peak_sigma``: the residual stacked over the line channels
   inside the line mask (``wsclean-cube-linemask.fits``, or a moment-0 mask
   built the same way), as a share of the stacked image and in noise units;
-* ``model_flux_jy``: the cube model's total.
+* ``model_flux_jy``: the cube model's total;
+* ``diverged``: how many channel cleans WSClean stopped for divergence, over
+  every pass (from the log).
 
 Moment maps (``quality/`` next to the images): moment 0 (Jy/beam km/s),
 1 (km/s, intensity weighted over pixels above 3 channel sigma) and 8 (peak,
@@ -50,7 +56,7 @@ The statistics live in ``continuum`` and ``cube``, the per-task files and the
 CSV summary in ``report`` (MADIV-28 T4.10).
 """
 
-from .continuum import RINGS_BEAMS, continuum_quality, noise_history
+from .continuum import RINGS_BEAMS, continuum_quality, divergences, noise_history
 from .cube import QUALITY_DIRNAME, cube_quality
 from .report import (
     QUALITY_FILENAME,
@@ -71,6 +77,7 @@ __all__ = [
     "assess_task",
     "continuum_quality",
     "cube_quality",
+    "divergences",
     "find_task_dirs",
     "noise_history",
     "summary_rows",

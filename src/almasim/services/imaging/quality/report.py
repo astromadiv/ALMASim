@@ -57,12 +57,14 @@ SUMMARY_COLUMNS = (
     ("continuum", "residual_antisymmetric_sigma"),
     ("continuum", "noise_at_mask_creation_ratio"),
     ("continuum", "model_flux_jy"),
+    ("continuum", "diverged"),
     ("cube", "line_channels"),
     ("cube", "channel_noise_mjy"),
     ("cube", "linefree_residual_sigma"),
     ("cube", "line_residual_share"),
     ("cube", "line_residual_peak_sigma"),
     ("cube", "model_flux_jy"),
+    ("cube", "diverged"),
 )
 
 

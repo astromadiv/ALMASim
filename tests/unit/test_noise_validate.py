@@ -178,6 +178,39 @@ def test_a_group_is_judged_on_its_jackknifed_noise_when_every_window_has_it():
 
 
 @pytest.mark.unit
+def test_a_diverged_continuum_is_left_out_of_the_continuum_metrics():
+    pairs = [
+        replace(
+            p,
+            sim_image={**p.sim_image, "jk.sigma": 2e-3, "q.continuum.diverged": 0},
+            real_image={**p.real_image, "jk.sigma": 2e-3},
+        )
+        for p in _pairs(1.0)
+    ]
+    # w0's simulated continuum clean diverged: its residual holds the diverged
+    # model, some ten thousand times the noise.
+    first = pairs[0]
+    pairs[0] = replace(
+        first,
+        sim_image={
+            **first.sim_image,
+            "cont.sigma": 1e4 * first.real_image["cont.sigma"],
+            "q.continuum.diverged": 3,
+        },
+    )
+    judged = compare(pairs, {"label": "diverged"})
+    assert judged.diverged == ["w0"]
+    assert judged.metrics["cont.sigma"].n == 7 and judged.metrics["cont.kurtosis"].n == 7
+    assert judged.metrics["cont.sigma"].q84 == pytest.approx(1.0, abs=0.05)
+    assert judged.metrics["jk.sigma"].n == 8 and judged.metrics["cube.sigma_median"].n == 8
+    assert judged.passed
+    # A real continuum that diverged is left out the same way.
+    pairs[0] = replace(first, real_image={**first.real_image, "q.continuum.diverged": 1})
+    assert compare(pairs, {"label": "real"}).diverged == ["w0"]
+    assert compare(_pairs(1.0), {"label": "none"}).diverged == []
+
+
+@pytest.mark.unit
 def test_cube_noise_is_compared_at_the_real_cubes_channel_width():
     # The simulated cube has half the real cube's channels (its image is wider
     # and the size cap halves them), so its channels are twice as wide and its

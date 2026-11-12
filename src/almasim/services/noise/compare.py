@@ -17,6 +17,11 @@ on its cleaned continuum noise (``cont.sigma``) otherwise. Grouped by band
 and array, a few bright fields can decide a group's median, and their
 cleaned residuals carry what the simulated sky lacks; the jackknife carries
 the noise alone.
+
+A cleaned continuum that diverged (``image clean-quality``'s
+``continuum.diverged``) holds the diverged model, not the noise: the window's
+cleaned continuum metrics (``cont.*``) are left out on both sides, and the
+comparison lists it. Its jackknife is imaged dirty and stays.
 """
 
 from __future__ import annotations
@@ -49,6 +54,8 @@ NOISE_LEVELS = ("cont.sigma", "cube.sigma_median", "visibility.unit_jy")
 # Continuum noise, measured over the whole band (scaled to the real window's band).
 BAND_METRICS = ("cont.sigma", "jk.sigma")
 GROUP_METRICS = ("jk.sigma", "cont.sigma")  # the first every window of a group has
+# image clean-quality's count of the continuum's diverged cleans.
+DIVERGED = "q.continuum.diverged"
 
 
 class _Record(BaseModel):
@@ -110,6 +117,11 @@ class Comparison(_Record):
     )
     checks: list[Check]
     passed: bool
+    diverged: list[str] = Field(
+        default_factory=list,
+        description="Windows whose cleaned continuum diverged, simulated or real: "
+        "their cont.* metrics are left out.",
+    )
 
 
 @dataclass(frozen=True)
@@ -152,6 +164,7 @@ def compare(pairs: Sequence[Pair], model: dict, criteria: Criteria | None = None
         group_metrics=group_metrics,
         checks=checks,
         passed=bool(checks) and all(c.passed for c in checks),
+        diverged=[p.name for p in pairs if _diverged(p)],
     )
 
 
@@ -178,8 +191,15 @@ def _values(pairs: Sequence[Pair], metric: str) -> tuple[np.ndarray, np.ndarray]
     return np.asarray(sim, dtype=float), np.asarray(real, dtype=float)
 
 
+def _diverged(pair: Pair) -> bool:
+    """Whether either side's cleaned continuum diverged."""
+    return any((image.get(DIVERGED) or 0) > 0 for image in (pair.sim_image, pair.real_image))
+
+
 def _value(pair: Pair, metric: str, *, simulated: bool) -> float | None:
     head = metric.split(".", 1)[0]
+    if head == "cont" and _diverged(pair):
+        return None
     if head in ("cont", "cube", "q", "jk"):
         value = (pair.sim_image if simulated else pair.real_image).get(metric)
         if metric == "cube.sigma_median" and simulated and value is not None:
