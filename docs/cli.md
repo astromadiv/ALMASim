@@ -907,7 +907,7 @@ $ almasim noise validate [OPTIONS]
 * `--slurm-queue <str>`: Slurm queue/partition.  [default: normal]
 * `--slurm-project <str>`: Slurm project/account.
 * `--slurm-walltime <str>`: Slurm walltime per worker job (HH:MM:SS).  [default: 08:00:00]
-* `--slurm-memory <str>`: Memory per Slurm worker.  [default: 64GB]
+* `--slurm-memory <str>`: Memory per Slurm worker.  [default: 128GB]
 * `--slurm-workers <int range>`: Slurm workers validating windows at once.  [default: 4; x>=1]
 * `--scheduler-host, --slurm-scheduler-host <str>`: Scheduler host advertised to the workers (default: this host).
 * `--scheduler-interface <str>`: Scheduler/worker network interface (e.g. ib0, eth0).

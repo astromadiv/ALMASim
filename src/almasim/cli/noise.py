@@ -768,7 +768,7 @@ def validate(
     slurm_queue: SlurmQueue = "normal",
     slurm_project: SlurmProject = None,
     slurm_walltime: SlurmWalltime = "08:00:00",
-    slurm_memory: SlurmMemory = "64GB",
+    slurm_memory: SlurmMemory = "128GB",
     slurm_workers: int = typer.Option(
         4,
         "--slurm-workers",
