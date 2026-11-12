@@ -1071,7 +1071,12 @@ per-window ratio (simulated over real, for noise levels and correlation
 areas) or difference (for shapes: kurtosis, channel spread, neighbour
 correlation), its range, a paired Wilcoxon signed-rank p (is the difference
 real, or chance?) and how many windows fall within 10%; then each criterion,
-passed or failed, and the verdict.
+passed or failed, and the verdict. A window whose cleaned continuum diverged
+on either side (WSClean stopped its clean for divergence: `image
+clean-quality`'s `continuum.diverged`) has the diverged model in its residual,
+not the noise. Its cleaned continuum metrics (`cont.*`) are left out,
+`comparison.json` lists it under `diverged`, and its jackknife, imaged dirty,
+is compared as usual.
 
 The default criteria:
 

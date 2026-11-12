@@ -955,6 +955,10 @@ def _print_comparison(comparison) -> None:
         typer.echo(
             f"  {metric:28s} {s.kind:10s} {s.median:+.4g} ({s.q16:+.3g}..{s.q84:+.3g}){p}{within}"
         )
+    if comparison.diverged:
+        typer.echo(
+            f"  continuum clean diverged (cont.* left out): {', '.join(comparison.diverged)}"
+        )
     for check in comparison.checks:
         typer.echo(f"  [{'pass' if check.passed else 'FAIL'}] {check.name}: {check.value}")
     typer.echo("PASSED" if comparison.passed else "NOT PASSED")

@@ -14,10 +14,10 @@ import numpy as np
 from ..continuum import line_free_channels
 from ..fits_io import write_fits_atomic
 from ..fits_wcs import beam_pixels, velocity_axis
-from ..products import LINE_MASK_FILENAME, cube_product
+from ..products import CUBE_NAME, LINE_MASK_FILENAME, cube_product
 from ..provenance import copy_provenance
 from ..stats import moment_mask, robust_sigma
-from .continuum import _plane, _ratio, _source_geometry
+from .continuum import _plane, _ratio, _source_geometry, divergences
 
 QUALITY_DIRNAME = "quality"
 _LINE_RANGES = re.compile(
@@ -235,6 +235,9 @@ def cube_quality(task_dir: Path, *, write_moments: bool = True) -> dict[str, Any
     stats.update(_residual_stats(sums, line, linefree, line_mask, r))
     if paths["model"].is_file():
         stats["model_flux_jy"] = _model_flux(paths["model"], n_channels)
+    log = task_dir.parent / f"{task_dir.name}.log"
+    if log.is_file():
+        stats["diverged"] = divergences(log, CUBE_NAME)
     if write_moments:
         weight = sums.weight
         stats["moments"] = _write_moments(

@@ -17,6 +17,8 @@ from ..stats import robust_sigma
 
 RINGS_BEAMS = ((0, 0.5), (0.5, 1), (1, 1.5), (1.5, 2), (2, 3), (3, 5))
 _SIGMA = re.compile(r"Estimated standard deviation of background noise: ([-+.\w]+) (\w*Jy)")
+# WSClean prints this when a clean's total flux grows instead of converging.
+_DIVERGED = "WARNING: Stopping clean because of divergence"
 _UNIT = {"Jy": 1.0, "mJy": 1e-3, "µJy": 1e-6, "uJy": 1e-6, "nJy": 1e-9}
 
 
@@ -38,19 +40,16 @@ def _source_geometry(image: np.ndarray, beam_pixels: float) -> tuple[int, int, n
     return int(sy), int(sx), distance
 
 
-def noise_history(log_path: Path, name: str) -> list[float]:
-    """The noise WSClean estimated at each major cycle of the run that wrote ``name``.
+def _runs(log_path: Path, name: str) -> list[list[str]]:
+    """The log lines of each WSClean run that wrote ``name``, in order.
 
     The task log holds every WSClean run of a task, each after a ``# <command>``
-    line; the first run with ``-name .../<name>`` is taken (the continuum's
-    first pass, before any restart).
+    line; a run belongs to ``name`` when its command has ``-name .../<name>``.
     """
-    sigmas: list[float] = []
-    current = False
+    runs: list[list[str]] = []
+    current: list[str] | None = None
     for line in log_path.read_text(errors="replace").splitlines():
         if line.startswith("# ") and " -name " in line:
-            if sigmas:
-                break
             # The task logs each command with shlex.join: quoted paths
             # (spaces and the like) only split right with shlex.
             try:
@@ -58,15 +57,37 @@ def noise_history(log_path: Path, name: str) -> list[float]:
             except ValueError:
                 words = line[2:].split()
             target = words[words.index("-name") + 1] if "-name" in words[:-1] else ""
-            current = Path(target).name == name
+            current = [] if Path(target).name == name else None
+            if current is not None:
+                runs.append(current)
             continue
-        match = _SIGMA.search(line)
-        if current and match:
-            try:
-                sigmas.append(float(match.group(1)) * _UNIT.get(match.group(2), 1.0))
-            except ValueError:
-                continue
+        if current is not None:
+            current.append(line)
+    return runs
+
+
+def noise_history(log_path: Path, name: str) -> list[float]:
+    """The noise WSClean estimated at each major cycle of the first run that
+    wrote ``name`` (the continuum's first pass, before any restart)."""
+    sigmas: list[float] = []
+    for run in _runs(log_path, name):
+        for line in run:
+            match = _SIGMA.search(line)
+            if match:
+                try:
+                    sigmas.append(float(match.group(1)) * _UNIT.get(match.group(2), 1.0))
+                except ValueError:
+                    continue
+        if sigmas:
+            break
     return sigmas
+
+
+def divergences(log_path: Path, name: str) -> int:
+    """How many times WSClean stopped cleaning for divergence over every run
+    that wrote ``name`` (once per image it stops on: the continuum, or a cube
+    channel)."""
+    return sum(line.startswith(_DIVERGED) for run in _runs(log_path, name) for line in run)
 
 
 def continuum_quality(task_dir: Path) -> dict[str, Any] | None:
@@ -110,9 +131,10 @@ def continuum_quality(task_dir: Path) -> dict[str, Any] | None:
         "model_components": int(np.count_nonzero(np.nan_to_num(model))),
     }
     log = task_dir.parent / f"{task_dir.name}.log"
-    history = (
-        noise_history(log, Path(IMAGE_FILENAME).stem.rsplit("-", 1)[0]) if log.is_file() else []
-    )
-    if len(history) >= 2:
-        stats["noise_at_mask_creation_ratio"] = _ratio(history[0], history[-1])
+    if log.is_file():
+        name = Path(IMAGE_FILENAME).stem.rsplit("-", 1)[0]
+        history = noise_history(log, name)
+        if len(history) >= 2:
+            stats["noise_at_mask_creation_ratio"] = _ratio(history[0], history[-1])
+        stats["diverged"] = divergences(log, name)
     return stats

@@ -109,6 +109,7 @@ def test_continuum_quality_measures_the_flux_left_at_the_source(tmp_path):
     assert stats["residual_symmetric_sigma"] > stats["residual_antisymmetric_sigma"]
     assert stats["model_flux_jy"] == pytest.approx(0.95) and stats["model_components"] == 1
     assert stats["noise_at_mask_creation_ratio"] == pytest.approx(90 / 26)
+    assert stats["diverged"] == 0
     assert stats["beam_arcsec"] == [4.0, 4.0]
 
 
@@ -132,6 +133,7 @@ def test_cube_quality_with_logged_line_channels_and_the_task_mask(tmp_path):
     assert stats["line_residual_peak_sigma"] > 3
     assert abs(stats["linefree_residual_sigma"]) < 3, "no continuum in the line-free channels"
     assert stats["model_flux_jy"] == pytest.approx(4.5, rel=1e-5)
+    assert stats["diverged"] == 0
     assert stats["moments"] == [
         "cube-mom0.fits",
         "cube-mom1.fits",
@@ -234,6 +236,25 @@ def test_noise_history_reads_the_first_run_of_a_name(tmp_path):
     assert history[0] == pytest.approx(0.091) and history[-1] == pytest.approx(0.026)
     assert math.isnan(history[1]) and len(history) == 3
     assert q.noise_history(log, "wsclean-cube") == []
+
+
+@pytest.mark.unit
+def test_divergences_are_counted_over_every_run_of_a_name(tmp_path):
+    log = tmp_path / "x.log"
+    log.write_text(
+        "# /bin/wsclean -name /o/wsclean -j 1 x.ms\n"
+        "WARNING: Stopping clean because of divergence!\n"
+        " ==> Initial flux density of 32.98 mJy increased to -132.92 mJy\n"
+        "# /bin/wsclean -name /o/wsclean -j 1 -continue x.ms\n"
+        "WARNING: Stopping clean because of divergence!\n"
+        "# /bin/wsclean -name /o/wsclean-cube -j 1 x.ms\n"
+        "WARNING: Stopping clean because of divergence!\n"
+        "WARNING: Stopping clean because of divergence!\n"
+        "WARNING: Stopping clean because of divergence!\n"
+    )
+    assert q.divergences(log, "wsclean") == 2
+    assert q.divergences(log, "wsclean-cube") == 3
+    assert q.divergences(log, "selfcal-0") == 0
 
 
 @pytest.mark.unit

@@ -333,7 +333,10 @@ none of those noise levels differs at p below 0.01, and no band and array
 group's median continuum noise is off by more than 10% (the jackknifed noise,
 `jk.sigma`, when every window of the group has it, as the cleaned residual of
 a bright field also carries sky the simulated source lacks); `--criteria` takes a
-JSON file of other values.
+JSON file of other values. A window whose cleaned continuum diverged, simulated
+or real (`image clean-quality`'s `continuum.diverged`), is listed in
+`diverged` and left out of the cleaned continuum's metrics (`cont.*`); its
+jackknife, imaged dirty, stays.
 
 **`noise promote`** writes a candidate as the next version of a released
 model, `models/<name>-<n+1>.json` in the working tree, only with a passing
