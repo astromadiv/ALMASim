@@ -443,9 +443,9 @@ def pwv_from_tsys(window: WindowNoise, model: NoiseModel) -> float | None:
 
 def unimaged_fraction(window: WindowNoise) -> float:
     """The share of the real window's data its image does without: its flagged
-    data and its rows whose WEIGHT exceeds the imaging's maximum (rows the
-    archive pipeline flagged and calibration left unflagged, so the two are
-    apart). At most ``MAX_UNIMAGED``."""
+    data and the unflagged data of its rows whose WEIGHT exceeds the imaging's
+    maximum (the two are apart: a flagged value of such a row is counted as
+    flagged only). At most ``MAX_UNIMAGED``."""
     e = window.exposure
     return float(min(max(e.flagged_fraction + e.high_weight_fraction, 0.0), MAX_UNIMAGED))
 

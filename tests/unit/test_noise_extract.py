@@ -28,6 +28,7 @@ def _fake_ms(
     seed: int = 0,
     ripple_antenna: int | None = 0,
     high_weight_every: int | None = None,
+    high_weight_flagged: bool = False,
     stations: bool = True,
     flagged_antenna: int | None = None,
     scans: int = 1,
@@ -62,8 +63,10 @@ def _fake_ms(
         flag[(ant1 == flagged_antenna) | (ant2 == flagged_antenna)] = True
     weight = np.full((nrow, 2), 1.0 / SIGMA**2, dtype=np.float32)
     if high_weight_every:
-        # Rows the archive pipeline flagged and calibration left unflagged.
+        # Rows the archive pipeline flagged and calibration left unflagged, or
+        # left flagged.
         weight[::high_weight_every, 0] = 1e6
+        flag[::high_weight_every] |= high_weight_flagged
     ddid = np.zeros(nrow, dtype=int)
     field = np.zeros(nrow, dtype=int)
     # One more window and an autocorrelation per time, which must not count.
@@ -193,6 +196,16 @@ def test_rows_over_the_imagings_maximum_weight_are_counted(fake_ms):
     assert record.visibility.sigma_jy == pytest.approx(SIGMA / np.sqrt(2), rel=0.05)
     kept, _ = extract.extract_window(ms, SPW, "target", max_visibilities=10**9, max_weight=0)
     assert kept.exposure.high_weight_fraction == 0.0
+
+
+@pytest.mark.unit
+def test_flagged_rows_over_the_maximum_weight_are_counted_once(fake_ms):
+    ms = fake_ms("w.ms", high_weight_every=4, high_weight_flagged=True)
+    record, _ = extract.extract_window(ms, SPW, "target", max_visibilities=10**9)
+    e = record.exposure
+    assert e.high_weight_fraction == 0.0
+    # Flagged: the high-weight quarter, and the other rows' few flagged channels.
+    assert e.flagged_fraction == pytest.approx(0.25 + 0.75 / 17 * 4 / NCHAN, abs=0.01)
 
 
 @pytest.mark.unit

@@ -70,17 +70,19 @@ class _Sums:
         self.antenna_count = np.zeros((self.nant, self.nchan - 3, self.nhand))
         self.antenna_rows = np.zeros(self.nant, dtype=np.int64)
         self.baseline = {
-            key: np.zeros(self.nant * self.nant) for key in ("rows", "high", "flagged", "values")
+            key: np.zeros(self.nant * self.nant) for key in ("high", "flagged", "values")
         }
 
     def shares(self) -> tuple[float, float]:
-        """The flagged share of the values and the share of rows over the maximum
-        WEIGHT, on the baselines between the array's antennas (antenna_rows): the
-        rows of an antenna whose data are all flagged are not the array's."""
+        """The flagged share of the values and the share that is unflagged in
+        rows over the maximum WEIGHT, on the baselines between the array's
+        antennas (antenna_rows): the rows of an antenna whose data are all
+        flagged are not the array's. The two add up to the share the image
+        does without; a flagged value of a row over the maximum is counted once."""
         array = self.antenna_rows > 0
         between = (array[:, None] & array[None, :]).ravel()
         b = {key: value[between].sum() for key, value in self.baseline.items()}
-        return b["flagged"] / max(b["values"], 1), b["high"] / max(b["rows"], 1)
+        return b["flagged"] / max(b["values"], 1), b["high"] / max(b["values"], 1)
 
 
 def extract_window(
@@ -99,8 +101,8 @@ def extract_window(
     """Measure one window. Returns the measurements and the arrays to keep
     beside them (``antenna_g`` (nant, nchan, nhand) and ``antenna_h``: each
     antenna's and hand's noise shape, empty when it could not be measured).
-    Rows whose WEIGHT exceeds ``max_weight`` (the imaging's maximum) are
-    counted as the exposure's ``high_weight_fraction``."""
+    The unflagged values of rows whose WEIGHT exceeds ``max_weight`` (the
+    imaging's maximum) are counted as the exposure's ``high_weight_fraction``."""
     from almasim.__version__ import __version__
 
     table = import_casacore_tables()
@@ -258,8 +260,9 @@ def _accumulate(
         imaged = weight.max(axis=1) <= max_weight
     pair = ant1 * sums.nant + ant2
     for key, value in (
-        ("rows", np.ones(pair.size)),
-        ("high", (~imaged).astype(np.float64)),
+        # The unflagged values of rows over the maximum WEIGHT: the archive
+        # pipeline may have flagged such a row already, and flagged counts it.
+        ("high", ((~imaged)[:, None, None] & ~flag).sum(axis=(1, 2)).astype(np.float64)),
         ("flagged", flag.sum(axis=(1, 2)).astype(np.float64)),
         ("values", np.full(pair.size, float(flag[0].size))),
     ):

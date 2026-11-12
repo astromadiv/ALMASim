@@ -909,10 +909,13 @@ measured are skipped when you run it again; failures are listed in
 and 1.4 GB in all. Its `exposure` also records `resolution_hz`, the window's
 `RESOLUTION` as its MS gives it, from which `noise validate` simulates the
 window's own channel averaging, and `high_weight_fraction`, the share of its
-rows whose WEIGHT exceeds 10^4, the most `image image-from-ms --max-weight`
-images by default. Those are rows the archive pipeline flagged and
-calibration left unflagged, with garbage amplitudes; the image leaves them
-out, and `noise validate` simulates the window without as much of its data.
+values that are unflagged in rows whose WEIGHT exceeds 10^4, the most
+`image image-from-ms --max-weight` images by default. Those are rows the
+archive pipeline flagged and calibration left unflagged, with garbage
+amplitudes; the image leaves them out, and `noise validate` simulates the
+window without as much of its data. Where such rows are still flagged (all
+of them on windows 2, 12 and 98), `flagged_fraction` counts them already,
+and `high_weight_fraction` does not count them again.
 Its `pads` list the window's antennas as `PAD:ANTENNA` (the MS's `STATION`
 and `NAME`), the form of the archive's `antenna_arrays`, from which
 `noise validate` observes the window with the MS's own array. Its
