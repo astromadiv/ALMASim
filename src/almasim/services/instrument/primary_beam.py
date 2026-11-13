@@ -49,15 +49,34 @@ def _jinc(z: np.ndarray) -> np.ndarray:
     return np.where(z == 0, 1.0, 2.0 * j1(safe) / safe)
 
 
+def primary_beam_voltage(
+    radius_rad: np.ndarray, frequency_hz: float, dish_diameter: float
+) -> np.ndarray:
+    """Voltage response (1 on axis) at ``radius_rad`` from the pointing centre:
+    the blocked aperture's Airy pattern, negative in its odd sidelobes."""
+    aperture, blockage = airy_aperture(dish_diameter)
+    x = math.pi * aperture * np.asarray(radius_rad, dtype=float) * frequency_hz / SPEED_OF_LIGHT_M_S
+    e = blockage / aperture
+    return (_jinc(x) - e**2 * _jinc(e * x)) / (1.0 - e**2)
+
+
 def primary_beam_response(
     radius_rad: np.ndarray, frequency_hz: float, dish_diameter: float
 ) -> np.ndarray:
     """Power response (1 on axis) at ``radius_rad`` from the pointing centre."""
-    aperture, blockage = airy_aperture(dish_diameter)
-    x = math.pi * aperture * np.asarray(radius_rad, dtype=float) * frequency_hz / SPEED_OF_LIGHT_M_S
-    e = blockage / aperture
-    amplitude = (_jinc(x) - e**2 * _jinc(e * x)) / (1.0 - e**2)
-    return amplitude**2
+    return primary_beam_voltage(radius_rad, frequency_hz, dish_diameter) ** 2
+
+
+def baseline_beam_response(
+    radius_rad: np.ndarray, frequency_hz: float, diameter_1: float, diameter_2: float
+) -> np.ndarray:
+    """The response of a baseline between two dishes: the product of their
+    voltage patterns, each dish's power response when the two are alike."""
+    if abs(float(diameter_1) - float(diameter_2)) < 1e-9:
+        return primary_beam_response(radius_rad, frequency_hz, diameter_1)
+    return primary_beam_voltage(radius_rad, frequency_hz, diameter_1) * primary_beam_voltage(
+        radius_rad, frequency_hz, diameter_2
+    )
 
 
 def _half_power_radius(dish_diameter: float, frequency_hz: float) -> float:

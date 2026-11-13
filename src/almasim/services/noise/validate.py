@@ -262,6 +262,7 @@ def simulate(
         executions=1,
         ms_export=True,
         ms_save_mode="msv2",
+        observation_configs=observation_configs(record, window),
     )
     with create_backend("sync") as backend:
         clean = generate_clean_cube(params, logger=print, compute_backend=backend)
@@ -344,6 +345,30 @@ def with_exposure(record: pd.Series, window: WindowNoise, seed: int) -> pd.Serie
     return record
 
 
+def observation_configs(record: pd.Series, window: WindowNoise) -> list[dict[str, Any]] | None:
+    """The window's antennas as one configuration of its own dishes, when
+    they stand on pads of two dish sizes (a 7 m array correlating the 12 m
+    total-power dishes): split by name, the bare total-power pads would form
+    a 12 m array of their own. None otherwise: the row's antennas split by
+    array as any run's."""
+    from ..instrument.array import pad_dish_diameter_m
+
+    e = window.exposure
+    antennas = str(record.get("antenna_arrays", ""))
+    pads = [token.split(":")[0] for token in antennas.split()]
+    if not any(pad_dish_diameter_m(pad, e.dish_diameter_m) != e.dish_diameter_m for pad in pads):
+        return None
+    array_type = "7m" if e.dish_diameter_m < 10 else "12m"
+    return [
+        {
+            "name": f"config_0_{array_type}",
+            "array_type": array_type,
+            "antenna_array": antennas,
+            "antenna_diameter_m": e.dish_diameter_m,
+        }
+    ]
+
+
 def sample_time(window: WindowNoise) -> float | None:
     """Seconds per simulated sample: the MS's own integration (its dump time),
     or the shortest whole multiple of it that keeps the window within
@@ -364,14 +389,15 @@ def sample_time(window: WindowNoise) -> float | None:
 
 
 def interferometer_pads(pads: Sequence[str], dish_diameter_m: float) -> list[str]:
-    """The MS's pads as one interferometric array. A 12 m window's MS can
-    correlate total-power dishes (PM antennas on the T70x pads) with the 12 m
+    """The MS's pads as one interferometric array. A window's MS can correlate
+    total-power dishes (PM antennas on the T70x pads) with its 12 m or 7 m
     array; named PM, the simulator would move them to a total-power
-    observation of their own, so they keep their pad without the name."""
+    observation of their own, so they keep their pad without the name, and
+    the simulator gives the dish on a total-power pad 12 m
+    (``instrument.array.pad_dish_diameter_m``). ``dish_diameter_m`` is the
+    array's own dish (see ``observation_configs``)."""
     from ..instrument.array import antenna_array_type
 
-    if dish_diameter_m < 10:
-        return list(pads)
     return [
         token.split(":")[0] if antenna_array_type(token.split(":", 1)[-1]) == "TP" else token
         for token in pads

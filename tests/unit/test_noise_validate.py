@@ -762,7 +762,42 @@ def test_a_window_with_its_pads_is_observed_by_the_mss_own_antennas():
     from almasim.services.observation_plan import split_antenna_array_by_type
 
     assert [kind for kind, _ in split_antenna_array_by_type(" ".join(pads))] == ["12m"]
-    assert v.interferometer_pads(["J505:CM01", "T701:PM01"], 7.0) == ["J505:CM01", "T701:PM01"]
+    assert v.observation_configs(v.with_exposure(row, with_pm, seed=3), with_pm) is None
+
+
+@pytest.mark.unit
+def test_a_7m_window_with_total_power_dishes_is_one_array_of_two_dish_sizes():
+    """A 7 m MS correlating the 12 m total-power dishes: they keep their pads
+    in the 7 m array (one configuration), where the simulator gives them
+    12 m dishes."""
+    import pandas as pd
+
+    from almasim.services.instrument.array import pad_dish_diameter_m
+    from almasim.services.observation_plan import normalize_observation_configs
+
+    own = ["J501:CM01", "J502:CM02", "N601:CM03", "T701:PM01", "T702:PM03"]
+    window = _window("w")
+    window = window.model_copy(
+        update={
+            "exposure": window.exposure.model_copy(update={"pads": own, "dish_diameter_m": 7.0})
+        }
+    )
+    row = pd.Series({"Int.Time": 3000.0, "antenna_arrays": " ".join(own)})
+    record = v.with_exposure(row, window, seed=3)
+    assert record["antenna_arrays"].split() == [*own[:3], "T701", "T702"]
+    configs = v.observation_configs(record, window)
+    (config,) = normalize_observation_configs(
+        configs, default_antenna_array=record["antenna_arrays"], default_time_s=600.0
+    )
+    assert (config.array_type, config.antenna_diameter_m) == ("7m", 7.0)
+    assert config.antenna_array == record["antenna_arrays"]
+    pads = [token.split(":")[0] for token in config.antenna_array.split()]
+    assert [pad_dish_diameter_m(pad, 7.0) for pad in pads] == [7.0, 7.0, 7.0, 12.0, 12.0]
+    # A 7 m window on 7 m pads only splits as any run's.
+    alone = window.model_copy(
+        update={"exposure": window.exposure.model_copy(update={"pads": own[:3]})}
+    )
+    assert v.observation_configs(v.with_exposure(row, alone, seed=3), alone) is None
 
 
 @pytest.mark.unit

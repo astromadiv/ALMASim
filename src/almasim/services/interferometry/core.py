@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from ..compute.base import ComputationBackend
 
 from ..compute.progress import watch_futures
+from ..instrument.array import pad_dish_diameter_m
 from ..instrument.constants import ALMA_LATITUDE_DEG, SPEED_OF_LIGHT_M_S
 from ..instrument.spectral_window import SpectralWindow
 from ..products.cube_export import write_interferometry_products
@@ -95,6 +96,7 @@ class Interferometer:
         sample_time_s: float | None = None,
         execution: int | None = None,
         track: Track | None = None,
+        dish_areas_m2: dict[float, float] | None = None,
     ):
         """
         Initialize interferometer.
@@ -158,6 +160,11 @@ class Interferometer:
         track : Track, optional
             When the block observes: its scans and hour angles
             (``observing.Track``); by default one scan centred on transit
+        dish_areas_m2 : dict, optional
+            Each dish size's effective collecting area (m^2) at the window, by
+            diameter, for an array whose pads hold dishes of two sizes
+            (``instrument.array.pad_dish_diameter_m``); by default their
+            geometric areas
         """
         self.noise_entropy = noise_entropy
         self.corruptions = corruptions
@@ -198,6 +205,7 @@ class Interferometer:
                 "(see MADIV-28 T1.3); use 'legacy'"
             )
         self.antenna_diameter_m = float(antenna_diameter_m)
+        self.dish_areas_m2 = dish_areas_m2
         self.config_name = config_name
         self.array_type = array_type
         self.logger = logger
@@ -315,6 +323,32 @@ class Interferometer:
             clip_to_horizon(self.Hcov, self.lat, self.dec)
         self.Xmax = layout.max_extent_km * 1.5
         self.Nant = len(self.antPos)
+        # Each antenna's dish: the array's, or 12 m on a total-power pad.
+        self.antenna_diameters_m = np.array(
+            [pad_dish_diameter_m(pad, self.antenna_diameter_m) for pad in self.antNames],
+            dtype=np.float64,
+        )
+
+    @property
+    def mixed_dishes(self) -> bool:
+        """Whether the array's pads hold dishes of more than one size."""
+        return bool(np.any(self.antenna_diameters_m != self.antenna_diameter_m))
+
+    def _dish_noise(self) -> np.ndarray:
+        """Each antenna's SEFD over that of the array's own dish (nant,): its
+        effective area's inverse ratio. A baseline's noise is the geometric
+        mean of its two antennas' SEFDs, so it scales by the square root of
+        the product of their two factors, as each antenna's noise shape
+        (``antenna_noise``) does. Without the areas of every dish size, their
+        geometric areas."""
+        areas = self.dish_areas_m2 or {}
+        sizes = {self.antenna_diameter_m, *map(float, self.antenna_diameters_m)}
+        if all(areas.get(d) for d in sizes):
+            area = {d: float(areas[d]) for d in sizes}
+        else:
+            area = {d: np.pi * (d / 2.0) ** 2 for d in sizes}
+        main = area[self.antenna_diameter_m]
+        return np.array([main / area[float(d)] for d in self.antenna_diameters_m])
 
     def _get_wavelengths(self) -> None:
         """Each channel's wavelength range, on the cube's channel grid (T5.4)."""
@@ -374,6 +408,21 @@ class Interferometer:
             )
         return fields
 
+    def _channel_fields(self) -> dict:
+        """The corruption fields, and for an array of two dish sizes each
+        antenna's diameter and its noise factor (``_dish_noise``), folded
+        into each antenna's noise shape."""
+        fields = self._corruption_fields()
+        if not self.mixed_dishes:
+            return fields
+        factor = self._dish_noise()[:, None]
+        shape = fields.get("antenna_noise")
+        fields["antenna_noise"] = (
+            np.repeat(factor, self.Nchan, axis=1) if shape is None else shape * factor
+        )
+        fields["antenna_diameters"] = self.antenna_diameters_m
+        return fields
+
     def run_interferometric_sim(self) -> dict:
         """Run interferometric simulation."""
         config = ChannelImagingConfig(
@@ -398,7 +447,7 @@ class Interferometer:
             scan_time_s=self.scan_time,
             noise_entropy=self.noise_entropy,
             hour_angles=self.hour_angles,
-            **self._corruption_fields(),
+            **self._channel_fields(),
         )
         wavelengths = [self.get_channel_wavelength(i)[0] for i in range(self.Nchan)]
         results_per_channel = image_channels(
@@ -423,7 +472,7 @@ class Interferometer:
             field_dec_rad=float(self.dec),
             config_name=self.config_name,
             array_type=self.array_type,
-            antenna_diameters_m=np.full(len(self.antNames), self.antenna_diameter_m),
+            antenna_diameters_m=self.antenna_diameters_m,
             scan_length_s=self.corruptions.scan_length_s if self.corruptions is not None else 0.0,
             observation_id=self.execution,
             hour_angle_start_rad=float(self.Hcov[0]),
