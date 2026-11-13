@@ -162,6 +162,10 @@ follows from the observation. A 12 m visibility at 230 GHz over 15.6 MHz and
 6 s then has about 0.1-0.2 Jy of noise, and an exported MS images, in WSClean
 or CASA, to the S/N a real observation of that source would reach.
 
+A baseline between dishes of two sizes (a 7 m array correlating the 12 m
+total-power dishes; see [Arrays of two dish sizes](interferometry.md#arrays-of-two-dish-sizes))
+has the geometric mean of its two dishes' SEFDs, each from its own `A eta_a`.
+
 The exported MS's WEIGHT is `1 / mean(sigma^2)` over a row's channels, with
 sigma scaled by the baseline's own noise scale (below), as the ALMA
 pipeline's `statwt` sets it. The residual gain errors scale the sky, not the
@@ -277,7 +281,9 @@ the share of rows whose WEIGHT exceeds 10^4, which the imaging leaves out), its 
 (`scale`, 1 when WEIGHT is right), its channel correlation (`rho1`, `rho2`)
 and noise profile, ALMA's Tsys across the window from `SYSCAL`, one Stokes I
 visibility's noise at unit time and bandwidth and the efficiency it implies
-with that Tsys, and each antenna's own noise shape (`antenna.npz`). Rows are
+with that Tsys (over the baselines between two of the array's own dishes when
+it correlates dishes of another size: a 12 m dish's baselines are less noisy),
+and each antenna's own noise shape (`antenna.npz`). Rows are
 sampled evenly over the observation, up to `--max-visibilities`, and read in
 chunks.
 
@@ -313,8 +319,8 @@ model's, with a note in `provenance.notes`.
 **`noise validate`** simulates each real window with a model (a point
 source as bright as the real image's continuum peak, the window's frequency,
 channels and channel averaging from its MS's `RESOLUTION`, one execution
-block of the MS's time on source by the MS's antennas on their pads (a 12 m MS's
-total-power dishes among them), sampled at the MS's integration time (or the shortest
+block of the MS's time on source by the MS's antennas on their pads (the 12 m
+total-power dishes a 12 m or 7 m MS correlates among them, with their own dishes), sampled at the MS's integration time (or the shortest
 whole multiple of it that keeps the window within 300 million visibilities), every baseline inside the sky model's uv grid, through the
 window's PWV or, without one, the PWV its SYSCAL Tsys implies), exports the MS, flags as large a share of its rows as the real
 image misses (the window's flagged data and the unflagged data of its rows over the imaging's

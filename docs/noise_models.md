@@ -1136,9 +1136,15 @@ Seven choices keep the comparison fair, and one limit remains:
   pixels are then smaller, its cube has fewer channels and its images'
   noise is a third to a half of the real noise. A window measured without
   its pads takes `exposure.antennas` of the row's antennas, one per pad.
-  A 12 m MS can correlate total-power dishes (PM antennas on the T70x pads)
-  with the 12 m array; they keep their pad and lose the PM name, which would
-  move them to a total-power observation of their own.
+  A 12 m or 7 m MS can correlate the 12 m total-power dishes (PM antennas
+  on the T70x pads) with its array; they keep their pad and lose the PM
+  name, which would move them to a total-power observation of their own. A
+  7 m MS's window is then one 7 m configuration of its pads, where the
+  dishes on the total-power pads are 12 m: each of their baselines has its
+  own two dishes' beam and noise
+  ([Arrays of two dish sizes](interferometry.md#arrays-of-two-dish-sizes)).
+  The window's visibility noise and efficiency are measured on the
+  baselines between two 7 m dishes.
 - *The baselines.* The simulator samples its sky model's Fourier grid, and
   flags what falls beyond it: `|u| < 1 / (2 cell)`. The model has 256
   pixels across, so the row's field (the primary beam's) gives cells that

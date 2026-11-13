@@ -10,7 +10,7 @@ from astropy.time import Time
 from scipy.ndimage import zoom
 
 from ..instrument.constants import ARCSEC_PER_RAD, SPEED_OF_LIGHT_M_S
-from ..instrument.primary_beam import primary_beam_response
+from ..instrument.primary_beam import baseline_beam_response, primary_beam_response
 from .baselines import generate_via_astropy, prepare_baselines, set_baselines, set_noise
 from .predict import ALMASIM_NTHREADS, _ducc0_with_wgridder_fallback, predict_visibilities
 from .visibility import build_channel_visibility_rows
@@ -193,6 +193,31 @@ def set_primary_beam(
     return modelfft, modelim
 
 
+def baseline_beam_models(
+    distmat: np.ndarray,
+    wavelength: list[float],
+    antenna_diameters: np.ndarray,
+    antnum: np.ndarray,
+    modelimTrue: np.ndarray,
+) -> tuple[list[np.ndarray], np.ndarray]:
+    """The model's FFT seen by each kind of baseline of an array of dishes of
+    more than one size, and each baseline's kind (an index into them). A
+    baseline between dishes i and j sees the sky through the product of their
+    voltage patterns (``baseline_beam_response``), so a 7 m dish correlated
+    with a 12 m one sees a beam between the two dishes' own."""
+    radius_rad = np.sqrt(np.maximum(-distmat, 0.0)) / ARCSEC_PER_RAD
+    frequency_hz = SPEED_OF_LIGHT_M_S / (wavelength[2] * 1e3)  # wavelengths are in km here
+    pairs = np.sort(np.asarray(antenna_diameters, dtype=np.float64)[antnum], axis=1)
+    kinds, which = np.unique(pairs, axis=0, return_inverse=True)
+    models = [
+        np.fft.fft2(
+            np.fft.fftshift(modelimTrue * baseline_beam_response(radius_rad, frequency_hz, d1, d2))
+        )
+        for d1, d2 in kinds
+    ]
+    return models, np.asarray(which).reshape(-1)
+
+
 def observe(
     dirtymap: np.ndarray,
     GrobustNoise: np.ndarray,
@@ -242,6 +267,7 @@ def image_channel(
     noise_samples: np.ndarray | None = None,
     noise_scale: np.ndarray | None = None,
     hour_angles: np.ndarray | None = None,
+    antenna_diameters: np.ndarray | None = None,
 ) -> tuple:
     """Process a single channel through interferometric simulation.
 
@@ -253,6 +279,10 @@ def image_channel(
     when drawn outside (correlated with its neighbours), instead of white
     noise from ``rng``; ``noise_scale`` (baselines): each baseline's noise
     over the channel's (antennas whose noise differs), all ones when None.
+    ``antenna_diameters`` (antennas): each dish's diameter when they differ;
+    each baseline's visibilities then see the sky through its two dishes'
+    beams (``baseline_beam_models``), while the dirty image shows it through
+    ``Diameters[0]``'s. None: every dish is ``Diameters[0]``.
     """
     rng = rng if rng is not None else np.random.default_rng()
     # Convert header dict back to FITS Header if needed (for pickling compatibility)
@@ -320,6 +350,11 @@ def image_channel(
     modelfft, modelim = set_primary_beam(
         header, distmat, wavelength, Diameters, modelim, modelimTrue
     )
+    beam_models, baseline_beam = (
+        baseline_beam_models(distmat, wavelength, antenna_diameters, antnum, modelimTrue)
+        if antenna_diameters is not None
+        else (None, None)
+    )
     w = (
         B[:, 0][:, None] * trdec[1] * H[1][None, :]
         - B[:, 1][:, None] * trdec[1] * H[0][None, :]
@@ -339,7 +374,10 @@ def image_channel(
         noise_std=float(noise),
         mean_wavelength_m=float(wavelength[2] * 1e3),
         noise_scale=noise_scale,
+        beam_models=beam_models,
+        baseline_beam=baseline_beam,
     )
+    del beam_models
     dirtymap, modelvis, dirtyvis = observe(dirtymap, GrobustNoise, modelfft, Grobustsamp, beamScale)
     del noisemap, robustsamp, Gsampling, Grobustsamp, GrobustNoise
     del Nbas, B, basnum, basidx, antnum, Gains, Noise, H, ravelDims

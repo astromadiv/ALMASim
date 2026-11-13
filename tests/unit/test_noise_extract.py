@@ -32,6 +32,8 @@ def _fake_ms(
     stations: bool = True,
     flagged_antenna: int | None = None,
     scans: int = 1,
+    dish: float = 12.0,
+    larger_dishes: tuple[int, ...] = (),
 ) -> dict[str, FakeTable]:
     rng = np.random.default_rng(seed)
     a1, a2 = np.triu_indices(NANT, 1)
@@ -54,6 +56,10 @@ def _fake_ms(
         amp[ripple_antenna] = 0.4
         g = 1.0 + amp[:, None] * np.sin(2 * np.pi * chan[None, :] / 40.0 + phase[:, None])
         noise *= np.sqrt(g[ant1] * g[ant2])[:, :, None]
+    if larger_dishes:
+        # 12 m dishes among ``dish`` ones: their baselines are less noisy.
+        larger = np.isin(np.arange(NANT), larger_dishes)
+        noise *= np.where(larger[ant1] | larger[ant2], 0.4, 1.0)[:, None, None]
     sky = 3.0 + 0.01 * np.arange(NCHAN)[None, :, None] + 0j
     data = (sky + noise).astype(np.complex64)
     flag = np.zeros(data.shape, dtype=bool)
@@ -115,7 +121,7 @@ def _fake_ms(
             {"NAME": np.array(["target"]), "PHASE_DIR": np.array([[[1.25, -0.5]]])}
         ),
         "ms/ANTENNA": FakeTable(
-            {"DISH_DIAMETER": np.full(NANT, 12.0)}
+            {"DISH_DIAMETER": np.where(np.isin(np.arange(NANT), larger_dishes), 12.0, dish)}
             | (
                 {
                     "STATION": np.array([f"A{i:03d}" for i in range(NANT)]),
@@ -216,6 +222,20 @@ def test_an_antenna_whose_data_are_all_flagged_is_not_part_of_the_array(fake_ms)
     # Its rows are not the array's, so they are not counted as flagged data.
     assert 0 < e.flagged_fraction < 0.02
     assert e.pads == [f"A{i:03d}:DA{41 + i}" for i in range(NANT) if i != 2]
+
+
+@pytest.mark.unit
+def test_a_mixed_arrays_noise_is_its_own_dishes(fake_ms):
+    """A 7 m array correlating 12 m total-power dishes: the visibility noise,
+    and the efficiency with it, are the 7 m dishes' own baselines'."""
+    ms = fake_ms("w.ms", dish=7.0, larger_dishes=(4, 5))
+    record, _ = extract.extract_window(ms, SPW, "target", max_visibilities=10**9)
+    assert record.exposure.dish_diameter_m == 7.0
+    assert (record.exposure.antennas, record.exposure.baselines) == (NANT, 15)
+    assert record.visibility.sigma_jy == pytest.approx(SIGMA / np.sqrt(2), rel=0.05)
+    alike = fake_ms("alike.ms", dish=7.0)
+    same, _ = extract.extract_window(alike, SPW, "target", max_visibilities=10**9)
+    assert record.visibility.sigma_jy == pytest.approx(same.visibility.sigma_jy, rel=0.05)
 
 
 @pytest.mark.unit
