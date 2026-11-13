@@ -87,7 +87,7 @@ candidate model can therefore be used for a run before it is released.
 | `antenna_ripple` | each antenna's own ripple of its noise | `rms`, `scale_mhz` |
 | `antenna_gains` | antenna gain errors per scan | `amp_rms`, `phase_rms_deg` |
 | `slow_phase` | the per-scan atmospheric phase | `path_um_1km`, `slope` |
-| `fast_phase` | the in-scan atmospheric phase | `path_um_1km`, `slope`, `coherence_s` |
+| `fast_phase` | the in-scan atmospheric phase | `path_um_1km`, `slope`, `coherence_s`, `dishes`, `log_spread` |
 | `baseline_errors` | per-baseline errors that do not close | `amp_rms`, `phase_rms_deg` |
 
 ALMA's receiver temperatures, the dishes' Ruze aperture efficiencies and the
@@ -305,6 +305,8 @@ windows each comes from and their 16-84% spread in `provenance.values`:
 | `radiometer` aperture | per dish size, Ruze's law fitted to the efficiency the noise and Tsys imply |
 | `radiometer` tdm_efficiency | TDM windows' efficiency over FDM windows' of the same dish size and band, over the bands with both |
 | `radiometer` efficiency_scale | per dish size and band of at least three windows, the median of the windows' efficiency over that curve (a TDM window's divided by `tdm_efficiency`); a dish that keeps the base's aperture keeps the base's rows |
+| `fast_phase` dishes | per dish size of at least three fitted windows, the median of their in-scan strengths (at the median coherence) |
+| `fast_phase` log_spread | the rms of the fitted windows' log strength about their dish's median, with a bootstrap 16-84% interval |
 | `slow_phase`, `fast_phase`, `antenna_gains`, `baseline_errors` | `noise fit` |
 
 A value fewer than `--min-windows` (3) windows measure keeps the base
@@ -316,7 +318,8 @@ channels and channel averaging from its MS's `RESOLUTION`, one execution
 block of the MS's time on source by the MS's antennas on their pads (a 12 m MS's
 total-power dishes among them), sampled at the MS's integration time (or the shortest
 whole multiple of it that keeps the window within 300 million visibilities), every baseline inside the sky model's uv grid, through the
-window's PWV or, without one, the PWV its SYSCAL Tsys implies), exports the MS, flags as large a share of its rows as the real
+window's PWV or, without one, the PWV its SYSCAL Tsys implies, with the window's own in-scan phase where
+`noise fit` measured one, its `fit.json` beside its `window.json`), exports the MS, flags as large a share of its rows as the real
 image misses (the window's flagged data and the unflagged data of its rows over the imaging's
 maximum WEIGHT, `exposure.high_weight_fraction`), measures it with `noise extract` (in a process of
 its own) and images it as the real one was imaged. It also measures the real

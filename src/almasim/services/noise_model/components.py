@@ -240,21 +240,71 @@ class SlowPhase(NoiseComponent):
         return {"slow_path_um_1km": self.path_um_1km, "slow_slope": self.slope}
 
 
+class DishPath(BaseModel):
+    """The in-scan screen's strength for one dish size."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    diameter_m: float = Field(gt=0, description="Dish diameter (m).")
+    path_um_1km: float = Field(ge=0, description="Rms path difference at 1 km (microns).")
+
+
 class FastPhase(NoiseComponent):
     """The atmospheric phase within each scan, which decorrelates the scan's average."""
 
-    path_um_1km: float = Field(ge=0, description="Rms path difference at 1 km (microns).")
+    path_um_1km: float = Field(
+        ge=0,
+        description="Rms path difference at 1 km (microns); a dish without its own row takes it.",
+    )
     slope: float = Field(
         default=5 / 6, gt=0, le=2, description="Growth with separation (Kolmogorov 5/6)."
     )
     coherence_s: float = Field(default=10.0, gt=0, description="Coherence time of the screen (s).")
+    dishes: tuple[DishPath, ...] | None = Field(
+        default=None,
+        description=(
+            "Each dish size's own strength (the 12 m antennas' water vapour radiometers "
+            "correct the in-scan path the 7 m antennas keep); unset: path_um_1km for all."
+        ),
+    )
+    log_spread: float | None = Field(
+        default=None,
+        ge=0,
+        le=3,
+        description=(
+            "The rms of the strength's natural log from one observation to the next: each "
+            "simulated observation draws its own, from its seed; unset: every observation "
+            "takes the dish's strength."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _one_row_per_dish(self) -> FastPhase:
+        sizes = [d.diameter_m for d in self.dishes or ()]
+        if len(set(sizes)) != len(sizes):
+            raise ValueError("fast_phase.dishes: one row per dish size")
+        return self
+
+    @model_serializer(mode="wrap")
+    def _without_unset(self, handler: Any) -> dict[str, Any]:
+        # A model that leaves them unset keeps the identity (sha256) it has without them.
+        data = handler(self)
+        for field in ("dishes", "log_spread"):
+            if getattr(self, field) is None:
+                data.pop(field, None)
+        return data
 
     def engine_fields(self) -> dict[str, Any]:
-        return {
+        values: dict[str, Any] = {
             "fast_path_um_1km": self.path_um_1km,
             "fast_slope": self.slope,
             "fast_coherence_s": self.coherence_s,
         }
+        if self.dishes:
+            values["fast_path_by_dish"] = [[d.diameter_m, d.path_um_1km] for d in self.dishes]
+        if self.log_spread:
+            values["fast_log_spread"] = self.log_spread
+        return values
 
 
 class BaselineErrors(NoiseComponent):

@@ -758,7 +758,16 @@ trade off (a slow screen needs more strength for the same change over a
 few seconds), so each window's `path_um_1km` is first taken at the median
 coherence with its phase change over 18.1 s (the simulator's usual sample)
 kept, `P x sqrt((1 - exp(-18.1 / c)) / (1 - exp(-18.1 / c_median)))`, and the
-median of those is the model's.
+median of those is the model's `path_um_1km`. Each dish size with at least
+three fitted windows gets its own median in `dishes`: the 12 m antennas'
+water vapour radiometers correct much of the in-scan path, and the 7 m
+antennas have none. The in-scan phase is weather, so it differs from one
+observation to the next more than its fits' errors: `log_spread` is the rms
+of the windows' natural-log strengths about their dish's median (one degree
+of freedom per dish taken out), with a bootstrap 16-84% interval in
+`provenance.values`. The spread includes the fits' own errors (each strength
+is at least three times its error, so they add at most about 0.3 in
+quadrature).
 
 **How the simulator applies it.** Per integration, a fresh turbulent screen,
 blended with the previous one as `a x previous + sqrt(1 - a^2) x fresh` with
@@ -766,13 +775,22 @@ blended with the previous one as `a x previous + sqrt(1 - a^2) x fresh` with
 Each antenna's mean over its scan is removed (that part is the slow phase's),
 and the whole is scaled so the median antenna pair's rms path difference
 follows `path_um_1km x (separation / 1 km)^slope`. Applied like the slow
-phase, but changing integration by integration.
+phase, but changing integration by integration. Each observation (an array
+configuration's run) takes its dishes' row of `dishes` (`path_um_1km` for a
+dish without one) and, with `log_spread` set, multiplies it by
+`exp(log_spread x z)`, `z` a standard normal draw from the observation's own
+seeded stream: the same seed gives the same strength, and the other antenna
+errors' draws do not depend on it. `noise validate` simulates a window that
+has its own in-scan fit (`fit.json` beside its `window.json`) with that fit's
+strength, slope and coherence instead.
 
 | Parameter | Meaning | alma@1 | alma@2 | alma@3 | alma@4 |
 | --- | --- | --- | --- | --- | --- |
 | `path_um_1km` | rms path difference 1 km apart within a scan (microns) | 40 | 130 | 130 | 102 |
 | `slope` | growth with separation | 0.3 | 0.275 | 0.275 | 0.5 |
 | `coherence_s` | how long the in-scan phase stays coherent (s) | 10 | 10 | 10 | 20 |
+| `dishes` | each dish size's own `path_um_1km` | - | - | - | - |
+| `log_spread` | rms of the strength's natural log between observations | - | - | - | - |
 
 ### `baseline_errors`: errors that do not close
 
@@ -1113,7 +1131,7 @@ than a real one, mostly because of the 7 m window (1.47; the 12 m ones are
 0.96 to 1.08), so `alma@1` does not pass. With four windows no Wilcoxon p is
 computed (it needs six); a real validation uses tens.
 
-Seven choices keep the comparison fair, and one limit remains:
+Eleven choices keep the comparison fair, and one limit remains:
 
 - *The source.* The simulated point source is as bright as the real image's
   continuum peak. A source as bright as the archive row's sensitivities
@@ -1170,6 +1188,12 @@ Seven choices keep the comparison fair, and one limit remains:
   18 s samples and in the MS's own: w86 1.17 and 1.02 (6 s), w91 1.25 and
   1.07 (2 s), w23 (7 m) 1.17 and 1.00 (10 s), w52 (7 m, 6 s samples) 1.17
   and 1.08 (1 s); their visibility noise does not change.
+- *The in-scan phase.* A window with its own in-scan fit (`fit.json` from
+  `noise fit` beside its `window.json` under `--measured`) is simulated with
+  that fit's `path_um_1km`, `slope` and `coherence_s`, not the model's dish
+  strength and draw: the in-scan phase is that observation's weather, and
+  on a bright window it sets how much of the source the jackknife keeps. A
+  window without one takes the model's, as any simulation does.
 - *The weather.* Each window is simulated through its own PWV (its `pwv`).
   A window without one, a 7 m array's, takes the PWV at which the model's
   Tsys at its frequency and elevation is ALMA's (its median SYSCAL Tsys):
