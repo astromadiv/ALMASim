@@ -278,6 +278,7 @@ def stubbed(monkeypatch, tmp_path):
 
     def simulate(row, window, model, run, *, seed, peak_jy=None):
         ratio["peak"] = peak_jy
+        ratio.setdefault("models", {})[window.name] = model
         run.mkdir(parents=True, exist_ok=True)
         (run / "sim.ms").mkdir()
         return run / "sim.ms"
@@ -920,3 +921,68 @@ def test_the_sky_models_grid_reaches_the_longest_baseline():
     assert row["FOV"] == 0.007, "the row itself is left alone"
     compact = pd.Series({"FOV": 0.007, "antenna_arrays": "A001:DA41 A002:DA42"})
     assert v.with_sampled_baselines(compact, window, main_dir)["FOV"] == 0.007
+
+
+def _phase_fit(name: str, path_um_1km: float, coherence_s: float | None):
+    from almasim.services.noise.measurements import FitBin, PhaseFit, WindowFit
+
+    return WindowFit(
+        name=name,
+        bright_groups=100,
+        realizations=2,
+        kappa=2.67,
+        bins=[
+            FitBin(
+                baseline_m=100.0,
+                groups=50,
+                phase_rms_deg=5.0,
+                thermal_phase_rms_deg=1.0,
+                lnamp_mean=-0.01,
+                thermal_lnamp_mean=0.0,
+            )
+        ],
+        fast_phase=PhaseFit(
+            bins=10, slope=0.25, phase_1km_deg=5.0, path_um_1km=path_um_1km, coherence_s=coherence_s
+        ),
+    )
+
+
+@pytest.mark.unit
+def test_a_window_with_its_own_in_scan_fit_is_simulated_with_it(tmp_path):
+    """The in-scan phase changes from one observation to the next, so a window
+    whose own is measured is simulated with it, not the model's draw."""
+    model = released_model("alma", 4)
+    fit = tmp_path / "fit.json"
+    assert v.with_window_fast_phase(model, fit) is model  # no fit.json
+    fit.write_text(_phase_fit("w1", 300.0, 40.0).model_dump_json())
+    own = v.with_window_fast_phase(model, fit).components.fast_phase
+    assert (own.path_um_1km, own.slope, own.coherence_s) == (300.0, 0.25, 40.0)
+    assert own.dishes is None and own.log_spread is None
+    fit.write_text(_phase_fit("w1", 300.0, None).model_dump_json())
+    assert v.with_window_fast_phase(model, fit).components.fast_phase.coherence_s == (
+        model.components.fast_phase.coherence_s
+    )
+    without = _phase_fit("w1", 1.0, None).model_copy(update={"fast_phase": None})
+    fit.write_text(without.model_dump_json())
+    assert v.with_window_fast_phase(model, fit) is model  # no in-scan fit
+    off = model.select(without=["fast_phase"])
+    fit.write_text(_phase_fit("w1", 300.0, 40.0).model_dump_json())
+    assert v.with_window_fast_phase(off, fit) is off  # the model draws none
+
+
+@pytest.mark.unit
+def test_validate_reads_each_windows_fit_beside_its_measurement(stubbed):
+    from almasim.cli.noise import noise_app
+
+    root, ratio = stubbed
+    (root / "measured" / "windows" / "w2" / "fit.json").write_text(
+        _phase_fit("w2", 250.0, 20.0).model_dump_json()
+    )
+    args = ["validate", "--model", "alma@4", "--windows", str(root / "windows.csv"),
+            "--metadata", str(root / "rows.csv"), "--measured", str(root / "measured"),
+            "--out", str(root / "out")]  # fmt: skip
+    result = CliRunner().invoke(noise_app, args)
+    assert result.exit_code == 0, result.output
+    fast = {name: m.components.fast_phase for name, m in ratio["models"].items()}
+    assert fast["w2"].path_um_1km == 250.0
+    assert fast["w1"] == released_model("alma", 4).components.fast_phase

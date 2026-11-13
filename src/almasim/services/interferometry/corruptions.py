@@ -53,6 +53,12 @@ class CorruptionModel:
     fast_path_um_1km: float = 0.0
     fast_slope: float = 5 / 6
     fast_coherence_s: float = 10.0
+    # The in-scan strength of each dish size, as (diameter m, path at 1 km in
+    # microns) pairs; a dish without a pair takes fast_path_um_1km.
+    fast_path_by_dish: tuple[tuple[float, float], ...] = ()
+    # The spread of the in-scan strength from one observation to the next: the
+    # rms of its natural log. Each observation draws its own (for_observation).
+    fast_log_spread: float = 0.0
     outer_scale_km: float = 3.0
     # The noise across a window follows Tsys: atmospheric lines in the signal
     # and the image band (atmosphere.system_temperature), and the receiver's
@@ -84,7 +90,11 @@ class CorruptionModel:
         if unknown:
             raise ValueError(f"unknown corruption parameter(s): {', '.join(sorted(unknown))}")
         kinds = {f.name: f.type for f in fields(cls)}
-        coerce: dict[str, Callable[[Any], Any]] = {"bool": _flag, "int": int}
+        coerce: dict[str, Callable[[Any], Any]] = {
+            "bool": _flag,
+            "int": int,
+            "tuple[tuple[float, float], ...]": _pairs,
+        }
         coerced: dict[str, Any] = {
             k: coerce.get(str(kinds[k]), float)(v) for k, v in values.items()
         }
@@ -96,6 +106,19 @@ class CorruptionModel:
         if self.spectral_average:
             return self
         return replace(self, spectral_average=int(averaged))
+
+    def for_observation(self, dish_diameter_m: float, rng: np.random.Generator) -> CorruptionModel:
+        """This model on one observation by dishes of ``dish_diameter_m``: the
+        dish's in-scan strength, times exp(N(0, fast_log_spread)) drawn from
+        ``rng``. The result holds that one strength and no spread, so drawing
+        it again gives the same model."""
+        path = self.fast_path_um_1km
+        for diameter, dish_path in self.fast_path_by_dish:
+            if abs(diameter - dish_diameter_m) < 0.5:
+                path = dish_path
+        if self.fast_log_spread > 0 and path > 0:
+            path *= float(np.exp(self.fast_log_spread * rng.standard_normal()))
+        return replace(self, fast_path_um_1km=path, fast_path_by_dish=(), fast_log_spread=0.0)
 
     def channel_correlation(self) -> tuple[float, float]:
         """The noise correlation of channels one and two apart."""
@@ -131,6 +154,12 @@ def _flag(value: Any) -> bool:
             return False
         raise ValueError(f"not a switch: {value!r}")
     return bool(value)
+
+
+def _pairs(value: Any) -> tuple[tuple[float, float], ...]:
+    """(diameter, value) pairs from JSON: a list of pairs or a {diameter: value} object."""
+    items = value.items() if isinstance(value, Mapping) else value
+    return tuple((float(d), float(v)) for d, v in items)
 
 
 def resolve_corruptions(spec: Any) -> dict[str, Any] | None:

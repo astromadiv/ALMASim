@@ -287,6 +287,47 @@ def test_in_scan_strengths_are_brought_to_the_median_coherence():
 
 
 @pytest.mark.unit
+def test_each_dish_gets_its_in_scan_strength_and_the_spread_between_observations():
+    """The 7 m antennas carry no water vapour radiometers: each dish size with
+    enough fitted windows gets its own median, and the windows' log scatter
+    about their dish's median sets the spread a simulated observation draws."""
+    from almasim.services.noise.measurements import PhaseFit
+
+    paths = {12.0: [40.0, 60.0, 65.0, 80.0, 120.0], 7.0: [130.0, 150.0, 570.0]}
+    windows = [
+        Measured(
+            _window(10 * int(dish) + k, dish=dish),
+            _fit(k).model_copy(
+                update={
+                    "fast_phase": PhaseFit(
+                        bins=20, slope=0.5, phase_1km_deg=10.0, path_um_1km=p, coherence_s=20.0
+                    )  # fmt: skip
+                }
+            ),
+        )
+        for dish, values in paths.items()
+        for k, p in enumerate(values)
+    ]
+    candidate = aggregate(windows, released_model("alma", 4))
+    fast = candidate.components.fast_phase
+    by_dish = {d.diameter_m: d.path_um_1km for d in fast.dishes}
+    assert by_dish == {12.0: 65.0, 7.0: 150.0}
+    assert fast.path_um_1km == pytest.approx(np.median(paths[12.0] + paths[7.0]))
+    logs = [np.log(p / 65.0) for p in paths[12.0]] + [np.log(p / 150.0) for p in paths[7.0]]
+    spread = np.sqrt(np.sum(np.square(logs)) / (len(logs) - 2))
+    assert fast.log_spread == pytest.approx(spread)
+    values = candidate.provenance.values
+    assert values["fast_phase.dishes.7m"].n == 3
+    assert values["fast_phase.dishes.7m"].q84 > 150.0
+    stats = values["fast_phase.log_spread"]
+    assert stats.q16 < spread < stats.q84
+    # Too few windows of a dish: it takes path_um_1km, and says so.
+    few = aggregate(windows[:7], released_model("alma", 4))
+    assert [d.diameter_m for d in few.components.fast_phase.dishes] == [12.0]
+    assert "fast_phase.dishes.7m: 2 window(s), takes path_um_1km" in few.provenance.notes
+
+
+@pytest.mark.unit
 def test_a_model_sets_the_tdm_efficiency():
     alma = json.loads(released_model("alma", 3).model_dump_json())
     radiometer = {**alma["components"]["radiometer"], "tdm_efficiency": 1.05}

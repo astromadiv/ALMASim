@@ -350,6 +350,10 @@ class Interferometer:
             entropy = (*self.noise_entropy, 1_000_000)
         else:
             entropy = tuple(int(x) for x in np.random.SeedSequence().generate_state(4))
+        # This observation's in-scan strength: its dish's, and its own draw from
+        # the spread between observations (a stream of its own, so the other
+        # errors' draws do not depend on it).
+        model = model.for_observation(self.antenna_diameter_m, np.random.default_rng((*entropy, 4)))
         fields = {"corruptions": model, "corruption_entropy": (*entropy, 2)}
         fraction = self.continuum_fraction
         if fraction is not None and np.size(fraction) == self.Nchan:
