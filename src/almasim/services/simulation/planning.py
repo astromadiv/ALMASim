@@ -11,7 +11,7 @@ import astropy.units as U
 import numpy as np
 
 from .. import interferometry as uin
-from ..instrument.constants import ALMA_LATITUDE_DEG
+from ..instrument.constants import ALMA_LATITUDE_DEG, DISH_DIAMETER_12M_M
 from ..interferometry.atmosphere import receiver_ripple
 from ..interferometry.corruptions import CorruptionModel
 from ..interferometry.observing import Track, exact_samples, execution_track, hour_angle_samples
@@ -54,6 +54,11 @@ class InterferometerRun:
     execution: int | None = None
     # When the block observes (observing.Track); None: one scan centred on transit.
     track: Track | None = None
+    # Each dish size's effective collecting area (m^2) at the window, by
+    # diameter: the noise of a baseline between dishes of different sizes
+    # (an array correlating the 12 m total-power dishes). None: the
+    # geometric areas.
+    dish_areas_m2: dict[float, float] | None = None
 
     def interferometer_kwargs(self) -> dict[str, Any]:
         """The run as ``Interferometer`` keyword arguments."""
@@ -229,6 +234,16 @@ def plan_observation_runs(
                 * (1.0 + ripple)
                 for track in tracks
             ]
+        # The effective areas of the array's dishes and of the 12 m total-power
+        # dishes its pads can hold (instrument.array.pad_dish_diameter_m).
+        dish_areas = {
+            float(d): uin.effective_area_m2(
+                uin.NoiseModelConfig(pwv_mm=params.pwv, **radiometer),
+                float(np.mean(channel_frequencies_hz)),
+                float(d),
+            )
+            for d in {float(config.antenna_diameter_m), DISH_DIAMETER_12M_M}
+        }
         if config.array_type == "TP":
             total_power_runs.append(
                 TotalPowerRun(
@@ -274,6 +289,7 @@ def plan_observation_runs(
                     sample_time_s=sample_time_s,
                     execution=execution,
                     track=tracks[execution],
+                    dish_areas_m2=dish_areas,
                 )
                 for execution in range(simulated)
             )

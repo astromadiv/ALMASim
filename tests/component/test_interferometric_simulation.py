@@ -343,3 +343,52 @@ def test_interferometer_config_changes_uv_coverage_and_dirty_beam(
 
     assert extended_uv_support > compact_uv_support
     assert extended_beam_width < compact_beam_width
+
+
+@pytest.mark.component
+def test_a_7m_array_with_a_total_power_dish_simulates_each_baselines_own_dishes(
+    main_dir, tmp_path, point_source_skymodel
+):
+    """A 7 m array correlating a 12 m dish on a total-power pad: the MS lists
+    its 12 m dish, and a baseline with it carries the noise of its two
+    dishes' effective areas; the others the array's."""
+    from astropy.io import fits
+
+    header = fits.Header()
+    header["DATE-OBS"] = "2020-01-01T00:00:00"
+    with InlineBackend() as backend:
+        results = interferometry.Interferometer(
+            idx=0,
+            skymodel=point_source_skymodel,
+            backend=backend,
+            main_dir=str(main_dir),
+            output_dir=str(tmp_path),
+            ra=0.0 * U.deg,
+            dec=-30.0 * U.deg,
+            central_freq=650.0 * U.GHz,
+            bandwidth=1.0 * U.GHz,
+            fov=10.0,
+            antenna_array="J501:CM01 J502:CM02 J503:CM03 T701",
+            noise=0.01,
+            snr=1.3,
+            integration_time=0.02,
+            observation_date="2020-01-01",
+            header=header,
+            save_mode="memory",
+            robust=0.0,
+            persist=False,
+            antenna_diameter_m=7.0,
+            dish_areas_m2={7.0: 20.0, 12.0: 50.0},
+            noise_entropy=(1, 2, 3),
+        ).run_interferometric_sim()
+
+    table = results["visibility_table"]
+    names = list(table["antenna_names"])
+    assert sorted(table["antenna_diameters_m"]) == [7.0, 7.0, 7.0, 12.0]
+    big = names.index("T701")
+    with_big = (table["antenna1"] == big) | (table["antenna2"] == big)
+    sigma = np.asarray(table["sigma"])
+    sigma = sigma.reshape(sigma.shape[0], -1)[:, 0]
+    np.testing.assert_allclose(sigma[~with_big], sigma[~with_big][0])
+    # sqrt(1 x 20/50): the 7 m dish's SEFD times the 12 m one's, over two 7 m's.
+    np.testing.assert_allclose(sigma[with_big], sigma[~with_big][0] * np.sqrt(0.4), rtol=1e-5)

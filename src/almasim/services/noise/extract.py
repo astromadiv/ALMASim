@@ -57,8 +57,8 @@ class _Sums:
     antenna_sum: np.ndarray = field(init=False)
     antenna_count: np.ndarray = field(init=False)
     antenna_rows: np.ndarray = field(init=False)
-    # Per baseline (ANTENNA1 * nant + ANTENNA2): rows, rows over the maximum
-    # WEIGHT, flagged values and values.
+    # Per baseline (ANTENNA1 * nant + ANTENNA2): rows over the maximum WEIGHT,
+    # flagged values and values, and the Stokes I sums (stokes_sum, stokes_count).
     baseline: dict[str, np.ndarray] = field(init=False)
     rows: int = 0
 
@@ -70,7 +70,8 @@ class _Sums:
         self.antenna_count = np.zeros((self.nant, self.nchan - 3, self.nhand))
         self.antenna_rows = np.zeros(self.nant, dtype=np.int64)
         self.baseline = {
-            key: np.zeros(self.nant * self.nant) for key in ("high", "flagged", "values")
+            key: np.zeros(self.nant * self.nant)
+            for key in ("high", "flagged", "values", "stokes_sum", "stokes_count")
         }
 
     def shares(self) -> tuple[float, float]:
@@ -170,7 +171,7 @@ def extract_window(
         tsys = _tsys(table, Path(syscal_ms) if syscal_ms else ms, spw, window["freq"])
     except (ValueError, RuntimeError, OSError) as exc:
         notes.append(f"tsys: {exc}")
-    visibility = _visibility(sums, exposure, tsys)
+    visibility = _visibility(sums, exposure, tsys, _own_dish_pairs(table, ms, sums, exposure))
     shape, arrays = _antenna_shape(sums, lines, exposure.channel_width_hz)
     if shape is None:
         notes.append("antenna_shape: too few antennas or channels with enough data")
@@ -301,8 +302,12 @@ def _accumulate(
             median = np.nanmedian(v, axis=0)
         sums.stokes_threshold = np.where(np.isfinite(median), CLIP * median, np.inf)
     keep = np.isfinite(v) & (v <= sums.stokes_threshold[None, :])
-    sums.stokes_sum += float(np.where(keep, v, 0.0).sum())
+    kept = np.where(keep, v, 0.0)
+    sums.stokes_sum += float(kept.sum())
     sums.stokes_count += int(keep.sum())
+    size = sums.nant * sums.nant
+    sums.baseline["stokes_sum"] += np.bincount(pair, kept.sum(axis=1), size)
+    sums.baseline["stokes_count"] += np.bincount(pair, keep.sum(axis=1).astype(np.float64), size)
 
 
 def _antenna_sums(
@@ -513,10 +518,35 @@ def rms_tsys_k(tsys: Tsys) -> float:
     return float(tsys.median_k / np.sqrt(np.median(profile)))
 
 
-def _visibility(sums: _Sums, exposure: Exposure, tsys: Tsys | None) -> VisibilityNoise:
-    if sums.stokes_count == 0:
+def _own_dish_pairs(table: Any, ms: Path, sums: _Sums, exposure: Exposure) -> np.ndarray | None:
+    """The baselines (ANTENNA1 * nant + ANTENNA2) between two of the array's
+    own dishes (``exposure.dish_diameter_m``) when its antennas have dishes
+    of two sizes (a 7 m array correlating the 12 m total-power dishes); None
+    when they are all alike. A baseline with a larger dish is less noisy, and
+    the efficiency is the array's own dish's."""
+    with table(str(ms / "ANTENNA"), ack=False) as ant:
+        diameters = np.asarray(ant.getcol("DISH_DIAMETER"), dtype=float)[: sums.nant]
+    own = np.abs(diameters - exposure.dish_diameter_m) < 0.5
+    array = sums.antenna_rows[: diameters.size] > 0
+    if own[array].all():
+        return None
+    both = np.zeros((sums.nant, sums.nant), dtype=bool)
+    both[: own.size, : own.size] = own[:, None] & own[None, :]
+    return both.ravel()
+
+
+def _visibility(
+    sums: _Sums, exposure: Exposure, tsys: Tsys | None, pairs: np.ndarray | None = None
+) -> VisibilityNoise:
+    """One visibility's noise, over the baselines ``pairs`` selects (every
+    baseline when None), and the efficiency it and Tsys imply."""
+    total, count = sums.stokes_sum, sums.stokes_count
+    if pairs is not None:
+        total = float(sums.baseline["stokes_sum"][pairs].sum())
+        count = int(sums.baseline["stokes_count"][pairs].sum())
+    if count == 0:
         raise ValueError("no unflagged Stokes I channel differences")
-    sigma = float(np.sqrt(sums.stokes_sum / sums.stokes_count))
+    sigma = float(np.sqrt(total / count))
     unit = sigma * float(np.sqrt(exposure.integration_s * exposure.channel_width_hz))
     efficiency = None
     if tsys is not None and unit > 0:

@@ -64,13 +64,35 @@ Plans can be:
 
 For each channel, the `Interferometer`:
 
-- multiplies the model by the primary beam: CASA's Airy model of an ALMA antenna with its central blockage ([`instrument/primary_beam.py`](../src/almasim/services/instrument/primary_beam.py)), the same model the total-power simulation and `--pbcor` use
+- multiplies the model by the primary beam: CASA's Airy model of an ALMA antenna with its central blockage ([`instrument/primary_beam.py`](../src/almasim/services/instrument/primary_beam.py)), the same model the total-power simulation and `--pbcor` use; in an array of two dish sizes each baseline sees the sky through its own dishes' beam ([below](#arrays-of-two-dish-sizes))
 - samples the uv plane along the execution block's track: its scans at their hour angles on the block's day (one scan centred on transit for an `Interferometer` built without a track); the exported MS's times are when the source is at each sample's hour angle
 - adds thermal noise at each visibility, and the noise model's corruptions when one is set
 - grids the visibilities with robust weighting (`robust`, `--robust`)
 - forms the dirty beam and the dirty image
 
 The cube, the uv sampling and the exported MeasurementSet share one channel grid, centered on the window's central frequency. The compute backend images the channels, one after another or in parallel (see [Compute Backends](compute.md)).
+
+## Arrays of two dish sizes
+
+ALMA's 7 m array can correlate the 12 m total-power dishes, on their pads
+T701-T704, with its 7 m dishes. An antenna on a total-power pad has a 12 m
+dish in any interferometric configuration
+([`instrument/array.py`](../src/almasim/services/instrument/array.py)
+`pad_dish_diameter_m`), and the configuration's `antenna_diameter_m` is the
+others'. A metadata row names those antennas PM, and the plan moves PM
+antennas to a total-power configuration of their own; a configuration given
+directly (`observation_configs`) keeps them in the array by listing their
+pads without the name, as `noise validate` does for the MSs that correlate
+them. In such an array:
+
+- each baseline sees the sky through the product of its two dishes' voltage
+  patterns (`baseline_beam_response`), a beam between the two dishes' own;
+  the dirty image shows the model through the configuration's dish
+- each baseline's noise is the geometric mean of its two antennas' SEFDs:
+  the configuration's noise times the square root of the product of each
+  antenna's effective-area ratio (the configuration's dish's over its own,
+  from the noise model's aperture efficiencies), and its WEIGHT follows
+- the MS lists each antenna's own dish diameter
 
 ## Interferometric Products
 

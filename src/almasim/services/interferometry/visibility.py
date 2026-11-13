@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -96,12 +96,17 @@ def build_channel_visibility_rows(
     noise_std: float,
     mean_wavelength_m: float,
     noise_scale: np.ndarray | None = None,
+    beam_models: Sequence[np.ndarray] | None = None,
+    baseline_beam: np.ndarray | None = None,
 ) -> dict[str, np.ndarray]:
     """Build per-channel row-wise visibility samples before UV gridding.
 
     ``noise_scale`` (baselines): each baseline's noise over the channel's, as
     in ``noise_samples`` (its antennas' own noise shape); the rows' sigma
-    carries it too. None: 1.
+    carries it too. None: 1. ``beam_models`` and ``baseline_beam``
+    (baselines): the model's FFT through each kind of baseline's beam and
+    the kind of each baseline, for an array of dishes of more than one size;
+    None: every baseline samples ``modelfft``.
     """
     nbas = int(antnum.shape[0])
     nrows = int(nbas * nH)
@@ -124,8 +129,16 @@ def build_channel_visibility_rows(
         p_v = pix_v[valid] + Nphf
         m_u = -pix_u[valid] + Nphf
         # The gridding path samples model visibilities at (v, -u).
-        model_vis_grid = np.fft.fftshift(modelfft)
-        sampled = model_vis_grid[p_v, m_u].astype(np.complex64)
+        if beam_models is None or baseline_beam is None:
+            sampled = np.fft.fftshift(modelfft)[p_v, m_u].astype(np.complex64)
+        else:
+            # Each baseline from the model through its own two dishes' beam.
+            kind = np.repeat(np.asarray(baseline_beam), nH)[valid]
+            sampled = np.zeros(p_v.size, dtype=np.complex64)
+            for k, model in enumerate(beam_models):
+                rows = kind == k
+                if np.any(rows):
+                    sampled[rows] = np.fft.fftshift(model)[p_v[rows], m_u[rows]]
         model_data[valid] = sampled
         # The gains are what calibration leaves: they scale the sky, while the
         # noise is the calibrated data's, as the applied calibration and its
