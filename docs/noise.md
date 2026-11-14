@@ -95,7 +95,7 @@ quantisation and correlator efficiencies are instrument data,
 [`interferometry/data/alma_radiometer.json`](../src/almasim/services/interferometry/data/alma_radiometer.json),
 which every run uses for Tsys. A model's `radiometer` component may set its
 own values (`alma@1` states the instrument's, so the model reproduces on its
-own; `alma@2` to `alma@4` state the values measured on the real windows), and a candidate model can try other values without a code change.
+own; `alma@2` to `alma@5` state the values measured on the real windows), and a candidate model can try other values without a code change.
 
 A model's `settings` hold what several components share: the scan length and
 the turbulent screens' outer scale. A selection (`--noise-only`,
@@ -248,7 +248,7 @@ almasim simulation ... --noise-model noise/candidate.json               # try it
 almasim noise validate --model noise/candidate.json --windows windows.csv \
     --metadata rows.csv --measured noise/ --out noise/ --backend slurm      # comparison.json
 almasim noise promote noise/candidate.json \
-    --comparison noise/validation/<sha>/comparison.json                     # models/alma-5.json
+    --comparison noise/validation/<sha>/comparison.json                     # models/alma-6.json
 ```
 
 Each command also takes a single MS (`almasim noise extract

@@ -1,0 +1,494 @@
+{
+  "schema_version": 1,
+  "name": "alma",
+  "version": 5,
+  "description": "What ALMA's calibrated data carry besides the sky, as measured on the 100 MADIV-16 windows (research/noise_realism): radiometer noise following Tsys with the atmosphere's lines and a receiver ripple, Hanning-correlated native channels, each antenna's noise ripple, and on bright sources the antenna gains, slow and fast atmospheric phase and baseline errors that calibration leaves.",
+  "provenance": {
+    "method": "noise aggregate: medians over the windows, from alma@1 where too few measure a value",
+    "data": "/SKAO_data/cycle11/MADIV-28/work/a6agg/agg",
+    "windows": 127,
+    "almasim_commit": "2.1.16",
+    "date": "2026-11-14",
+    "notes": "radiometer.efficiency_scale[7 m][5]: 1 window(s), kept 1; radiometer.efficiency_scale[7 m][9]: 1 window(s), kept 1; radiometer.efficiency_scale[7 m][10]: 2 window(s), kept 1 Validated on 100 windows: alma-handbook@10 (sha256 434a45308094) passed every check.",
+    "values": {
+      "channel_correlation.rho1": {
+        "n": 46,
+        "median": 0.6665450629841015,
+        "q16": 0.6652296599181724,
+        "q84": 0.6702259717640382
+      },
+      "channel_correlation.rho2": {
+        "n": 46,
+        "median": 0.16635980389688493,
+        "q16": 0.16553907636508453,
+        "q84": 0.17247401569216086
+      },
+      "receiver_ripple.rms": {
+        "n": 127,
+        "median": 0.016582504845290263,
+        "q16": 0.008655853461613459,
+        "q84": 0.027198350154450966
+      },
+      "antenna_ripple.rms": {
+        "n": 100,
+        "median": 0.032983295173126925,
+        "q16": 0.02158609391631596,
+        "q84": 0.06085768673421018
+      },
+      "antenna_ripple.scale_mhz": {
+        "n": 100,
+        "median": 93.75,
+        "q16": 35.6640625,
+        "q84": 156.25
+      },
+      "slow_phase.path_um_1km": {
+        "n": 18,
+        "median": 127.92545875627405,
+        "q16": 31.886707012433124,
+        "q84": 248.86212677965293
+      },
+      "slow_phase.slope": {
+        "n": 18,
+        "median": 0.35,
+        "q16": 0.05,
+        "q84": 0.65
+      },
+      "fast_phase.coherence_s": {
+        "n": 16,
+        "median": 30.0,
+        "q16": 20.0,
+        "q84": 80.0
+      },
+      "fast_phase.path_um_1km": {
+        "n": 16,
+        "median": 95.89096559300495,
+        "q16": 34.50547219925383,
+        "q84": 217.8930554481022
+      },
+      "fast_phase.slope": {
+        "n": 16,
+        "median": 0.625,
+        "q16": 0.25,
+        "q84": 0.75
+      },
+      "fast_phase.dishes.12m": {
+        "n": 13,
+        "median": 67.88916166848446,
+        "q16": 26.974685119893785,
+        "q84": 174.58390753224964
+      },
+      "fast_phase.dishes.7m": {
+        "n": 3,
+        "median": 223.5377244069129,
+        "q16": 203.9491697868345,
+        "q84": 645.9241316857555
+      },
+      "fast_phase.log_spread": {
+        "n": 16,
+        "median": 0.9138518369882485,
+        "q16": 0.7670680066723607,
+        "q84": 1.037989138189808
+      },
+      "antenna_gains.amp_rms": {
+        "n": 32,
+        "median": 0.13810250820967088,
+        "q16": 0.056879374898439215,
+        "q84": 0.22110525673001735
+      },
+      "baseline_errors.amp_rms": {
+        "n": 32,
+        "median": 0.111725174242775,
+        "q16": 0.01866670006363049,
+        "q84": 0.21543264181735244
+      },
+      "baseline_errors.phase_rms_deg": {
+        "n": 32,
+        "median": 1.4603007655700506,
+        "q16": 0.0,
+        "q84": 6.9927807576339855
+      },
+      "radiometer.receiver_temperature_k[1]": {
+        "n": 8,
+        "median": 17.161515970300435,
+        "q16": 15.878118925416485,
+        "q84": 18.76620081853631
+      },
+      "radiometer.receiver_temperature_k[2, 3]": {
+        "n": 15,
+        "median": 32.51159582462472,
+        "q16": 31.37644682941792,
+        "q84": 40.08039124407949
+      },
+      "radiometer.receiver_temperature_k[4]": {
+        "n": 5,
+        "median": 33.74376895611035,
+        "q16": 31.58474749045457,
+        "q84": 33.91098592324513
+      },
+      "radiometer.receiver_temperature_k[5]": {
+        "n": 5,
+        "median": 47.34367099771376,
+        "q16": 43.80099697545148,
+        "q84": 55.92471118923151
+      },
+      "radiometer.receiver_temperature_k[6]": {
+        "n": 29,
+        "median": 42.09953791159839,
+        "q16": 38.89187359992316,
+        "q84": 54.18750473430993
+      },
+      "radiometer.receiver_temperature_k[7]": {
+        "n": 11,
+        "median": 64.5958107955587,
+        "q16": 58.165901443878866,
+        "q84": 79.65690903090066
+      },
+      "radiometer.receiver_temperature_k[8]": {
+        "n": 8,
+        "median": 129.19472433484881,
+        "q16": 107.44953607406195,
+        "q84": 151.57163264977459
+      },
+      "radiometer.receiver_temperature_k[9]": {
+        "n": 15,
+        "median": 113.47525276648388,
+        "q16": 98.06442314615211,
+        "q84": 117.24778089814204
+      },
+      "radiometer.receiver_temperature_k[10]": {
+        "n": 6,
+        "median": 204.1060698169254,
+        "q16": 190.37812945485055,
+        "q84": 217.4973266072182
+      },
+      "radiometer.aperture[7 m].eta0": {
+        "n": 25,
+        "median": 0.7318468309323043,
+        "q16": 0.6487027018883245,
+        "q84": 0.735576609465544
+      },
+      "radiometer.aperture[7 m].surface_rms_m": {
+        "n": 25,
+        "median": 0.000025615059912752075,
+        "q16": 0.000025615059912752075,
+        "q84": 0.000025615059912752075
+      },
+      "radiometer.aperture[12 m].eta0": {
+        "n": 102,
+        "median": 0.7342043533487206,
+        "q16": 0.42728028416202357,
+        "q84": 0.725132531681188
+      },
+      "radiometer.aperture[12 m].surface_rms_m": {
+        "n": 102,
+        "median": 0.0000284957485108422,
+        "q16": 0.0000284957485108422,
+        "q84": 0.0000284957485108422
+      },
+      "radiometer.tdm_efficiency": {
+        "n": 30,
+        "median": 1.0485129983886028,
+        "q16": 0.9701957590745566,
+        "q84": 1.1112958525404042
+      },
+      "radiometer.efficiency_scale[12 m][1]": {
+        "n": 8,
+        "median": 0.9141831109573229,
+        "q16": 0.90341932139056,
+        "q84": 0.9612150156821824
+      },
+      "radiometer.efficiency_scale[12 m][2, 3]": {
+        "n": 15,
+        "median": 0.9952974683384402,
+        "q16": 0.9612638857538676,
+        "q84": 1.0256281641695888
+      },
+      "radiometer.efficiency_scale[12 m][4]": {
+        "n": 5,
+        "median": 0.9762605068156879,
+        "q16": 0.961983238743879,
+        "q84": 1.0088037033635349
+      },
+      "radiometer.efficiency_scale[12 m][5]": {
+        "n": 5,
+        "median": 0.993281424556722,
+        "q16": 0.9709129376344922,
+        "q84": 1.0358934395879624
+      },
+      "radiometer.efficiency_scale[12 m][6]": {
+        "n": 29,
+        "median": 0.9947787882610518,
+        "q16": 0.9528930063532605,
+        "q84": 1.0589702251016333
+      },
+      "radiometer.efficiency_scale[12 m][7]": {
+        "n": 11,
+        "median": 0.9878844314972238,
+        "q16": 0.9533483453671603,
+        "q84": 1.0642290536220103
+      },
+      "radiometer.efficiency_scale[12 m][8]": {
+        "n": 8,
+        "median": 1.0433955011741636,
+        "q16": 0.9618888935488146,
+        "q84": 1.0883864183621585
+      },
+      "radiometer.efficiency_scale[12 m][9]": {
+        "n": 15,
+        "median": 0.9551085218904483,
+        "q16": 0.8455219380293708,
+        "q84": 1.0921126489670079
+      },
+      "radiometer.efficiency_scale[12 m][10]": {
+        "n": 6,
+        "median": 0.9877725159592511,
+        "q16": 0.935723292552298,
+        "q84": 1.1256445820959164
+      },
+      "radiometer.efficiency_scale[7 m][2, 3]": {
+        "n": 10,
+        "median": 0.9939321016861454,
+        "q16": 0.9526555853534072,
+        "q84": 1.0422795085801733
+      },
+      "radiometer.efficiency_scale[7 m][6]": {
+        "n": 11,
+        "median": 0.9902718568729821,
+        "q16": 0.9431669888744952,
+        "q84": 1.0283525530755941
+      }
+    }
+  },
+  "settings": {
+    "scan_length_s": 300.0,
+    "outer_scale_km": 3.0
+  },
+  "components": {
+    "radiometer": {
+      "enabled": true,
+      "receiver_temperature_k": [
+        {
+          "upper_ghz": 50.0,
+          "trx_k": 17.161515970300435,
+          "bands": "1"
+        },
+        {
+          "upper_ghz": 116.0,
+          "trx_k": 32.51159582462472,
+          "bands": "2, 3"
+        },
+        {
+          "upper_ghz": 163.0,
+          "trx_k": 33.74376895611035,
+          "bands": "4"
+        },
+        {
+          "upper_ghz": 211.0,
+          "trx_k": 47.34367099771376,
+          "bands": "5"
+        },
+        {
+          "upper_ghz": 275.0,
+          "trx_k": 42.09953791159839,
+          "bands": "6"
+        },
+        {
+          "upper_ghz": 373.0,
+          "trx_k": 64.5958107955587,
+          "bands": "7"
+        },
+        {
+          "upper_ghz": 500.0,
+          "trx_k": 129.19472433484881,
+          "bands": "8"
+        },
+        {
+          "upper_ghz": 750.0,
+          "trx_k": 113.47525276648388,
+          "bands": "9"
+        },
+        {
+          "upper_ghz": null,
+          "trx_k": 204.1060698169254,
+          "bands": "10"
+        }
+      ],
+      "aperture": [
+        {
+          "diameter_m": 12.0,
+          "eta0": 0.7342043533487206,
+          "surface_rms_m": 0.0000284957485108422
+        },
+        {
+          "diameter_m": 7.0,
+          "eta0": 0.7318468309323043,
+          "surface_rms_m": 0.000025615059912752075
+        }
+      ],
+      "efficiency_scale": [
+        {
+          "diameter_m": 12.0,
+          "upper_ghz": 50.0,
+          "scale": 0.9141831109573229,
+          "bands": "1"
+        },
+        {
+          "diameter_m": 12.0,
+          "upper_ghz": 116.0,
+          "scale": 0.9952974683384402,
+          "bands": "2, 3"
+        },
+        {
+          "diameter_m": 12.0,
+          "upper_ghz": 163.0,
+          "scale": 0.9762605068156879,
+          "bands": "4"
+        },
+        {
+          "diameter_m": 12.0,
+          "upper_ghz": 211.0,
+          "scale": 0.993281424556722,
+          "bands": "5"
+        },
+        {
+          "diameter_m": 12.0,
+          "upper_ghz": 275.0,
+          "scale": 0.9947787882610518,
+          "bands": "6"
+        },
+        {
+          "diameter_m": 12.0,
+          "upper_ghz": 373.0,
+          "scale": 0.9878844314972238,
+          "bands": "7"
+        },
+        {
+          "diameter_m": 12.0,
+          "upper_ghz": 500.0,
+          "scale": 1.0433955011741636,
+          "bands": "8"
+        },
+        {
+          "diameter_m": 12.0,
+          "upper_ghz": 750.0,
+          "scale": 0.9551085218904483,
+          "bands": "9"
+        },
+        {
+          "diameter_m": 12.0,
+          "upper_ghz": null,
+          "scale": 0.9877725159592511,
+          "bands": "10"
+        },
+        {
+          "diameter_m": 7.0,
+          "upper_ghz": 50.0,
+          "scale": 1.0,
+          "bands": "1"
+        },
+        {
+          "diameter_m": 7.0,
+          "upper_ghz": 116.0,
+          "scale": 0.9939321016861454,
+          "bands": "2, 3"
+        },
+        {
+          "diameter_m": 7.0,
+          "upper_ghz": 163.0,
+          "scale": 1.0,
+          "bands": "4"
+        },
+        {
+          "diameter_m": 7.0,
+          "upper_ghz": 211.0,
+          "scale": 1.0,
+          "bands": "5"
+        },
+        {
+          "diameter_m": 7.0,
+          "upper_ghz": 275.0,
+          "scale": 0.9902718568729821,
+          "bands": "6"
+        },
+        {
+          "diameter_m": 7.0,
+          "upper_ghz": 373.0,
+          "scale": 1.0,
+          "bands": "7"
+        },
+        {
+          "diameter_m": 7.0,
+          "upper_ghz": 500.0,
+          "scale": 1.0,
+          "bands": "8"
+        },
+        {
+          "diameter_m": 7.0,
+          "upper_ghz": 750.0,
+          "scale": 1.0,
+          "bands": "9"
+        },
+        {
+          "diameter_m": 7.0,
+          "upper_ghz": null,
+          "scale": 1.0,
+          "bands": "10"
+        }
+      ],
+      "quantisation_efficiency": 0.96,
+      "correlator_efficiency": 0.88,
+      "tdm_efficiency": 1.0485129976918606,
+      "forward_efficiency": 0.95
+    },
+    "atmospheric_tsys": {
+      "enabled": true
+    },
+    "receiver_ripple": {
+      "enabled": true,
+      "rms": 0.016582504845290263
+    },
+    "channel_correlation": {
+      "enabled": true,
+      "rho1": 0.6665450629841015,
+      "rho2": 0.16635980389688493,
+      "average": 0
+    },
+    "antenna_ripple": {
+      "enabled": true,
+      "rms": 0.032983295173126925,
+      "scale_mhz": 93.75
+    },
+    "antenna_gains": {
+      "enabled": true,
+      "amp_rms": 0.13810250820967088,
+      "phase_rms_deg": 0.0
+    },
+    "slow_phase": {
+      "enabled": true,
+      "path_um_1km": 127.92545875627405,
+      "slope": 0.35
+    },
+    "fast_phase": {
+      "enabled": true,
+      "path_um_1km": 95.89096559300495,
+      "slope": 0.625,
+      "coherence_s": 30.0,
+      "dishes": [
+        {
+          "diameter_m": 12.0,
+          "path_um_1km": 67.88916166848446
+        },
+        {
+          "diameter_m": 7.0,
+          "path_um_1km": 223.5377244069129
+        }
+      ],
+      "log_spread": 0.9138518369882485
+    },
+    "baseline_errors": {
+      "enabled": true,
+      "amp_rms": 0.111725174242775,
+      "phase_rms_deg": 1.4603007655700506
+    }
+  }
+}
