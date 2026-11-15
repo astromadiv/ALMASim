@@ -46,8 +46,9 @@ def test_package_and_site_models_with_their_components(tmp_path, monkeypatch):
     got = _client(tmp_path, monkeypatch, folder).get("/api/v2/noise-models").json()
     assert got["site_folder"] == str(folder)
     specs = [(m["spec"], m["source"], m["newest"]) for m in got["models"]]
-    assert specs[:4] == [
-        ("alma@4", "package", True),
+    assert specs[:5] == [
+        ("alma@5", "package", True),
+        ("alma@4", "package", False),
         ("alma@3", "package", False),
         ("alma@2", "package", False),
         ("alma@1", "package", False),
@@ -57,9 +58,9 @@ def test_package_and_site_models_with_their_components(tmp_path, monkeypatch):
     assert first["sha256"] == released_model("alma").sha256()
     assert [c["name"] for c in first["components"]] == list(COMPONENT_NAMES)
     assert all(c["enabled"] and c["description"] for c in first["components"])
-    assert first["provenance"]["windows"] == 100
-    assert first["provenance"]["validated"] == "2206b23b01a2"  # its validation's model
-    assert got["models"][3]["provenance"]["validated"] is None  # alma@1
+    assert first["provenance"]["windows"] == 127
+    assert first["provenance"]["validated"] == "434a45308094"  # its validation's model
+    assert got["models"][4]["provenance"]["validated"] is None  # alma@1
     assert got["models"][-1]["provenance"]["validated"] == "0123456789ab"
 
 
