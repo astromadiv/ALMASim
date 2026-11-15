@@ -82,6 +82,10 @@ class ChannelImagingConfig:
     continuum_fraction: np.ndarray | None = None
     # Each sample's hour angle (rad); None: nH evenly spaced over Hcov.
     hour_angles: np.ndarray | None = None
+    # Each antenna's dish diameter (m) when the array's pads hold dishes of two
+    # sizes: each baseline sees the sky through its two dishes' beams. None:
+    # every dish is Diameters[0].
+    antenna_diameters: np.ndarray | None = None
 
     def channel_rng(self, channel: int) -> np.random.Generator:
         """The generator of ``channel``: the same whichever worker images it."""
@@ -143,6 +147,7 @@ def image_configured_channel(
         config.scan_time_s,
         rng=config.channel_rng(channel),
         hour_angles=config.hour_angles,
+        antenna_diameters=config.antenna_diameters,
         **corrupted,
     )
 

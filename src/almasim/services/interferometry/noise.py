@@ -168,17 +168,25 @@ def system_equivalent_flux_density(
         )
         tsys = np.clip(trx + tsky, 1.0, None)
 
-    area_m2 = np.pi * (antenna_diameter_m / 2.0) ** 2
-    centre = float(np.mean(freqs_hz))
+    # One efficiency for the window: it changes by well under 1% across one.
+    a_eff = effective_area_m2(config, float(np.mean(freqs_hz)), antenna_diameter_m)
+    return (2.0 * K_B * tsys / a_eff) / JY
+
+
+def effective_area_m2(
+    config: NoiseModelConfig, frequency_hz: float, antenna_diameter_m: float
+) -> float:
+    """A dish's effective collecting area (m^2) at ``frequency_hz``: its
+    geometric area times its aperture efficiency (``config.aperture_efficiency``
+    when set, else its Ruze curve times its band's ``efficiency_scale``)."""
+    area_m2 = np.pi * (float(antenna_diameter_m) / 2.0) ** 2
     efficiency = (
         config.aperture_efficiency
         if config.aperture_efficiency is not None
-        # One efficiency for the window: it changes by well under 1% across one.
-        else aperture_efficiency(centre, antenna_diameter_m, config.ruze)
-        * efficiency_scale(centre, antenna_diameter_m, config.efficiency_scale)
+        else aperture_efficiency(frequency_hz, antenna_diameter_m, config.ruze)
+        * efficiency_scale(frequency_hz, antenna_diameter_m, config.efficiency_scale)
     )
-    a_eff = max(area_m2 * efficiency, 1e-6)
-    return (2.0 * K_B * tsys / a_eff) / JY
+    return max(area_m2 * efficiency, 1e-6)
 
 
 def compute_channel_noise(
