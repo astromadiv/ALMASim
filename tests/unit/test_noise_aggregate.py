@@ -338,3 +338,30 @@ def test_a_model_sets_the_tdm_efficiency():
     # Unset, it leaves the released models' identity as it is.
     assert "tdm_efficiency" not in released_model("alma", 3).canonical_json()
     assert "tdm_efficiency" not in released_model("alma", 3).noise_config()
+
+
+@pytest.mark.unit
+def test_a_band_with_many_windows_does_not_set_the_curve():
+    """Twelve 7 m band 9 windows 1.4 times above the curve that three other
+    bands' windows follow: the curve stays the others' (one point per band),
+    and band 9 takes the factor as its scale."""
+    windows = [Measured(_window(k)) for k in range(6)]
+    windows += [
+        Measured(_window(10 + 3 * b + k, dish=7.0, ghz=ghz))
+        for b, ghz in enumerate((100.0, 230.0, 345.0))
+        for k in range(3)
+    ]
+    windows += [
+        Measured(_window(40 + k, dish=7.0, ghz=660.0, efficiency_scale=1.4)) for k in range(12)
+    ]
+    radiometer = aggregate(windows, released_model("alma")).components.radiometer
+    assert radiometer is not None and radiometer.aperture is not None
+    seven = next(a for a in radiometer.aperture if a.diameter_m == 7.0)
+    assert seven.surface_rms_m == pytest.approx(24e-6, rel=0.1)
+    band9 = [
+        s.scale
+        for s in radiometer.efficiency_scale or ()
+        if s.diameter_m == 7.0 and s.upper_ghz is not None and 600 < s.upper_ghz < 800
+    ]
+    # Extrapolated from three bands up to 345 GHz, the curve at 660 GHz is good to ~10%.
+    assert band9 and band9[0] == pytest.approx(1.4, rel=0.1)

@@ -362,8 +362,16 @@ in images.
 - *Aperture efficiency.* For each dish size (12 m, 7 m), Ruze's law
   `eta_a(nu) = eta0 exp(-(4 pi eps nu / c)^2)`, the surface's rms `eps`
   costing more at higher frequency, is fitted (robustly, in log) to the
-  windows' `efficiency / eta_c`. A dish size needs at least five windows
-  (or `--min-windows`, if more).
+  windows' `efficiency / eta_c`, one point per band of the
+  receiver-temperature table (the median frequency and efficiency of its
+  windows), so that a band with many windows does not set the curve for the
+  others; a band more than 15% off the curve of the other bands is left
+  out (the furthest first, while more than three remain), its
+  `efficiency_scale` taking the departure up. A dish size needs at least
+  five windows (or `--min-windows`, if more) in at least three bands. On
+  the 145 cycle 11 windows the 7 m dishes' band 9 windows (16) sit some 1.34
+  times above the curve the other bands give; fitted window by window, they
+  would pull its surface from 24 to 13 um.
 - *TDM windows.* ALMA's correlator makes a window's channels in one of two
   modes: TDM, whose native channels are 7.8125 MHz or wider (a 2 GHz window
   in 128 channels, for continuum), and FDM, whose native channels are under

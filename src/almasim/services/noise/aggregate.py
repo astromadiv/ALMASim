@@ -48,6 +48,8 @@ WIDE_WINDOW_HZ = 1e9
 # sample (observing.SCAN_TIMES_S).
 FAST_REFERENCE_S = 18.144
 C_M_S = 299_792_458.0
+RUZE_BANDS = 3  # the fewest receiver bands a dish's Ruze curve is fitted over
+RUZE_OUTLIER = 0.15  # a band further from the curve is left out of it
 
 
 @dataclass(frozen=True)
@@ -328,12 +330,23 @@ def _radiometer(
             for w in windows
             if w.visibility.efficiency and round(w.exposure.dish_diameter_m) == round(diameter)
         ]
-        fitted = (
-            _ruze_fit(points, apertures[diameter]) if len(points) >= max(min_windows, 5) else None
-        )
+        # One point per receiver band (its windows' medians): a band with many
+        # windows does not set the curve for the others.
+        by_row: dict[int, list[tuple[float, float]]] = {}
+        for hz, eta in points:
+            row = int(np.searchsorted(edges, hz / 1e9, side="right"))
+            by_row.setdefault(min(row, len(rows) - 1), []).append((hz, eta))
+        medians = [
+            (float(np.median([p[0] for p in band])), float(np.median([p[1] for p in band])))
+            for band in by_row.values()
+        ]
+        enough = len(points) >= max(min_windows, 5) and len(medians) >= RUZE_BANDS
+        fitted = _ruze_fit(medians, apertures[diameter]) if enough else None
         key = f"radiometer.aperture[{diameter:g} m]"
         if fitted is None:
-            notes.append(f"{key}: {len(points)} window(s), kept the base's")
+            notes.append(
+                f"{key}: {len(points)} window(s) in {len(medians)} band(s), kept the base's"
+            )
             kept.add(diameter)
             continue
         apertures[diameter] = fitted
@@ -529,24 +542,48 @@ def _ruze_fit(
     points: list[tuple[float, float]], start: tuple[float, float]
 ) -> tuple[float, float] | None:
     """eta0 exp(-(4 pi eps nu / c)^2) fitted to (frequency, aperture
-    efficiency) in log, robust to outliers (soft L1)."""
+    efficiency) in log, robust to outliers (soft L1), without the points
+    that depart by more than ``RUZE_OUTLIER`` from the curve of the others:
+    the furthest, one at a time, while more than ``RUZE_BANDS`` are left (its
+    band's scale takes the departure up)."""
     from scipy.optimize import least_squares
 
     nu = np.array([p[0] for p in points])
     eta = np.array([p[1] for p in points])
     keep = (eta > 0) & np.isfinite(eta)
-    if keep.sum() < 5:
+    if keep.sum() < RUZE_BANDS:
         return None
     nu, eta = nu[keep], eta[keep]
 
-    def residual(p: np.ndarray) -> np.ndarray:
+    def residual(p: np.ndarray, nu: np.ndarray, eta: np.ndarray) -> np.ndarray:
         return np.log(p[0]) - (4 * np.pi * p[1] * 1e-6 * nu / C_M_S) ** 2 - np.log(eta)
 
-    result = least_squares(
-        residual,
-        [start[0], start[1] * 1e6],
-        loss="soft_l1",
-        f_scale=0.1,
-        bounds=([0.3, 0.0], [1.0, 80.0]),
-    )
-    return float(result.x[0]), float(result.x[1] * 1e-6)
+    def fit(nu: np.ndarray, eta: np.ndarray) -> np.ndarray:
+        return least_squares(
+            residual,
+            [start[0], start[1] * 1e6],
+            args=(nu, eta),
+            loss="soft_l1",
+            f_scale=0.1,
+            bounds=([0.3, 0.0], [1.0, 80.0]),
+        ).x
+
+    # Each point against the curve of the others: a band far off would
+    # otherwise bend the curve towards itself and hide behind it.
+    while nu.size > RUZE_BANDS:
+        off = np.array(
+            [
+                abs(
+                    residual(
+                        fit(np.delete(nu, k), np.delete(eta, k)), nu[k : k + 1], eta[k : k + 1]
+                    )[0]
+                )
+                for k in range(nu.size)
+            ]
+        )
+        worst = int(np.argmax(off))
+        if off[worst] <= np.log(1 + RUZE_OUTLIER):
+            break
+        nu, eta = np.delete(nu, worst), np.delete(eta, worst)
+    result = fit(nu, eta)
+    return float(result[0]), float(result[1] * 1e-6)
