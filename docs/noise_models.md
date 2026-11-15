@@ -1053,7 +1053,7 @@ almasim noise validate --model noise/candidate.json --windows windows.csv \
 
 For each window, ALMASim simulates it from its archive row with the
 candidate (a point source at the window's frequency, with its channels, up
-to 1024 of them, and their averaging as its MS gives them, one execution
+to 1024 of them (the central ones), and their averaging as its MS gives them, one execution
 block in samples as long as its MS's integrations). The simulation peaks at
 about 0.3 GB per million visibilities, up to about 100 GB at the 300 million
 a window is held to (see *The samples* below), so the Slurm workers take
@@ -1064,7 +1064,10 @@ large a share of its data as the real image does: the window's
 `flagged_fraction` plus its `high_weight_fraction`, at most 95%. The image
 noise follows the data imaged, so a simulated window with all its data would
 be quieter than the real one by the square root of the share it kept. It
-measures the simulated MS with `noise extract`, in a process of its own
+measures the simulated MS with `noise extract`, leaving out the real
+window's line channels as its measurement did (mapped onto the simulated
+channels, which run in rising frequency where the MS may list them
+falling; the channels are recorded in the window's `band.json`), in a process of its own
 (the simulation wrote the MS with casatools, and python-casacore opening it
 in the same process can abort with `free(): invalid pointer`), images it as
 the real windows were imaged (`image compute-parameters`, `image image-from-ms
@@ -1222,13 +1225,20 @@ Eleven choices keep the comparison fair, and one limit remains:
   MADIV-16 cubes use 1.12 lambda/D) has fewer pixels, so the cap can give the
   simulated cube half the real one's channels (w51: 120 against 240) and a
   noise lower by the square root of 2.
-- *The band.* `noise compare` compares the continuum noise (`cont.sigma`
-  and `jk.sigma`) over the real window's band: it scales the simulated
-  values by the square root of the simulated over the real window's
-  bandwidth (channels times channel width). A window with more than 1024
-  channels is simulated with 1024 of them, so its simulated continuum
-  averages less of the band (w99: 1024 of 1920 channels, noise higher by
-  1.37).
+- *The band.* A window with more than 1024 channels is simulated over its
+  central 1024, and Tsys changes across a window: w94 (band 7, 3840
+  channels) has an atmospheric line in its central 500 MHz, where the noise
+  variance reaches 2.2 times the window's median. `noise compare` takes each
+  metric to the real window's channels with the real Tsys spectrum
+  (`tsys.profile`, Tsys squared per channel, which follows the noise
+  variance and carries no sky), `v(k)`, over the simulated channels S and
+  the window's channels W: the visibility noise (`visibility.unit_jy`) by
+  sqrt(mean v over W / mean v over S), both without the line channels; the
+  continuum noise (`cont.sigma` and `jk.sigma`, natural weighting) by
+  sqrt(sum 1/v over S / sum 1/v over W), which is sqrt(1024 / 1920) for a
+  flat Tsys (w99: noise higher by 1.37); the cube noise by sqrt(median v
+  over W / median v over S). Without the real window's Tsys (no SYSCAL) or
+  a `band.json`, Tsys counts as flat.
 - *Each hand.* `noise extract` measures the simulated MS per hand, as the
   real one, and each simulated hand carries the model's channel correlation
   and antenna ripple (see `channel_correlation` and `antenna_ripple`).

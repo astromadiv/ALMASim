@@ -7,7 +7,8 @@ and PWV, one execution block, the model under test, with the window's own
 in-scan phase where ``noise fit`` measured one), exports the MS, flags
 as large a share of its rows as the real image is missing (the window's
 flagged data and the rows imaging leaves out for their WEIGHT), measures it
-with ``noise extract`` and images it as the real window was
+with ``noise extract`` over the channels the real window's measurement
+used (:mod:`.channels`) and images it as the real window was
 imaged (``image compute-parameters``, ``image image-from-ms`` with the cube
 and continuum subtraction, ``image clean-quality``), then takes the image
 statistics of both, the jackknifed continuum noise among them
@@ -31,6 +32,7 @@ import pandas as pd
 
 from ..noise_model import NoiseModel
 from .batch import FIT_FILE, WINDOW_FILE, WindowTask, _write_atomic
+from .channels import BAND_FILE, SimulatedBand, real_line_channels, simulated_band
 from .compare import Comparison, Criteria, Pair, compare
 from .image_stats import image_noise_stats
 from .jackknife import jackknife_noise
@@ -133,7 +135,9 @@ def validate_window(
         peak_jy=real_peak,
     )
     flag_as_imaged(ms, real, seed=seed + zlib.crc32(task.name.encode()) % 1_000_003)
-    sim_window = measure(ms, task.name, run)
+    band = window_band(task, real)
+    _write_atomic(directory / BAND_FILE, band.to_json())
+    sim_window = measure(ms, task.name, run, line_channels=band.simulated_line_channels())
     _write_atomic(directory / SIM_WINDOW, sim_window.model_dump_json(indent=2) + "\n")
     task_dir = image(run, imaging)
     sim_stats = image_noise_stats(task_dir)
@@ -525,6 +529,25 @@ def unimaged_fraction(window: WindowNoise) -> float:
     return float(min(max(e.flagged_fraction + e.high_weight_fraction, 0.0), MAX_UNIMAGED))
 
 
+def window_band(task: WindowTask, real: WindowNoise) -> SimulatedBand:
+    """The channels of ``task``'s window that its simulation covers (the
+    central ``MAX_CHANNELS``), its channel order (read from its MS in a
+    process of its own, as ``measure`` reads the simulated one) and the line
+    channels its measurement left out."""
+    from ..runtime.child import call_in_child
+    from ..runtime.env import wsclean_environment
+
+    total = real.exposure.channels
+    order = call_in_child(
+        "almasim.services.noise.channels:channels_falling",
+        {"ms": str(task.ms), "spw": int(task.spw)},
+        what="reading the window's channel order",
+        env=wsclean_environment(1),
+    )
+    lines = real_line_channels(total, line_channels=task.line_channels, task_log=task.task_log)
+    return simulated_band(total, MAX_CHANNELS, falling=bool(order["falling"]), lines=lines)
+
+
 def flag_as_imaged(ms: Path, window: WindowNoise, *, seed: int) -> int:
     """Flag rows of the simulated MS, drawn with ``seed``, until it misses as
     large a share of its data as the real window's image (``unimaged_fraction``);
@@ -576,14 +599,18 @@ def flag_rows(ms_path: str, fraction: float, seed: int) -> dict[str, int]:
     return {"flagged_rows": count}
 
 
-def measure(ms: Path, name: str, run: Path) -> WindowNoise:
-    """``noise extract`` of the simulated MS, in a process of its own: the
-    simulation wrote it with casatools, and python-casacore opening it in the
-    same process can abort (free(): invalid pointer)."""
+def measure(ms: Path, name: str, run: Path, *, line_channels: str = "") -> WindowNoise:
+    """``noise extract`` of the simulated MS, leaving out ``line_channels``
+    ("a~b;c", the real window's, numbered as the simulated MS numbers its
+    channels), in a process of its own: the simulation wrote it with
+    casatools, and python-casacore opening it in the same process can abort
+    (free(): invalid pointer)."""
     from ...jobs.wrapper import ALMASIM_COMMAND
 
     out = run / "measured"
     command = ["noise", "extract", str(ms), "--spw", "0", "--name", name, "--out", str(out)]
+    if line_channels:
+        command += ["--line-channels", line_channels]
     result = subprocess.run([*ALMASIM_COMMAND, *command], capture_output=True, text=True)
     if result.returncode != 0:
         tail = (result.stderr or result.stdout).strip()[-1500:]
@@ -638,6 +665,7 @@ def collect(
                 sim_window=WindowNoise.model_validate_json((directory / SIM_WINDOW).read_text()),
                 real_window=real,
                 band=band,
+                simulated=SimulatedBand.read(directory / BAND_FILE),
             )
         )
     return pairs
