@@ -282,6 +282,7 @@ def test_interferometer_hands_its_channels_the_corruption_fields():
         sample_offsets_s=None,
         antPos=[[0.0, 0.0, 0.0], [0.1, 0.0, 0.0], [0.0, 0.1, 0.0]],
         Nant=3,
+        antenna_diameter_m=12.0,
         spectral_window=SimpleNamespace(frequencies_hz=lambda: freqs),
     )
     fields = Interferometer._corruption_fields(sim)
@@ -436,3 +437,64 @@ def test_each_antenna_error_has_its_own_stream():
     stronger_fast = draw(fast_path_um_1km=80.0)
     assert np.array_equal(stronger_fast.phase, everything.phase)
     assert np.array_equal(stronger_fast.baseline, everything.baseline)
+
+
+@pytest.mark.unit
+def test_an_observation_takes_its_dishs_in_scan_strength_and_its_own_draw():
+    """Each dish size has its own in-scan strength, and each observation draws
+    its own from the spread; without a spread the strength is the dish's."""
+    model = CorruptionModel.from_mapping(
+        {"fast_path_um_1km": 100.0, "fast_path_by_dish": [[12.0, 65.0], [7.0, 150.0]]}
+    )
+    assert model.fast_path_by_dish == ((12.0, 65.0), (7.0, 150.0))
+    rng = np.random.default_rng(0)
+    assert model.for_observation(12.0, rng).fast_path_um_1km == 65.0
+    assert model.for_observation(7.0, rng).fast_path_um_1km == 150.0
+    assert model.for_observation(10.0, rng).fast_path_um_1km == 100.0  # no row: the default
+    spread = replace(model, fast_log_spread=0.7)
+    draws = [spread.for_observation(12.0, np.random.default_rng(k)) for k in range(400)]
+    paths = np.array([d.fast_path_um_1km for d in draws])
+    assert np.std(np.log(paths)) == pytest.approx(0.7, rel=0.1)
+    assert np.exp(np.median(np.log(paths))) == pytest.approx(65.0, rel=0.1)
+    # The same seed, the same observation; and the result draws nothing more.
+    again = spread.for_observation(12.0, np.random.default_rng(3))
+    assert again == draws[3] and again.fast_log_spread == 0.0 and not again.fast_path_by_dish
+    assert again.for_observation(7.0, np.random.default_rng(9)) == again
+    # A {diameter: strength} object reads the same.
+    assert CorruptionModel.from_mapping(
+        {"fast_path_by_dish": {"12": 65.0, "7": 150.0}}
+    ).fast_path_by_dish == ((12.0, 65.0), (7.0, 150.0))
+
+
+@pytest.mark.unit
+def test_the_interferometer_draws_its_observations_in_scan_strength():
+    """The channels get the observation's own strength; the other antenna
+    errors' draws do not depend on it."""
+    from types import SimpleNamespace
+
+    from almasim.services.interferometry.core import Interferometer
+
+    base = CorruptionModel(fast_path_um_1km=80.0, fast_slope=0.5, gain_amp_rms=0.05)
+    sim = SimpleNamespace(
+        corruptions=replace(base, fast_path_by_dish=((7.0, 160.0),), fast_log_spread=0.5),
+        noise_entropy=(7, 1),
+        continuum_fraction=None,
+        Nchan=4,
+        nH=6,
+        scan_time=6.0,
+        sample_offsets_s=None,
+        antPos=[[0.0, 0.0, 0.0], [0.1, 0.0, 0.0], [0.0, 0.2, 0.0], [0.3, 0.1, 0.0]],
+        Nant=4,
+        antenna_diameter_m=7.0,
+        spectral_window=SimpleNamespace(frequencies_hz=lambda: np.zeros(4)),
+    )
+    fields = Interferometer._corruption_fields(sim)
+    drawn = fields["corruptions"].fast_path_um_1km
+    # The observation's own stream: (entropy, 1_000_000, 4).
+    z = np.random.default_rng((7, 1, 1_000_000, 4)).standard_normal()
+    assert drawn == pytest.approx(160.0 * np.exp(0.5 * z))
+    assert fields["corruptions"] == Interferometer._corruption_fields(sim)["corruptions"]
+    sim.corruptions = replace(base, fast_path_um_1km=drawn)
+    same = Interferometer._corruption_fields(sim)["antenna_corruptions"]
+    assert np.allclose(fields["antenna_corruptions"].amplitude, same.amplitude)
+    assert np.allclose(fields["antenna_corruptions"].path_m, same.path_m)

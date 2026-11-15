@@ -24,6 +24,7 @@ from .components import (
     BaselineErrors,
     ChannelCorrelation,
     Components,
+    DishPath,
     FastPhase,
     Radiometer,
     ReceiverRipple,
@@ -204,6 +205,11 @@ class NoiseModel(BaseModel):
                 path_um_1km=c["fast_path_um_1km"],
                 slope=c["fast_slope"],
                 coherence_s=c["fast_coherence_s"],
+                dishes=tuple(
+                    DishPath(diameter_m=d, path_um_1km=v) for d, v in c["fast_path_by_dish"]
+                )
+                or None,
+                log_spread=c["fast_log_spread"] or None,
             )
         if c["baseline_amp_rms"] > 0 or c["baseline_phase_rms_deg"] > 0:
             parts["baseline_errors"] = BaselineErrors(

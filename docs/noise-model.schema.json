@@ -286,6 +286,30 @@
       "title": "Components",
       "type": "object"
     },
+    "DishPath": {
+      "additionalProperties": false,
+      "description": "The in-scan screen's strength for one dish size.",
+      "properties": {
+        "diameter_m": {
+          "description": "Dish diameter (m).",
+          "exclusiveMinimum": 0,
+          "title": "Diameter M",
+          "type": "number"
+        },
+        "path_um_1km": {
+          "description": "Rms path difference at 1 km (microns).",
+          "minimum": 0,
+          "title": "Path Um 1Km",
+          "type": "number"
+        }
+      },
+      "required": [
+        "diameter_m",
+        "path_um_1km"
+      ],
+      "title": "DishPath",
+      "type": "object"
+    },
     "EfficiencyScale": {
       "additionalProperties": false,
       "description": "A factor on one dish's aperture efficiency for the frequencies up to an edge.",
@@ -342,7 +366,7 @@
           "type": "boolean"
         },
         "path_um_1km": {
-          "description": "Rms path difference at 1 km (microns).",
+          "description": "Rms path difference at 1 km (microns); a dish without its own row takes it.",
           "minimum": 0,
           "title": "Path Um 1Km",
           "type": "number"
@@ -361,6 +385,37 @@
           "exclusiveMinimum": 0,
           "title": "Coherence S",
           "type": "number"
+        },
+        "dishes": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/DishPath"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Each dish size's own strength (the 12 m antennas' water vapour radiometers correct the in-scan path the 7 m antennas keep); unset: path_um_1km for all.",
+          "title": "Dishes"
+        },
+        "log_spread": {
+          "anyOf": [
+            {
+              "maximum": 3,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The rms of the strength's natural log from one observation to the next: each simulated observation draws its own, from its seed; unset: every observation takes the dish's strength.",
+          "title": "Log Spread"
         }
       },
       "required": [

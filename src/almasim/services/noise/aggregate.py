@@ -22,7 +22,9 @@ how:
   depart from that curve (efficiency_scale);
 - slow_phase, fast_phase, antenna_gains, baseline_errors: the fits; the in-scan
   screen's strengths at the windows' median coherence time, each keeping
-  its phase change over one simulated sample.
+  its phase change over one simulated sample, with a median per dish size
+  (fast_phase.dishes) and the windows' log scatter about it
+  (fast_phase.log_spread), which each simulated observation draws from.
 
 The research that set alma@1 did the same by hand (research/noise_realism).
 """
@@ -122,6 +124,12 @@ def aggregate(
     fits = [m.fit for m in measured if m.fit is not None]
     slow = [f.slow_phase for f in fits if f.slow_phase is not None]
     fast = [f.fast_phase for f in fits if f.fast_phase is not None]
+    # Each in-scan fit with its window's dish, for the per-dish strengths.
+    fast_dish = [
+        (m.window.exposure.dish_diameter_m, m.fit.fast_phase)
+        for m in measured
+        if m.fit is not None and m.fit.fast_phase is not None
+    ]
     reduce(
         "slow_phase.path_um_1km", [s.path_um_1km for s in slow], setter("slow_phase", "path_um_1km")
     )
@@ -141,6 +149,15 @@ def aggregate(
         setter("fast_phase", "path_um_1km"),
     )
     reduce("fast_phase.slope", [s.slope for s in fast], setter("fast_phase", "slope"))
+    if "fast_phase" in components and "fast_phase.path_um_1km" in stats:
+        _fast_dishes(
+            fast_dish,
+            None if coherence is None else coherence.median,
+            components["fast_phase"],
+            stats,
+            notes,
+            min_windows,
+        )
     reduce(
         "antenna_gains.amp_rms", [f.gain_amp_rms for f in fits], setter("antenna_gains", "amp_rms")
     )
@@ -183,6 +200,54 @@ def aggregate(
             ).model_dump(mode="json"),
         }
     )
+
+
+def _fast_dishes(
+    fits: Sequence[tuple[float, PhaseFit]],
+    coherence_s: float | None,
+    component: dict[str, Any],
+    stats: dict[str, ValueStats],
+    notes: list[str],
+    min_windows: int,
+) -> None:
+    """The in-scan screen's strength per dish size and its spread between
+    observations. Each dish size with ``min_windows`` fitted windows gets the
+    median of their strengths (at the common coherence time); the spread is
+    the rms of each window's log strength about its dish's median, over the
+    windows of those dishes, with its 16-84% bootstrap interval."""
+    paths: dict[float, list[float]] = {}
+    for diameter, fit in fits:
+        path = fit.path_um_1km if coherence_s is None else _path_at_coherence(fit, coherence_s)
+        if path > 0:
+            paths.setdefault(round(float(diameter), 1), []).append(path)
+    rows: list[dict[str, float]] = []
+    residuals: list[float] = []
+    for diameter, values in sorted(paths.items(), reverse=True):
+        key = f"fast_phase.dishes.{diameter:g}m"
+        if len(values) < min_windows:
+            notes.append(f"{key}: {len(values)} window(s), takes path_um_1km")
+            continue
+        stats[key] = _stats(values)
+        rows.append({"diameter_m": diameter, "path_um_1km": stats[key].median})
+        residuals += list(np.log(np.asarray(values) / stats[key].median))
+    if rows:
+        component["dishes"] = rows
+    # Degrees of freedom: one median per dish taken out.
+    dof = len(residuals) - len(rows)
+    if dof < min_windows:
+        notes.append(f"fast_phase.log_spread: {max(dof, 0)} degree(s) of freedom, kept the base's")
+        return
+    r = np.asarray(residuals)
+    spread = float(np.sqrt(np.sum(r**2) / dof))
+    # Bootstrap the windows (the per-dish medians held), seeded so a rerun agrees.
+    rng = np.random.default_rng(0)
+    draws = rng.choice(r, size=(2000, r.size))
+    boot = np.sqrt(np.sum(draws**2, axis=1) / dof)
+    q16, q84 = np.percentile(boot, [16, 84])
+    stats["fast_phase.log_spread"] = ValueStats(
+        n=r.size, median=spread, q16=float(q16), q84=float(q84)
+    )
+    component["log_spread"] = spread
 
 
 def _path_at_coherence(fit: PhaseFit, coherence_s: float) -> float:

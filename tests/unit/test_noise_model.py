@@ -280,3 +280,31 @@ def test_a_candidate_radiometer_changes_tsys_where_it_differs():
                 "components": {"radiometer": {"receiver_temperature_k": rows}},
             }
         )
+
+
+@pytest.mark.unit
+def test_the_in_scan_phase_has_a_strength_per_dish_and_a_spread():
+    """Set, they reach the engine; unset, they leave the model's identity as it was."""
+    from almasim.services.noise_model import NoiseModel
+
+    alma = released_model("alma", 4)
+    data = json.loads(alma.model_dump_json())
+    assert "dishes" not in data["components"]["fast_phase"]
+    assert "log_spread" not in data["components"]["fast_phase"]
+    data["components"]["fast_phase"].update(
+        dishes=[
+            {"diameter_m": 12.0, "path_um_1km": 65.0},
+            {"diameter_m": 7.0, "path_um_1km": 150.0},
+        ],
+        log_spread=0.7,
+    )
+    model = NoiseModel.model_validate(data)
+    assert model.sha256() != alma.sha256()
+    fields = model.engine_fields()
+    assert fields["fast_path_by_dish"] == [[12.0, 65.0], [7.0, 150.0]]
+    assert fields["fast_log_spread"] == 0.7
+    back = NoiseModel.from_corruption_fields(fields).components.fast_phase
+    assert back.dishes == model.components.fast_phase.dishes and back.log_spread == 0.7
+    data["components"]["fast_phase"]["dishes"].append({"diameter_m": 7.0, "path_um_1km": 1.0})
+    with pytest.raises(ValueError, match="one row per dish"):
+        NoiseModel.model_validate(data)

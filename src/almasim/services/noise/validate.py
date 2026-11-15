@@ -3,7 +3,8 @@ were (MADIV-28): what ``noise validate`` does per window.
 
 For each window: ALMASim simulates it from its archive row (a point source as
 bright as the real image's continuum peak, the window's frequency, channels
-and PWV, one execution block, the model under test), exports the MS, flags
+and PWV, one execution block, the model under test, with the window's own
+in-scan phase where ``noise fit`` measured one), exports the MS, flags
 as large a share of its rows as the real image is missing (the window's
 flagged data and the rows imaging leaves out for their WEIGHT), measures it
 with ``noise extract`` and images it as the real window was
@@ -29,11 +30,11 @@ from typing import Any
 import pandas as pd
 
 from ..noise_model import NoiseModel
-from .batch import WINDOW_FILE, WindowTask, _write_atomic
+from .batch import FIT_FILE, WINDOW_FILE, WindowTask, _write_atomic
 from .compare import Comparison, Criteria, Pair, compare
 from .image_stats import image_noise_stats
 from .jackknife import jackknife_noise
-from .measurements import WindowNoise
+from .measurements import WindowFit, WindowNoise
 
 SIM_WINDOW = "sim_window.json"
 SIM_IMAGE = "sim_image.json"
@@ -126,7 +127,7 @@ def validate_window(
     ms = simulate(
         row,
         real,
-        model,
+        with_window_fast_phase(model, measured / "windows" / task.name / FIT_FILE),
         run,
         seed=seed + zlib.crc32(task.name.encode()) % 1_000_003,
         peak_jy=real_peak,
@@ -204,6 +205,30 @@ def run_in_process(
             echo(f"{task.name}: FAILED {exc}")
             results[task.name] = f"{type(exc).__name__}: {exc}"
     return results
+
+
+def with_window_fast_phase(model: NoiseModel, fit_path: Path) -> NoiseModel:
+    """``model`` with the in-scan phase ``noise fit`` measured on the window
+    (fit.json at ``fit_path``) in place of the model's dish strengths and
+    spread: the in-scan phase changes from one observation to the next, so a
+    window whose own is known is simulated with it. ``model`` itself when the
+    window has no in-scan fit or the model no in-scan phase."""
+    fast = model.components.fast_phase
+    if fast is None or not fast.enabled or not fit_path.is_file():
+        return model
+    try:
+        own = WindowFit.model_validate_json(fit_path.read_text()).fast_phase
+    except ValueError:
+        return model
+    if own is None:
+        return model
+    window_fast = type(fast)(
+        path_um_1km=own.path_um_1km,
+        slope=own.slope,
+        coherence_s=own.coherence_s or fast.coherence_s,
+    )
+    components = model.components.model_copy(update={"fast_phase": window_fast})
+    return model.model_copy(update={"components": components})
 
 
 def simulate(
