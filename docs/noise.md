@@ -282,7 +282,9 @@ the share of rows whose WEIGHT exceeds 10^4, which the imaging leaves out), its 
 and noise profile, ALMA's Tsys across the window from `SYSCAL`, one Stokes I
 visibility's noise at unit time and bandwidth and the efficiency it implies
 with that Tsys (over the baselines between two of the array's own dishes when
-it correlates dishes of another size: a 12 m dish's baselines are less noisy),
+it correlates the 12 m total-power dishes; their own SEFD over an own dish's,
+their Tsys over the own dishes' from `SYSCAL` and the efficiency both imply
+go in `visibility.total_power`),
 and each antenna's own noise shape (`antenna.npz`). Rows are
 sampled evenly over the observation, up to `--max-visibilities`, and read in
 chunks.

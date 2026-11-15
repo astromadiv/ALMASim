@@ -1167,7 +1167,11 @@ Eleven choices keep the comparison fair, and one limit remains:
   own two dishes' beam and noise
   ([Arrays of two dish sizes](interferometry.md#arrays-of-two-dish-sizes)).
   The window's visibility noise and efficiency are measured on the
-  baselines between two 7 m dishes.
+  baselines between two of the array's own dishes, and the total-power
+  dishes' on their baselines with them (`visibility.total_power`, in a 7 m
+  or a 12 m MS). On 31 cycle 11 windows that correlate them (bands 1 to
+  10), their efficiency follows the 12 m dishes' Ruze curve (a median
+  surface of 28 um), the two band 10 windows below it (36 um).
 - *The baselines.* The simulator samples its sky model's Fourier grid, and
   flags what falls beyond it: `|u| < 1 / (2 cell)`. The model has 256
   pixels across, so the row's field (the primary beam's) gives cells that

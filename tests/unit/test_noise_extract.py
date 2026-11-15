@@ -124,7 +124,10 @@ def _fake_ms(
             {"DISH_DIAMETER": np.where(np.isin(np.arange(NANT), larger_dishes), 12.0, dish)}
             | (
                 {
-                    "STATION": np.array([f"A{i:03d}" for i in range(NANT)]),
+                    # The larger dishes stand on the total-power pads.
+                    "STATION": np.array(
+                        [f"T70{1 + i}" if i in larger_dishes else f"A{i:03d}" for i in range(NANT)]
+                    ),
                     "NAME": np.array([f"DA{41 + i}" for i in range(NANT)]),
                 }
                 if stations
@@ -132,7 +135,13 @@ def _fake_ms(
             )
         ),
         "ms/SYSCAL": FakeTable(
-            {"SPECTRAL_WINDOW_ID": np.full(NANT, TSYS_SPW), "TSYS_SPECTRUM": tsys_rows}
+            {
+                "SPECTRAL_WINDOW_ID": np.full(NANT, TSYS_SPW),
+                "ANTENNA_ID": np.arange(NANT),
+                # The total-power dishes' Tsys is 1.25 times the others'.
+                "TSYS_SPECTRUM": tsys_rows
+                * np.where(np.isin(np.arange(NANT), larger_dishes), 1.25, 1.0)[:, None, None],
+            }
         ),
     }
 
@@ -236,6 +245,20 @@ def test_a_mixed_arrays_noise_is_its_own_dishes(fake_ms):
     alike = fake_ms("alike.ms", dish=7.0)
     same, _ = extract.extract_window(alike, SPW, "target", max_visibilities=10**9)
     assert record.visibility.sigma_jy == pytest.approx(same.visibility.sigma_jy, rel=0.05)
+    assert same.visibility.total_power is None
+    # The total-power dishes: their baselines with the 7 m ones carry 0.4 of
+    # the noise, a variance of 0.16, so a total-power dish's SEFD is 0.16 of
+    # a 7 m one's; with a Tsys 1.25 times as high, its efficiency is the 7 m
+    # dishes' times (7/12)^2 x 1.25 / 0.16.
+    tp = record.visibility.total_power
+    assert tp is not None and (tp.antennas, tp.diameter_m) == (2, 12.0)
+    # The sky's slope across the channels adds the same small amount to every
+    # baseline's channel differences, which lifts the ratio a little.
+    assert tp.sefd_ratio == pytest.approx(0.16, abs=0.025)
+    assert tp.tsys_ratio == pytest.approx(1.25, rel=0.01)
+    assert record.visibility.efficiency is not None and tp.efficiency is not None
+    expected = record.visibility.efficiency * (7 / 12) ** 2 * 1.25 / tp.sefd_ratio
+    assert tp.efficiency == pytest.approx(expected)
 
 
 @pytest.mark.unit
