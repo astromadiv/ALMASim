@@ -13,6 +13,7 @@ from almasim.services.interferometry.corruptions import (
     baseline_antennas,
     correlated_noise,
     draw_antenna_corruptions,
+    draw_bandpass_ripple,
     frozen_flow_path,
     frozen_flow_samples,
     integration_time,
@@ -286,6 +287,7 @@ def test_interferometer_hands_its_channels_the_corruption_fields():
         antPos=[[0.0, 0.0, 0.0], [0.1, 0.0, 0.0], [0.0, 0.1, 0.0]],
         Nant=3,
         antenna_diameter_m=12.0,
+        antenna_diameters_m=np.full(3, 12.0),
         spectral_window=SimpleNamespace(frequencies_hz=lambda: freqs),
     )
     fields = Interferometer._corruption_fields(sim)
@@ -489,6 +491,7 @@ def test_the_interferometer_draws_its_observations_in_scan_strength():
         antPos=[[0.0, 0.0, 0.0], [0.1, 0.0, 0.0], [0.0, 0.2, 0.0], [0.3, 0.1, 0.0]],
         Nant=4,
         antenna_diameter_m=7.0,
+        antenna_diameters_m=np.full(4, 7.0),
         spectral_window=SimpleNamespace(frequencies_hz=lambda: np.zeros(4)),
     )
     fields = Interferometer._corruption_fields(sim)
@@ -611,3 +614,53 @@ def test_frozen_flow_replaces_the_blended_screen_and_reaches_the_gains():
     # The within-integration loss only lowers amplitudes, never raises them.
     assert np.all(np.abs(gains) <= np.abs(loose) + 1e-6)
     assert np.mean(np.abs(gains)) < np.mean(np.abs(loose))
+
+
+BAND1_RIPPLE = ((12.0, 50.0, 25.0, 0.01, 3.0), (7.0, 50.0, 40.0, 0.01, 3.0))
+
+
+@pytest.mark.unit
+def test_the_bandpass_ripple_has_its_dishs_period_and_peaks():
+    """Recovered across a band 1 window: each dish size's period (25 MHz on
+    12 m, 40 MHz on 7 m), peak amplitude 1% and phase 3 degrees; none above
+    the edge."""
+    dishes = np.array([12.0] * 6 + [7.0] * 4)
+    ripple = draw_bandpass_ripple(BAND1_RIPPLE, dishes, np.random.default_rng(4))
+    freq = 40e9 + np.arange(4096) * 0.25e6  # 1 GHz in 0.25 MHz channels
+    b = ripple.factors(freq)
+    assert np.max(np.abs(np.abs(b) - 1.0)) == pytest.approx(0.01, rel=0.01)
+    assert np.degrees(np.max(np.abs(np.angle(b)))) == pytest.approx(3.0, rel=0.01)
+    spectrum = np.abs(np.fft.rfft(np.abs(b) - 1.0, axis=1))
+    period_mhz = 1.0 / np.fft.rfftfreq(freq.size, 0.25)[np.argmax(spectrum[:, 1:], axis=1) + 1]
+    assert np.allclose(period_mhz[:6], 25.0, rtol=0.03)
+    assert np.allclose(period_mhz[6:], 40.0, rtol=0.03)
+    assert np.allclose(ripple.factors(np.array([90e9, 230e9])), 1.0)  # bands 3 and 6
+    alone = draw_bandpass_ripple(BAND1_RIPPLE[:1], dishes, np.random.default_rng(4))
+    assert np.allclose(alone.factors(freq)[6:], 1.0)  # a dish without a row
+
+
+@pytest.mark.unit
+def test_the_bandpass_ripple_reaches_the_baselines_from_a_stream_of_its_own():
+    xy = np.random.default_rng(0).uniform(0, 500, (6, 2))
+    times = np.arange(10) * 30.0
+    model = CorruptionModel(gain_amp_rms=0.05, scan_length_s=60)
+    rippled = replace(model, bandpass_ripple=BAND1_RIPPLE)
+    assert rippled.has_antenna_errors
+    plain = draw_antenna_corruptions(model, xy, times, np.random.default_rng(2))
+    errors = draw_antenna_corruptions(rippled, xy, times, np.random.default_rng(2))
+    assert plain.bandpass is None
+    assert np.array_equal(plain.amplitude, errors.amplitude)  # the gains' draws unchanged
+    pairs = baseline_antennas(6)
+    wavelength = 299_792_458.0 / 42e9
+    b = errors.bandpass.factors(np.array([42e9]))[:, 0]
+    expected = (
+        plain.baseline_gains(pairs, wavelength)
+        * (b[pairs[:, 0]] * np.conj(b[pairs[:, 1]]))[:, None]
+    )
+    assert np.allclose(errors.baseline_gains(pairs, wavelength), expected, atol=1e-6)
+    band3 = 299_792_458.0 / 100e9
+    assert np.allclose(errors.baseline_gains(pairs, band3), plain.baseline_gains(pairs, band3))
+    sevens = draw_antenna_corruptions(
+        rippled, xy, times, np.random.default_rng(2), diameters_m=np.full(6, 7.0)
+    )
+    assert np.all(sevens.bandpass.period_hz == 40e6)

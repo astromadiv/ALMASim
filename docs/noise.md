@@ -85,7 +85,7 @@ candidate model can therefore be used for a run before it is released.
 | `receiver_ripple` | the receiver's smooth ripple of Tsys | `rms` |
 | `channel_correlation` | correlated noise of neighbouring channels | `rho1`, `rho2`, `average` |
 | `antenna_ripple` | each antenna's own ripple of its noise | `rms`, `scale_mhz` |
-| `antenna_gains` | antenna gain errors per scan | `amp_rms`, `phase_rms_deg` |
+| `antenna_gains` | antenna gain errors per scan, and the residual bandpass | `amp_rms`, `phase_rms_deg`, `bandpass` |
 | `slow_phase` | the per-scan atmospheric phase | `path_um_1km`, `slope` |
 | `fast_phase` | the in-scan atmospheric phase | `path_um_1km`, `slope`, `coherence_s`, `dishes`, `log_spread`, `wind_mps` |
 | `baseline_errors` | per-baseline errors that do not close | `amp_rms`, `phase_rms_deg`, `instrumental_amp_rms`, `instrumental_phase_rms_deg` |

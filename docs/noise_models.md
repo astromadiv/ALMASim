@@ -665,10 +665,32 @@ MS's rows, mostly between baselines), and natural weighting would bring
 the image noise some 5% below what the visibilities' rms noise gives. The
 draws come from the gains' own random stream.
 
+**The residual bandpass** (`bandpass`, which no released model sets).
+Bandpass calibration leaves each antenna a small complex ripple across
+frequency, largest in band 1: about 1% in amplitude and 3 degrees in phase,
+with a period of 25 MHz on the 12 m antennas and 40 MHz on the 7 m ones
+(in the other bands under 0.2% and 0.5 degrees). Each row of `bandpass`
+gives one dish size's ripple: its `period_mhz`, peak fractional `amp`, peak
+`phase_deg`, and the highest frequency it applies to, `upper_ghz` (50 for
+band 1). Each antenna of that dish takes the factor
+`(1 + amp sin(2 pi f / P + alpha)) exp(i phase sin(2 pi f / P + beta))` at
+each channel's frequency `f`, with its own `alpha` and `beta` drawn from a
+stream of their own, so the other errors' draws do not depend on it; a
+dish without a row, or a channel above its edge, takes 1. Like the gains,
+it multiplies the sky part of baseline (i, j) by `b(i) conj(b(j))` and
+leaves the noise and WEIGHT alone. In a model file:
+
+```json
+"antenna_gains": {"amp_rms": 0.138, "phase_rms_deg": 0.0, "bandpass": [
+  {"diameter_m": 12.0, "upper_ghz": 50.0, "period_mhz": 25.0, "amp": 0.01, "phase_deg": 3.0},
+  {"diameter_m": 7.0, "upper_ghz": 50.0, "period_mhz": 40.0, "amp": 0.01, "phase_deg": 3.0}]}
+```
+
 | Parameter | Meaning | alma@1 | alma@2 | alma@3 | alma@4 | alma@5 | alma@6 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `amp_rms` | fractional amplitude error per antenna and scan | 0.08 | 0.110 | 0.110 | 0.110 | 0.138 | 0.138 |
 | `phase_rms_deg` | phase error per antenna and scan (degrees) | 0 | 0 | 0 | 0 | 0 | 0 |
+| `bandpass` | each dish size's residual bandpass ripple: rows of `diameter_m`, `upper_ghz`, `period_mhz`, `amp`, `phase_deg` | - | - | - | - | - | - |
 
 ### `slow_phase`: the per-scan atmospheric phase
 
