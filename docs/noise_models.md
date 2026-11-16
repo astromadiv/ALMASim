@@ -839,10 +839,23 @@ the continuum's fraction in that channel), since what does not close in real dat
 emission is left alone. An external sky model, whose continuum is not known
 separately, takes it on all its emission.
 
+**The instrument's own non-closing errors** (`instrumental_amp_rms`,
+`instrumental_phase_rms_deg`, which no released model sets). The
+correlator and the antennas' differing bandpasses also leave errors that do
+not factor, and those act on all the signal. Set, each baseline and scan
+draws a second factor of the same form from a stream spawned from the
+first one's (so the continuum term's draws stay as they are), and it
+multiplies the whole visibility, line and continuum alike: a line-only
+source then shows closure departures too, where the continuum term leaves
+it closed. `noise fit` measures the non-closing residual of bright
+continuum windows as a whole, which the continuum term takes; splitting it
+between the two terms needs bright line windows.
+
 | Parameter | Meaning | alma@1 | alma@2 | alma@3 | alma@4 | alma@5 | alma@6 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `amp_rms` | fractional amplitude error per baseline and scan | 0.06 | 0.102 | 0.102 | 0.101 | 0.112 | 0.112 |
 | `phase_rms_deg` | phase error per baseline and scan (degrees) | 2.5 | 1.8 | 1.8 | 1.6 | 1.5 | 1.5 |
+| `instrumental_amp_rms`, `instrumental_phase_rms_deg` | the instrument's own non-closing error on all the signal (fraction, degrees) | - | - | - | - | - | - |
 
 ### `settings`
 

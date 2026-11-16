@@ -308,3 +308,27 @@ def test_the_in_scan_phase_has_a_strength_per_dish_and_a_spread():
     data["components"]["fast_phase"]["dishes"].append({"diameter_m": 7.0, "path_um_1km": 1.0})
     with pytest.raises(ValueError, match="one row per dish"):
         NoiseModel.model_validate(data)
+
+
+@pytest.mark.unit
+def test_baseline_errors_can_add_the_instruments_own():
+    """Set, the instrumental terms reach the engine; unset, every released model
+    keeps its identity."""
+    from almasim.services.noise_model import NoiseModel
+
+    alma = released_model("alma")
+    data = json.loads(alma.model_dump_json())
+    assert "instrumental_amp_rms" not in data["components"]["baseline_errors"]
+    data["components"]["baseline_errors"].update(
+        instrumental_amp_rms=0.02, instrumental_phase_rms_deg=1.0
+    )
+    model = NoiseModel.model_validate(data)
+    assert model.sha256() != alma.sha256()
+    fields = model.engine_fields()
+    assert fields["baseline_instrumental_amp_rms"] == 0.02
+    assert fields["baseline_instrumental_phase_rms_deg"] == 1.0
+    engine = CorruptionModel.from_mapping(fields)
+    assert engine.baseline_instrumental_amp_rms == 0.02
+    back = NoiseModel.from_corruption_fields(fields).components.baseline_errors
+    assert (back.instrumental_amp_rms, back.instrumental_phase_rms_deg) == (0.02, 1.0)
+    assert back.amp_rms == alma.components.baseline_errors.amp_rms

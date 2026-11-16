@@ -211,9 +211,16 @@ class NoiseModel(BaseModel):
                 or None,
                 log_spread=c["fast_log_spread"] or None,
             )
-        if c["baseline_amp_rms"] > 0 or c["baseline_phase_rms_deg"] > 0:
+        instrumental = (
+            c["baseline_instrumental_amp_rms"],
+            c["baseline_instrumental_phase_rms_deg"],
+        )
+        if c["baseline_amp_rms"] > 0 or c["baseline_phase_rms_deg"] > 0 or any(instrumental):
             parts["baseline_errors"] = BaselineErrors(
-                amp_rms=c["baseline_amp_rms"], phase_rms_deg=c["baseline_phase_rms_deg"]
+                amp_rms=c["baseline_amp_rms"],
+                phase_rms_deg=c["baseline_phase_rms_deg"],
+                instrumental_amp_rms=instrumental[0] or None,
+                instrumental_phase_rms_deg=instrumental[1] or None,
             )
         return cls(
             name=name,

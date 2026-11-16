@@ -122,7 +122,7 @@
         },
         "amp_rms": {
           "default": 0.0,
-          "description": "Fractional amplitude rms.",
+          "description": "Fractional amplitude rms, on the continuum share of the signal.",
           "maximum": 1,
           "minimum": 0,
           "title": "Amp Rms",
@@ -130,11 +130,41 @@
         },
         "phase_rms_deg": {
           "default": 0.0,
-          "description": "Phase rms (degrees).",
+          "description": "Phase rms (degrees), on the continuum share of the signal.",
           "maximum": 180,
           "minimum": 0,
           "title": "Phase Rms Deg",
           "type": "number"
+        },
+        "instrumental_amp_rms": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Fractional amplitude rms of the instrument's own non-closing errors, on all the signal (line and continuum); unset: none.",
+          "title": "Instrumental Amp Rms"
+        },
+        "instrumental_phase_rms_deg": {
+          "anyOf": [
+            {
+              "maximum": 180,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Phase rms (degrees) of the instrument's own non-closing errors, on all the signal; unset: none.",
+          "title": "Instrumental Phase Rms Deg"
         }
       },
       "title": "BaselineErrors",

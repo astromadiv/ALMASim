@@ -498,3 +498,44 @@ def test_the_interferometer_draws_its_observations_in_scan_strength():
     same = Interferometer._corruption_fields(sim)["antenna_corruptions"]
     assert np.allclose(fields["antenna_corruptions"].amplitude, same.amplitude)
     assert np.allclose(fields["antenna_corruptions"].path_m, same.path_m)
+
+
+@pytest.mark.unit
+def test_instrumental_non_closing_errors_act_on_lines_and_continuum_alike():
+    """Closure departures as configured: the continuum term moves only the
+    continuum share's closures (none for a line-only channel), the instrumental
+    term moves a line-only and a continuum-only channel's alike, and adding it
+    leaves the continuum term's own draws as they were."""
+    xy = np.random.default_rng(0).uniform(0, 500, (10, 2))
+    times = np.arange(20) * 30.0
+    pairs = baseline_antennas(10)
+    index = {(int(i), int(j)): k for k, (i, j) in enumerate(pairs)}
+
+    def closure(gains):
+        return np.angle(gains[index[0, 1]] * gains[index[1, 2]] * np.conj(gains[index[0, 2]]))
+
+    base = dict(gain_phase_rms_deg=30, scan_length_s=60)
+    continuum = CorruptionModel(**base, baseline_amp_rms=0.05, baseline_phase_rms_deg=5)
+    instrumental = CorruptionModel(
+        **base, baseline_instrumental_amp_rms=0.03, baseline_instrumental_phase_rms_deg=4
+    )
+    both = replace(continuum, baseline_instrumental_amp_rms=0.03,
+                   baseline_instrumental_phase_rms_deg=4)  # fmt: skip
+    drawn = {
+        name: draw_antenna_corruptions(m, xy, times, np.random.default_rng(3))
+        for name, m in (("continuum", continuum), ("instrumental", instrumental), ("both", both))
+    }
+    for name, errors in drawn.items():
+        line = closure(errors.baseline_gains(pairs, 1e-3, baseline_weight=0.0))
+        cont = closure(errors.baseline_gains(pairs, 1e-3, baseline_weight=1.0))
+        if name == "continuum":
+            assert np.allclose(line, 0, atol=1e-5)  # a line-only source closes
+            assert np.std(cont) > np.radians(3)
+        else:
+            assert np.std(line) > np.radians(2) and np.std(cont) > np.radians(2)
+    assert drawn["continuum"].instrumental is None and drawn["instrumental"].baseline is None
+    assert np.array_equal(drawn["both"].baseline, drawn["continuum"].baseline)
+    assert np.array_equal(drawn["both"].instrumental, drawn["instrumental"].instrumental)
+    own = drawn["instrumental"].instrumental[pairs[:, 0], pairs[:, 1], 0]
+    assert np.std(np.log(np.abs(own))) == pytest.approx(0.03, rel=0.3)
+    assert np.degrees(np.std(np.angle(own))) == pytest.approx(4, rel=0.3)
