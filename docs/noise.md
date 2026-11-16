@@ -321,18 +321,19 @@ model's, with a note in `provenance.notes`.
 **`noise validate`** simulates each real window with a model (a point
 source as bright as the real image's continuum peak, the window's frequency,
 channels and channel averaging from its MS's `RESOLUTION`, one execution
-block of the MS's time on source by the MS's antennas on their pads (the 12 m
+block of the MS's time on source (over its central 1024 channels when it has more) by the MS's antennas on their pads (the 12 m
 total-power dishes a 12 m or 7 m MS correlates among them, with their own dishes), sampled at the MS's integration time (or the shortest
 whole multiple of it that keeps the window within 300 million visibilities), every baseline inside the sky model's uv grid, through the
 window's PWV or, without one, the PWV its SYSCAL Tsys implies, with the window's own in-scan phase where
 `noise fit` measured one, its `fit.json` beside its `window.json`), exports the MS, flags as large a share of its rows as the real
 image misses (the window's flagged data and the unflagged data of its rows over the imaging's
 maximum WEIGHT, `exposure.high_weight_fraction`), measures it with `noise extract` (in a process of
-its own) and images it as the real one was imaged. It also measures the real
+its own, without the real window's line channels) and images it as the real one was imaged. It also measures the real
 and the simulated window's continuum noise with the sky cancelled
 (`jk.sigma`): every other integration of each baseline sign-flipped, imaged
 dirty with the window's own continuum command. Everything goes under `validation/<model sha256[:12]>/`, so different
-models never mix. At the end, `noise compare` writes `comparison.json`: per
+models never mix. At the end, `noise compare` writes `comparison.json`, each simulated metric taken to
+the real window's channels with its SYSCAL Tsys spectrum ([the band](noise_models.md#step-5-validate-it-against-the-real-windows-noise-validate)): per
 metric, the median of the per-window ratio (noise levels) or difference
 (shapes), its 16-84% range, a paired Wilcoxon p and how many windows fall
 within 10%, and the criteria's verdict. By default a model passes when the

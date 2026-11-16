@@ -14,6 +14,7 @@ from typer.testing import CliRunner
 
 from almasim.services.noise import validate as v
 from almasim.services.noise.batch import WindowTask
+from almasim.services.noise.channels import SimulatedBand, simulated_band
 from almasim.services.noise.compare import Criteria, Pair, compare
 from almasim.services.noise.image_stats import image_noise_stats
 from almasim.services.noise.measurements import (
@@ -283,14 +284,22 @@ def stubbed(monkeypatch, tmp_path):
         (run / "sim.ms").mkdir()
         return run / "sim.ms"
 
-    def measure(ms, name, run):
+    def measure(ms, name, run, *, line_channels=""):
+        ratio.setdefault("lines", {})[name] = line_channels
         return _window(name, unit=2000 * ratio["value"])
+
+    def window_band(task, real):
+        # The real window's channel 3 is a line channel; its MS lists them rising.
+        lines = np.zeros(real.exposure.channels, dtype=bool)
+        lines[3] = True
+        return simulated_band(real.exposure.channels, v.MAX_CHANNELS, lines=lines)
 
     def image(run, imaging):
         return _task(run / "cubes" / "sim" / "SPW-0_FIELD-0", 1e-3 * ratio["value"], seed=7)
 
     monkeypatch.setattr(v, "simulate", simulate)
     monkeypatch.setattr(v, "measure", measure)
+    monkeypatch.setattr(v, "window_band", window_band)
     monkeypatch.setattr(v, "image", image)
     measured = tmp_path / "measured"
     rows = []
@@ -340,6 +349,11 @@ def test_noise_validate_simulates_measures_and_judges(stubbed):
     assert ratio["peak"] == pytest.approx(0.03)  # the real image's continuum peak
     assert not (base / "windows" / "w0" / "sim" / "sim.ms").exists()  # dropped once measured
     assert json.loads((base / "model.json").read_text())["name"] == "alma"
+    # The simulated window is measured without the real window's line channels,
+    # and the channels it covers are recorded for the comparison.
+    assert ratio["lines"]["w0"] == "3"
+    band = SimulatedBand.read(base / "windows" / "w0" / "band.json")
+    assert band is not None and (band.first, band.count, band.line_channels) == (0, 64, "3")
     # Again: nothing left to simulate; compare alone judges the same.
     again = runner.invoke(noise_app, args)
     assert "0 to go" in again.output or "PASSED" in again.output

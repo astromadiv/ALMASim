@@ -33,6 +33,7 @@ from typing import Literal
 import numpy as np
 from pydantic import BaseModel, ConfigDict, Field
 
+from .channels import SimulatedBand
 from .measurements import WindowNoise
 
 # metric -> (ratio or difference)
@@ -53,6 +54,8 @@ METRICS: dict[str, Literal["ratio", "difference"]] = {
 NOISE_LEVELS = ("cont.sigma", "cube.sigma_median", "visibility.unit_jy")
 # Continuum noise, measured over the whole band (scaled to the real window's band).
 BAND_METRICS = ("cont.sigma", "jk.sigma")
+# A visibility's noise, over the line-free channels (scaled to the real window's).
+VISIBILITY_METRICS = ("visibility.unit_jy", "visibility.sigma_jy")
 GROUP_METRICS = ("jk.sigma", "cont.sigma")  # the first every window of a group has
 # image clean-quality's count of the continuum's diverged cleans.
 DIVERGED = "q.continuum.diverged"
@@ -134,6 +137,9 @@ class Pair:
     sim_window: WindowNoise | None
     real_window: WindowNoise | None
     band: str = ""
+    # The real window's channels its simulation covers (validate's band.json);
+    # None: all of them, or the central ones with the Tsys of the whole window.
+    simulated: SimulatedBand | None = None
 
 
 def compare(pairs: Sequence[Pair], model: dict, criteria: Criteria | None = None) -> Comparison:
@@ -203,7 +209,7 @@ def _value(pair: Pair, metric: str, *, simulated: bool) -> float | None:
     if head in ("cont", "cube", "q", "jk"):
         value = (pair.sim_image if simulated else pair.real_image).get(metric)
         if metric == "cube.sigma_median" and simulated and value is not None:
-            value *= _cube_width_scale(pair)
+            value *= _cube_width_scale(pair) * _scale(pair, "cube")
         if metric in BAND_METRICS and simulated and value is not None:
             value *= _bandwidth_scale(pair)
         return value
@@ -215,7 +221,20 @@ def _value(pair: Pair, metric: str, *, simulated: bool) -> float | None:
         node = getattr(node, part, None)
         if node is None:
             return None
-    return float(node) if isinstance(node, int | float) else None
+    if not isinstance(node, int | float):
+        return None
+    if simulated and metric in VISIBILITY_METRICS:
+        return float(node) * _scale(pair, "visibility")
+    return float(node)
+
+
+def _scale(pair: Pair, kind: str) -> float:
+    """The factor that brings a simulated metric (``kind``: ``visibility``,
+    ``band`` or ``cube``) from the channels it was simulated over to the
+    real window's (:meth:`.channels.SimulatedBand.scales`); 1 without them."""
+    if pair.simulated is None:
+        return 1.0
+    return pair.simulated.scales(pair.real_window)[kind]
 
 
 def _cube_channel_hz(image: Mapping[str, float], window: WindowNoise | None) -> float | None:
@@ -237,10 +256,15 @@ def _cube_width_scale(pair: Pair) -> float:
 
 
 def _bandwidth_scale(pair: Pair) -> float:
-    """sqrt(simulated / real bandwidth): the simulated continuum's noise over
-    the real window's band. ``noise validate`` simulates at most 1024 of a
-    window's channels, and the continuum's noise goes as one over the square
-    root of the band it averages (1 when either window is unknown)."""
+    """The simulated continuum's noise over the real window's band. ``noise
+    validate`` simulates at most 1024 of a window's channels, and the
+    continuum's channels weigh alike (an MS's WEIGHT is one per row), so its
+    noise variance is the channels' mean variance over their number: over the real Tsys
+    spectrum where validate recorded the simulated channels
+    (:meth:`.channels.SimulatedBand.scales`), else sqrt(simulated / real
+    bandwidth) (1 when either window is unknown)."""
+    if pair.simulated is not None:
+        return _scale(pair, "band")
     sim, real = pair.sim_window, pair.real_window
     if sim is None or real is None:
         return 1.0
