@@ -303,7 +303,12 @@ correlator efficiency, `n_pol = 2` the hands averaged into Stokes I, `dnu`
 the channel's *noise bandwidth* (wider than its width when channels are
 smoothed; the MS's `EFFECTIVE_BW`) and `t` the integration time. `Tsys` is
 the receiver's temperature `Trx` plus the sky's (with `atmospheric_tsys`,
-referred to above the atmosphere).
+referred to above the atmosphere). With natural weighting, N antennas over a
+total time `t_total` give ALMA's image sensitivity
+SEFD / (eta_c sqrt(n_pol N(N-1) dnu t_total)). A Monte Carlo test
+(`tests/unit/test_noise_regression.py`) draws a simulated channel's
+visibilities and checks that both hold, and that each row's WEIGHT is one
+over its noise variance.
 
 **How it shows in real data.** As noise that is the same, on average, in
 every channel and on every baseline, and that integrates down as 1/sqrt(t)
@@ -597,7 +602,9 @@ ripple averaged over the window's channels, as `statwt`'s per-row weights do
 on real data, but not its shape across them: that shape stays in the data
 only, unweighted, as in real data. The exported hands carry it too, so
 `noise extract` sees it per hand (window 61: `excess_rms` 0.022, the real
-one 0.019).
+one 0.019). The same test checks that a simulated channel's noise variance
+across its baselines splits into one term per antenna, its own `g`, with
+nothing left over beyond the sampling, as on the real windows.
 
 | Parameter | Meaning | alma@1 | alma@2 | alma@3 | alma@4 | alma@5 |
 | --- | --- | --- | --- | --- | --- | --- |
