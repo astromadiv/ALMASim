@@ -99,6 +99,26 @@ class Tsys(_Record):
     spectral_window: int = Field(description="The Tsys window read (same baseband).")
 
 
+class TotalPowerNoise(_Record):
+    """The 12 m total-power dishes an interferometric array correlates (on
+    the T70x pads), against the array's own dishes."""
+
+    antennas: int = Field(description="Total-power dishes with data.")
+    diameter_m: float = Field(description="Their dish diameter (m).")
+    sefd_ratio: float = Field(
+        description="A total-power dish's SEFD over an own dish's: the noise variance of "
+        "the baselines between the two over that of the baselines between own dishes."
+    )
+    tsys_ratio: float = Field(
+        description="Their median SYSCAL Tsys over the own dishes' (1 without SYSCAL)."
+    )
+    efficiency: float | None = Field(
+        default=None,
+        description="Their aperture x correlator efficiency: the own dishes' times their "
+        "area over the total-power dish's, times tsys_ratio, over sefd_ratio.",
+    )
+
+
 class VisibilityNoise(_Record):
     """One Stokes I visibility's noise per real and imaginary part."""
 
@@ -112,6 +132,10 @@ class VisibilityNoise(_Record):
         description="The aperture x correlator efficiency the noise and Tsys imply: "
         "2 k Tsys / (2 A unit) over sqrt(noise bandwidth / width), Tsys the rms of "
         "the window's Tsys spectrum.",
+    )
+    total_power: TotalPowerNoise | None = Field(
+        default=None,
+        description="The total-power dishes the array correlates; None when it has none.",
     )
 
 

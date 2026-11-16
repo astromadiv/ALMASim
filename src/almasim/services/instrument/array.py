@@ -33,12 +33,18 @@ def antenna_array_type(antenna: str) -> str:
     return "12m"
 
 
+def is_total_power_pad(pad: str) -> bool:
+    """Whether ``pad`` is a total-power pad (T701-T704), where ALMA's 12 m
+    total-power dishes stand."""
+    return str(pad).upper().startswith("T7")
+
+
 def pad_dish_diameter_m(pad: str, array_diameter_m: float) -> float:
     """The diameter (m) of the dish on ``pad`` in an array of
     ``array_diameter_m`` dishes: 12 m on a total-power pad (T701-T704, where
     ALMA's 12 m total-power dishes stand), the array's on any other pad. A
     7 m array's MS can correlate the total-power dishes with the 7 m ones."""
-    if str(pad).upper().startswith("T7"):
+    if is_total_power_pad(pad):
         return DISH_DIAMETER_12M_M
     return float(array_diameter_m)
 

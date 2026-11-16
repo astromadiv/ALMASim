@@ -27,6 +27,7 @@ from .measurements import (
     AntennaShape,
     Exposure,
     ThermalNoise,
+    TotalPowerNoise,
     Tsys,
     VisibilityNoise,
     WindowInput,
@@ -172,6 +173,11 @@ def extract_window(
     except (ValueError, RuntimeError, OSError) as exc:
         notes.append(f"tsys: {exc}")
     visibility = _visibility(sums, exposure, tsys, _own_dish_pairs(table, ms, sums, exposure))
+    total_power = _total_power(
+        table, ms, Path(syscal_ms) if syscal_ms else ms, sums, exposure, visibility, tsys
+    )
+    if total_power is not None:
+        visibility = visibility.model_copy(update={"total_power": total_power})
     shape, arrays = _antenna_shape(sums, lines, exposure.channel_width_hz)
     if shape is None:
         notes.append("antenna_shape: too few antennas or channels with enough data")
@@ -520,13 +526,18 @@ def rms_tsys_k(tsys: Tsys) -> float:
 
 def _own_dish_pairs(table: Any, ms: Path, sums: _Sums, exposure: Exposure) -> np.ndarray | None:
     """The baselines (ANTENNA1 * nant + ANTENNA2) between two of the array's
-    own dishes (``exposure.dish_diameter_m``) when its antennas have dishes
-    of two sizes (a 7 m array correlating the 12 m total-power dishes); None
-    when they are all alike. A baseline with a larger dish is less noisy, and
-    the efficiency is the array's own dish's."""
+    own dishes (``exposure.dish_diameter_m``, off the total-power pads) when
+    it also correlates the 12 m total-power dishes (in a 7 m or a 12 m
+    array); None when it does not. A total-power dish's noise is its own
+    (``_total_power``), and the efficiency is the array's own dish's."""
+    from ..instrument.array import is_total_power_pad
+
     with table(str(ms / "ANTENNA"), ack=False) as ant:
         diameters = np.asarray(ant.getcol("DISH_DIAMETER"), dtype=float)[: sums.nant]
-    own = np.abs(diameters - exposure.dish_diameter_m) < 0.5
+        stations = _stations(ant)[: sums.nant] or [""] * diameters.size
+    own = (np.abs(diameters - exposure.dish_diameter_m) < 0.5) & ~np.array(
+        [is_total_power_pad(s) for s in stations], dtype=bool
+    )
     array = sums.antenna_rows[: diameters.size] > 0
     if own[array].all():
         return None
@@ -559,6 +570,96 @@ def _visibility(
         hands_identical=bool(sums.hands_identical),
         efficiency=efficiency,
     )
+
+
+def _total_power(
+    table: Any,
+    ms: Path,
+    syscal_ms: Path,
+    sums: _Sums,
+    exposure: Exposure,
+    visibility: VisibilityNoise,
+    tsys: Tsys | None,
+) -> TotalPowerNoise | None:
+    """The 12 m total-power dishes the array correlates (on the T70x pads),
+    against its own dishes: a baseline's noise variance goes as the product
+    of its two dishes' SEFDs, so the variance of the baselines between a
+    total-power and an own dish over that between two own dishes is a
+    total-power dish's SEFD over an own one's. None without total-power
+    dishes with data, or fewer than two own ones."""
+    from ..instrument.array import is_total_power_pad
+
+    with table(str(ms / "ANTENNA"), ack=False) as ant:
+        stations = _stations(ant)[: sums.nant]
+        diameters = np.asarray(ant.getcol("DISH_DIAMETER"), dtype=float)[: sums.nant]
+    n = len(stations)
+    if n == 0:
+        return None
+    seen = sums.antenna_rows[:n] > 0
+    tp = np.array([is_total_power_pad(s) for s in stations], dtype=bool) & seen
+    own = ~tp & seen & (np.abs(diameters - exposure.dish_diameter_m) < 0.5)
+    if not tp.any() or own.sum() < 2:
+        return None
+
+    def variance(pairs: np.ndarray) -> float:
+        mask = np.zeros((sums.nant, sums.nant), dtype=bool)
+        mask[:n, :n] = pairs
+        count = float(sums.baseline["stokes_count"][mask.ravel()].sum())
+        total = float(sums.baseline["stokes_sum"][mask.ravel()].sum())
+        return total / count if count > 0 else float("nan")
+
+    cross = (tp[:, None] & own[None, :]) | (own[:, None] & tp[None, :])
+    ratio = variance(cross) / variance(own[:, None] & own[None, :])
+    if not (np.isfinite(ratio) and ratio > 0):
+        return None
+    tsys_ratio = 1.0
+    if tsys is not None:
+        tsys_ratio = _antenna_tsys_ratio(table, syscal_ms, tsys.spectral_window, tp, own)
+    diameter = float(np.median(diameters[tp]))
+    efficiency = None
+    if visibility.efficiency:
+        area = (exposure.dish_diameter_m / diameter) ** 2
+        efficiency = float(visibility.efficiency * area * tsys_ratio / ratio)
+    return TotalPowerNoise(
+        antennas=int(tp.sum()),
+        diameter_m=diameter,
+        sefd_ratio=float(ratio),
+        tsys_ratio=float(tsys_ratio),
+        efficiency=efficiency,
+    )
+
+
+def _stations(ant: Any) -> list[str]:
+    """The ANTENNA table's pads (STATION); none when it has no such column."""
+    if "STATION" not in set(ant.colnames()):
+        return []
+    return [str(s) for s in ant.getcol("STATION")]
+
+
+def _antenna_tsys_ratio(
+    table: Any, ms: Path, spectral_window: int, tp: np.ndarray, own: np.ndarray
+) -> float:
+    """The median SYSCAL Tsys of the ``tp`` antennas over the ``own`` ones'
+    (antenna masks), over times, channels and hands; 1 when either has none."""
+    try:
+        with (
+            table(str(ms / "SYSCAL"), ack=False) as sc,
+            sc.query(f"SPECTRAL_WINDOW_ID == {int(spectral_window)}") as sel,
+        ):
+            antenna = np.asarray(sel.getcol("ANTENNA_ID"))
+            raw = np.asarray(sel.getcol("TSYS_SPECTRUM"), dtype=float)
+    except (RuntimeError, OSError, ValueError, KeyError):
+        return 1.0
+    with np.errstate(all="ignore"):
+        per_row = np.nanmedian(np.where(raw > 0, raw, np.nan).reshape(raw.shape[0], -1), axis=1)
+
+    def median(mask: np.ndarray) -> float:
+        values = per_row[np.isin(antenna, np.flatnonzero(mask))]
+        values = values[np.isfinite(values)]
+        return float(np.median(values)) if values.size else float("nan")
+
+    ratio = median(tp) / median(own)
+    return ratio if np.isfinite(ratio) and ratio > 0 else 1.0
 
 
 def _antenna_shape(
