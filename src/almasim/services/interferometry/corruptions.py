@@ -80,6 +80,11 @@ class CorruptionModel:
     # amplitude and phase (degrees).
     baseline_amp_rms: float = 0.0
     baseline_phase_rms_deg: float = 0.0
+    # The instrument's own non-closing errors (correlator, bandpass mismatch
+    # between antennas), per baseline and scan, which act on all the signal:
+    # line and continuum alike. The two above act on the continuum share only.
+    baseline_instrumental_amp_rms: float = 0.0
+    baseline_instrumental_phase_rms_deg: float = 0.0
     # Each visibility's noise from the radiometer equation (Tsys, channel width,
     # integration, dish; noise.visibility_noise), the source keeping its flux,
     # instead of a noise set from the run's target S/N (interferometric runs).
@@ -146,6 +151,8 @@ class CorruptionModel:
                 self.fast_path_um_1km,
                 self.baseline_amp_rms,
                 self.baseline_phase_rms_deg,
+                self.baseline_instrumental_amp_rms,
+                self.baseline_instrumental_phase_rms_deg,
             )
         )
 
@@ -274,9 +281,11 @@ class AntennaCorruptions:
     amplitude: np.ndarray  # (nant, ntime)
     phase: np.ndarray  # (nant, ntime)
     path_m: np.ndarray  # (nant, ntime)
-    # Per (antenna1, antenna2, integration): what does not factor by antenna;
+    # Per (antenna1, antenna2, integration): what does not factor by antenna,
+    # on the continuum share (baseline) and on all the signal (instrumental);
     # None: nothing.
     baseline: np.ndarray | None = None
+    instrumental: np.ndarray | None = None
     # Per (antenna1, antenna2, integration): the variance (m^2) of the pair's
     # path difference within the integration (a frozen-flow screen moving
     # past), which lowers the averaged visibility by exp(-sigma^2 / 2), sigma
@@ -292,12 +301,15 @@ class AntennaCorruptions:
         ``baseline_weight``: the share of the visibility the baseline's own error
         acts on, 1 + w (b - 1); the continuum's share of a channel, since what
         does not close in calibrated data is mostly continuum structure the
-        model lacks, which leaves line emission alone."""
+        model lacks, which leaves line emission alone. The instrumental
+        non-closing error acts on the whole visibility, whatever its share."""
         g = self.amplitude * np.exp(1j * (self.phase + 2.0 * np.pi * self.path_m / wavelength_m))
         gains = g[antnum[:, 0]] * np.conj(g[antnum[:, 1]])
         if self.baseline is not None:
             own = self.baseline[antnum[:, 0], antnum[:, 1]]
             gains = gains * (1.0 + baseline_weight * (own - 1.0))
+        if self.instrumental is not None:
+            gains = gains * self.instrumental[antnum[:, 0], antnum[:, 1]]
         if self.path_var_m2 is not None:
             k = 2.0 * np.pi / wavelength_m
             var = self.path_var_m2[antnum[:, 0], antnum[:, 1]]
@@ -512,21 +524,38 @@ def draw_antenna_corruptions(
             fresh = fast_screen_draws(fast_rng, xy, ntime, model.outer_scale_km, model.fast_slope)
             path += in_scan_path(model, xy, times_s, scans, fresh)
 
-    baseline = _baseline_errors(model, nant, scans, baseline_rng)
+    # The instrumental term's stream is spawned from the baselines' own, which
+    # spawning leaves as it was: the continuum term's draws do not change.
+    (instrumental_rng,) = baseline_rng.spawn(1)
+    baseline = _baseline_errors(
+        model.baseline_amp_rms, model.baseline_phase_rms_deg, nant, scans, baseline_rng
+    )
+    instrumental = _baseline_errors(
+        model.baseline_instrumental_amp_rms,
+        model.baseline_instrumental_phase_rms_deg,
+        nant,
+        scans,
+        instrumental_rng,
+    )
     return AntennaCorruptions(
-        amplitude=amplitude, phase=phase, path_m=path, baseline=baseline, path_var_m2=path_var
+        amplitude=amplitude,
+        phase=phase,
+        path_m=path,
+        baseline=baseline,
+        instrumental=instrumental,
+        path_var_m2=path_var,
     )
 
 
 def _baseline_errors(
-    model: CorruptionModel, nant: int, scans: np.ndarray, rng: np.random.Generator
+    amp_rms: float, phase_rms_deg: float, nant: int, scans: np.ndarray, rng: np.random.Generator
 ) -> np.ndarray | None:
     """Each baseline's own complex error per scan, (nant, nant, ntime); None when off."""
-    if model.baseline_amp_rms <= 0 and model.baseline_phase_rms_deg <= 0:
+    if amp_rms <= 0 and phase_rms_deg <= 0:
         return None
     nscan = int(scans.max()) + 1
-    amp = rng.normal(0.0, model.baseline_amp_rms, (nant, nant, nscan))
-    ph = rng.normal(0.0, np.radians(model.baseline_phase_rms_deg), (nant, nant, nscan))
+    amp = rng.normal(0.0, amp_rms, (nant, nant, nscan))
+    ph = rng.normal(0.0, np.radians(phase_rms_deg), (nant, nant, nscan))
     return np.exp(amp + 1j * ph)[:, :, scans]
 
 
