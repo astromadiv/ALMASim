@@ -308,3 +308,33 @@ def test_the_in_scan_phase_has_a_strength_per_dish_and_a_spread():
     data["components"]["fast_phase"]["dishes"].append({"diameter_m": 7.0, "path_um_1km": 1.0})
     with pytest.raises(ValueError, match="one row per dish"):
         NoiseModel.model_validate(data)
+
+
+@pytest.mark.unit
+def test_antenna_gains_can_carry_a_residual_bandpass_ripple():
+    """Set, each dish's ripple reaches the engine; unset, every released model
+    keeps its identity."""
+    from almasim.services.noise_model import NoiseModel
+
+    alma = released_model("alma")
+    data = json.loads(alma.model_dump_json())
+    assert "bandpass" not in data["components"]["antenna_gains"]
+    rows = [
+        {"diameter_m": 12.0, "upper_ghz": 50.0, "period_mhz": 25.0, "amp": 0.01, "phase_deg": 3.0},
+        {"diameter_m": 7.0, "upper_ghz": 50.0, "period_mhz": 40.0, "amp": 0.01, "phase_deg": 3.0},
+    ]
+    data["components"]["antenna_gains"]["bandpass"] = rows
+    model = NoiseModel.model_validate(data)
+    assert model.sha256() != alma.sha256()
+    fields = model.engine_fields()
+    assert fields["bandpass_ripple"] == [
+        [12.0, 50.0, 25.0, 0.01, 3.0],
+        [7.0, 50.0, 40.0, 0.01, 3.0],
+    ]
+    engine = CorruptionModel.from_mapping(fields)
+    assert engine.bandpass_ripple[1] == (7.0, 50.0, 40.0, 0.01, 3.0)
+    back = NoiseModel.from_corruption_fields(fields).components.antenna_gains
+    assert back.bandpass == model.components.antenna_gains.bandpass
+    data["components"]["antenna_gains"]["bandpass"] = [rows[0], rows[0]]
+    with pytest.raises(ValueError, match="one row per dish"):
+        NoiseModel.model_validate(data)

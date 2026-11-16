@@ -217,14 +217,56 @@ class AntennaRipple(NoiseComponent):
         return {"antenna_ripple_rms": self.rms, "antenna_ripple_mhz": self.scale_mhz}
 
 
+class BandpassRipple(BaseModel):
+    """What bandpass calibration leaves on one dish size's antennas, up to a frequency."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    diameter_m: float = Field(gt=0, description="Dish diameter (m).")
+    upper_ghz: float = Field(gt=0, description="Highest frequency it applies to (GHz).")
+    period_mhz: float = Field(gt=0, description="The ripple's period across frequency (MHz).")
+    amp: float = Field(ge=0, le=0.5, description="Peak fractional amplitude.")
+    phase_deg: float = Field(ge=0, le=90, description="Peak phase (degrees).")
+
+
 class AntennaGains(NoiseComponent):
     """Antenna gain errors left by calibration, per scan."""
 
     amp_rms: float = Field(default=0.0, ge=0, le=1, description="Fractional amplitude rms.")
     phase_rms_deg: float = Field(default=0.0, ge=0, le=180, description="Phase rms (degrees).")
+    bandpass: tuple[BandpassRipple, ...] | None = Field(
+        default=None,
+        description=(
+            "Each dish size's residual bandpass: a complex ripple across frequency, with "
+            "each antenna's own offsets, on the channels at or below upper_ghz; unset: none."
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _one_row_per_dish(self) -> AntennaGains:
+        sizes = [r.diameter_m for r in self.bandpass or ()]
+        if len(set(sizes)) != len(sizes):
+            raise ValueError("antenna_gains.bandpass: one row per dish size")
+        return self
+
+    @model_serializer(mode="wrap")
+    def _without_unset(self, handler: Any) -> dict[str, Any]:
+        # A model that leaves it unset keeps the identity (sha256) it has without it.
+        data = handler(self)
+        if self.bandpass is None:
+            data.pop("bandpass", None)
+        return data
 
     def engine_fields(self) -> dict[str, Any]:
-        return {"gain_amp_rms": self.amp_rms, "gain_phase_rms_deg": self.phase_rms_deg}
+        values: dict[str, Any] = {
+            "gain_amp_rms": self.amp_rms,
+            "gain_phase_rms_deg": self.phase_rms_deg,
+        }
+        if self.bandpass:
+            values["bandpass_ripple"] = [
+                [r.diameter_m, r.upper_ghz, r.period_mhz, r.amp, r.phase_deg] for r in self.bandpass
+            ]
+        return values
 
 
 class SlowPhase(NoiseComponent):

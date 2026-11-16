@@ -45,6 +45,11 @@ class CorruptionModel:
     # Antenna gain errors per scan: fractional amplitude and phase (degrees).
     gain_amp_rms: float = 0.0
     gain_phase_rms_deg: float = 0.0
+    # What bandpass calibration leaves on each antenna across a window: a
+    # complex ripple per dish size, as (diameter m, upper edge GHz, period MHz,
+    # peak fractional amplitude, peak phase degrees) rows; it applies to
+    # channels at or below the edge (band 1's ripple). (): none.
+    bandpass_ripple: tuple[tuple[float, float, float, float, float], ...] = ()
     # The slow (per-scan) and fast (within-scan) atmospheric phase: the rms path
     # difference between antennas 1 km apart (microns), growing as
     # separation^slope (Kolmogorov: 5/6).
@@ -94,6 +99,7 @@ class CorruptionModel:
             "bool": _flag,
             "int": int,
             "tuple[tuple[float, float], ...]": _pairs,
+            "tuple[tuple[float, float, float, float, float], ...]": _rows,
         }
         coerced: dict[str, Any] = {
             k: coerce.get(str(kinds[k]), float)(v) for k, v in values.items()
@@ -137,6 +143,7 @@ class CorruptionModel:
             for v in (
                 self.gain_amp_rms,
                 self.gain_phase_rms_deg,
+                len(self.bandpass_ripple),
                 self.slow_path_um_1km,
                 self.fast_path_um_1km,
                 self.baseline_amp_rms,
@@ -160,6 +167,11 @@ def _pairs(value: Any) -> tuple[tuple[float, float], ...]:
     """(diameter, value) pairs from JSON: a list of pairs or a {diameter: value} object."""
     items = value.items() if isinstance(value, Mapping) else value
     return tuple((float(d), float(v)) for d, v in items)
+
+
+def _rows(value: Any) -> tuple[tuple[float, ...], ...]:
+    """Rows of numbers from JSON (a list of lists)."""
+    return tuple(tuple(float(x) for x in row) for row in value)
 
 
 def resolve_corruptions(spec: Any) -> dict[str, Any] | None:
@@ -261,6 +273,53 @@ def turbulent_screen(
     return screen / rms * (REFERENCE_SEPARATION_M / 1_000.0) ** slope
 
 
+SPEED_OF_LIGHT_M_S = 299_792_458.0
+
+
+@dataclass(frozen=True)
+class BandpassRipple:
+    """Each antenna's residual bandpass across frequency: a complex factor
+    ``(1 + a sin(2 pi f / P + alpha)) exp(i p sin(2 pi f / P + beta))``, its
+    ripple period ``P``, peak amplitude ``a`` and peak phase ``p`` its dish's,
+    alpha and beta its own draws; 1 above its dish's edge or for a dish
+    without a row."""
+
+    period_hz: np.ndarray  # (nant,); 0: no ripple
+    amp: np.ndarray  # (nant,)
+    phase_rad: np.ndarray  # (nant,)
+    upper_hz: np.ndarray  # (nant,)
+    offsets: np.ndarray  # (nant, 2): alpha, beta
+
+    def factors(self, freq_hz: np.ndarray) -> np.ndarray:
+        """The antennas' complex factors at ``freq_hz``, (nant, nfreq)."""
+        f = np.asarray(freq_hz, dtype=np.float64)[None, :]
+        on = (self.period_hz[:, None] > 0) & (f <= self.upper_hz[:, None])
+        period = np.where(self.period_hz > 0, self.period_hz, 1.0)[:, None]
+        cycle = 2.0 * np.pi * f / period
+        amp = 1.0 + self.amp[:, None] * np.sin(cycle + self.offsets[:, :1])
+        phase = self.phase_rad[:, None] * np.sin(cycle + self.offsets[:, 1:])
+        return np.where(on, amp * np.exp(1j * phase), 1.0)
+
+
+def draw_bandpass_ripple(
+    rows: tuple[tuple[float, float, float, float, float], ...],
+    diameters_m: np.ndarray,
+    rng: np.random.Generator,
+) -> BandpassRipple:
+    """The ripple of antennas of ``diameters_m`` from the model's rows (diameter,
+    upper GHz, period MHz, peak amplitude, peak phase degrees): each antenna
+    takes its dish's row and draws its own two offsets."""
+    diameters_m = np.asarray(diameters_m, dtype=np.float64)
+    nant = diameters_m.size
+    period, amp, phase, upper = (np.zeros(nant) for _ in range(4))
+    for diameter, upper_ghz, period_mhz, peak_amp, peak_deg in rows:
+        mine = np.abs(diameters_m - diameter) < 0.5
+        period[mine], amp[mine] = period_mhz * 1e6, peak_amp
+        phase[mine], upper[mine] = np.radians(peak_deg), upper_ghz * 1e9
+    offsets = rng.uniform(0.0, 2.0 * np.pi, (nant, 2))
+    return BandpassRipple(period, amp, phase, upper, offsets)
+
+
 @dataclass(frozen=True)
 class AntennaCorruptions:
     """Per antenna and integration: an amplitude factor, a phase (rad) and an
@@ -272,6 +331,8 @@ class AntennaCorruptions:
     # Per (antenna1, antenna2, integration): what does not factor by antenna;
     # None: nothing.
     baseline: np.ndarray | None = None
+    # Each antenna's residual bandpass ripple (BandpassRipple); None: none.
+    bandpass: BandpassRipple | None = None
 
     def baseline_gains(
         self, antnum: np.ndarray, wavelength_m: float, baseline_weight: float = 1.0
@@ -288,6 +349,9 @@ class AntennaCorruptions:
         if self.baseline is not None:
             own = self.baseline[antnum[:, 0], antnum[:, 1]]
             gains = gains * (1.0 + baseline_weight * (own - 1.0))
+        if self.bandpass is not None:
+            b = self.bandpass.factors(np.array([SPEED_OF_LIGHT_M_S / wavelength_m]))[:, 0]
+            gains = gains * (b[antnum[:, 0]] * np.conj(b[antnum[:, 1]]))[:, None]
         return gains.astype(np.complex64)
 
 
@@ -351,6 +415,7 @@ def draw_antenna_corruptions(
     antenna_xy_m: np.ndarray,
     times_s: np.ndarray,
     rng: np.random.Generator,
+    diameters_m: np.ndarray | None = None,
 ) -> AntennaCorruptions:
     """The antenna errors of one array configuration over ``times_s``.
 
@@ -358,9 +423,11 @@ def draw_antenna_corruptions(
     the antennas, the fast screen per integration (each blended with the last
     over ``fast_coherence_s``, less each antenna's mean over its scan, and
     scaled so the median antenna pair's rms path difference follows the
-    model's power law), and the baselines' own errors per scan. Each from a
-    stream of its own spawned from ``rng``, so switching one off, or changing
-    its strength, leaves the others' draws as they were.
+    model's power law), the baselines' own errors per scan, and each
+    antenna's residual bandpass ripple (its dish's row of ``bandpass_ripple``;
+    ``diameters_m``, each antenna's dish, default 12 m). Each from a stream of
+    its own spawned from ``rng``, so switching one off, or changing its
+    strength, leaves the others' draws as they were.
     """
     xy = np.asarray(antenna_xy_m, dtype=np.float64)[:, :2]
     times_s = np.asarray(times_s, dtype=np.float64)
@@ -393,7 +460,15 @@ def draw_antenna_corruptions(
         path += in_scan_path(model, xy, times_s, scans, fresh)
 
     baseline = _baseline_errors(model, nant, scans, baseline_rng)
-    return AntennaCorruptions(amplitude=amplitude, phase=phase, path_m=path, baseline=baseline)
+    bandpass = None
+    if model.bandpass_ripple:
+        # A fifth child of rng: the first four's draws do not depend on it.
+        (bandpass_rng,) = rng.spawn(1)
+        dishes = np.full(nant, 12.0) if diameters_m is None else np.asarray(diameters_m)
+        bandpass = draw_bandpass_ripple(model.bandpass_ripple, dishes, bandpass_rng)
+    return AntennaCorruptions(
+        amplitude=amplitude, phase=phase, path_m=path, baseline=baseline, bandpass=bandpass
+    )
 
 
 def _baseline_errors(

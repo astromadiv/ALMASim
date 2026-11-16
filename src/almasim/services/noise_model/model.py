@@ -21,6 +21,7 @@ from .components import (
     AntennaGains,
     AntennaRipple,
     AtmosphericTsys,
+    BandpassRipple,
     BaselineErrors,
     ChannelCorrelation,
     Components,
@@ -192,9 +193,15 @@ class NoiseModel(BaseModel):
             parts["antenna_ripple"] = AntennaRipple(
                 rms=c["antenna_ripple_rms"], scale_mhz=c["antenna_ripple_mhz"]
             )
-        if c["gain_amp_rms"] > 0 or c["gain_phase_rms_deg"] > 0:
+        if c["gain_amp_rms"] > 0 or c["gain_phase_rms_deg"] > 0 or c["bandpass_ripple"]:
             parts["antenna_gains"] = AntennaGains(
-                amp_rms=c["gain_amp_rms"], phase_rms_deg=c["gain_phase_rms_deg"]
+                amp_rms=c["gain_amp_rms"],
+                phase_rms_deg=c["gain_phase_rms_deg"],
+                bandpass=tuple(
+                    BandpassRipple(diameter_m=d, upper_ghz=u, period_mhz=p, amp=a, phase_deg=ph)
+                    for d, u, p, a, ph in c["bandpass_ripple"]
+                )
+                or None,
             )
         if c["slow_path_um_1km"] > 0:
             parts["slow_phase"] = SlowPhase(

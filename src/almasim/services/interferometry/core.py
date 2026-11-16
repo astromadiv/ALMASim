@@ -400,7 +400,11 @@ class Interferometer:
             )
             antenna_xy_m = np.asarray(self.antPos, dtype=np.float64)[:, :2] * 1e3
             fields["antenna_corruptions"] = draw_antenna_corruptions(
-                model, antenna_xy_m, times_s, np.random.default_rng((*entropy, 1))
+                model,
+                antenna_xy_m,
+                times_s,
+                np.random.default_rng((*entropy, 1)),
+                diameters_m=self.antenna_diameters_m,
             )
         if model.antenna_ripple_rms > 0:
             fields["antenna_noise"] = antenna_ripple(

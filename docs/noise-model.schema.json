@@ -27,6 +27,22 @@
           "minimum": 0,
           "title": "Phase Rms Deg",
           "type": "number"
+        },
+        "bandpass": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/BandpassRipple"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Each dish size's residual bandpass: a complex ripple across frequency, with each antenna's own offsets, on the channels at or below upper_ghz; unset: none.",
+          "title": "Bandpass"
         }
       },
       "title": "AntennaGains",
@@ -108,6 +124,53 @@
         }
       },
       "title": "AtmosphericTsys",
+      "type": "object"
+    },
+    "BandpassRipple": {
+      "additionalProperties": false,
+      "description": "What bandpass calibration leaves on one dish size's antennas, up to a frequency.",
+      "properties": {
+        "diameter_m": {
+          "description": "Dish diameter (m).",
+          "exclusiveMinimum": 0,
+          "title": "Diameter M",
+          "type": "number"
+        },
+        "upper_ghz": {
+          "description": "Highest frequency it applies to (GHz).",
+          "exclusiveMinimum": 0,
+          "title": "Upper Ghz",
+          "type": "number"
+        },
+        "period_mhz": {
+          "description": "The ripple's period across frequency (MHz).",
+          "exclusiveMinimum": 0,
+          "title": "Period Mhz",
+          "type": "number"
+        },
+        "amp": {
+          "description": "Peak fractional amplitude.",
+          "maximum": 0.5,
+          "minimum": 0,
+          "title": "Amp",
+          "type": "number"
+        },
+        "phase_deg": {
+          "description": "Peak phase (degrees).",
+          "maximum": 90,
+          "minimum": 0,
+          "title": "Phase Deg",
+          "type": "number"
+        }
+      },
+      "required": [
+        "diameter_m",
+        "upper_ghz",
+        "period_mhz",
+        "amp",
+        "phase_deg"
+      ],
+      "title": "BandpassRipple",
       "type": "object"
     },
     "BaselineErrors": {
