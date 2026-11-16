@@ -87,7 +87,7 @@ candidate model can therefore be used for a run before it is released.
 | `antenna_ripple` | each antenna's own ripple of its noise | `rms`, `scale_mhz` |
 | `antenna_gains` | antenna gain errors per scan | `amp_rms`, `phase_rms_deg` |
 | `slow_phase` | the per-scan atmospheric phase | `path_um_1km`, `slope` |
-| `fast_phase` | the in-scan atmospheric phase | `path_um_1km`, `slope`, `coherence_s`, `dishes`, `log_spread` |
+| `fast_phase` | the in-scan atmospheric phase | `path_um_1km`, `slope`, `coherence_s`, `dishes`, `log_spread`, `wind_mps` |
 | `baseline_errors` | per-baseline errors that do not close | `amp_rms`, `phase_rms_deg` |
 
 ALMA's receiver temperatures, the dishes' Ruze aperture efficiencies and the
