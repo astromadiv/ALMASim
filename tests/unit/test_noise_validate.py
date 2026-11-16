@@ -1017,6 +1017,11 @@ def test_a_window_with_its_own_in_scan_fit_is_simulated_with_it(tmp_path):
     off = model.select(without=["fast_phase"])
     fit.write_text(_phase_fit("w1", 300.0, 40.0).model_dump_json())
     assert v.with_window_fast_phase(off, fit) is off  # the model draws none
+    fast = model.components.fast_phase.model_copy(update={"wind_mps": 9.0})
+    windy = model.model_copy(
+        update={"components": model.components.model_copy(update={"fast_phase": fast})}
+    )
+    assert v.with_window_fast_phase(windy, fit).components.fast_phase.wind_mps == 9.0
 
 
 @pytest.mark.unit

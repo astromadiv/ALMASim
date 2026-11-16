@@ -308,3 +308,24 @@ def test_the_in_scan_phase_has_a_strength_per_dish_and_a_spread():
     data["components"]["fast_phase"]["dishes"].append({"diameter_m": 7.0, "path_um_1km": 1.0})
     with pytest.raises(ValueError, match="one row per dish"):
         NoiseModel.model_validate(data)
+
+
+@pytest.mark.unit
+def test_the_in_scan_phase_can_flow_frozen_past_the_array():
+    """wind_mps set reaches the engine; unset, every released model keeps its identity."""
+    from almasim.services.noise_model import NoiseModel
+
+    alma = released_model("alma")
+    data = json.loads(alma.model_dump_json())
+    assert "wind_mps" not in data["components"]["fast_phase"]
+    assert "fast_wind_mps" not in alma.engine_fields()
+    data["components"]["fast_phase"]["wind_mps"] = 8.0
+    model = NoiseModel.model_validate(data)
+    assert model.sha256() != alma.sha256()
+    fields = model.engine_fields()
+    assert fields["fast_wind_mps"] == 8.0
+    assert CorruptionModel.from_mapping(fields).fast_wind_mps == 8.0
+    assert NoiseModel.from_corruption_fields(fields).components.fast_phase.wind_mps == 8.0
+    data["components"]["fast_phase"]["wind_mps"] = 0.0
+    with pytest.raises(ValidationError):
+        NoiseModel.model_validate(data)
