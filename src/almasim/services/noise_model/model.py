@@ -210,6 +210,7 @@ class NoiseModel(BaseModel):
                 )
                 or None,
                 log_spread=c["fast_log_spread"] or None,
+                wind_mps=c["fast_wind_mps"] or None,
             )
         instrumental = (
             c["baseline_instrumental_amp_rms"],

@@ -278,6 +278,18 @@ class FastPhase(NoiseComponent):
         ),
     )
 
+    wind_mps: float | None = Field(
+        default=None,
+        gt=0,
+        le=30,
+        description=(
+            "Frozen flow: the screen moves over the array at this speed (m/s), in a "
+            "direction each observation draws, and each integration averages the phase "
+            "that passes (coherence_s does not apply); unset: each integration blends a "
+            "fresh screen with the last over coherence_s."
+        ),
+    )
+
     @model_validator(mode="after")
     def _one_row_per_dish(self) -> FastPhase:
         sizes = [d.diameter_m for d in self.dishes or ()]
@@ -289,7 +301,7 @@ class FastPhase(NoiseComponent):
     def _without_unset(self, handler: Any) -> dict[str, Any]:
         # A model that leaves them unset keeps the identity (sha256) it has without them.
         data = handler(self)
-        for field in ("dishes", "log_spread"):
+        for field in ("dishes", "log_spread", "wind_mps"):
             if getattr(self, field) is None:
                 data.pop(field, None)
         return data
@@ -304,6 +316,8 @@ class FastPhase(NoiseComponent):
             values["fast_path_by_dish"] = [[d.diameter_m, d.path_um_1km] for d in self.dishes]
         if self.log_spread:
             values["fast_log_spread"] = self.log_spread
+        if self.wind_mps:
+            values["fast_wind_mps"] = self.wind_mps
         return values
 
 

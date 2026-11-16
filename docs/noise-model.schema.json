@@ -446,6 +446,21 @@
           "default": null,
           "description": "The rms of the strength's natural log from one observation to the next: each simulated observation draws its own, from its seed; unset: every observation takes the dish's strength.",
           "title": "Log Spread"
+        },
+        "wind_mps": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "maximum": 30,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Frozen flow: the screen moves over the array at this speed (m/s), in a direction each observation draws, and each integration averages the phase that passes (coherence_s does not apply); unset: each integration blends a fresh screen with the last over coherence_s.",
+          "title": "Wind Mps"
         }
       },
       "required": [
