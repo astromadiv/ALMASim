@@ -64,6 +64,11 @@ class CorruptionModel:
     # The spread of the in-scan strength from one observation to the next: the
     # rms of its natural log. Each observation draws its own (for_observation).
     fast_log_spread: float = 0.0
+    # Frozen flow: the in-scan screen moves over the array at this speed (m/s),
+    # in a direction each observation draws, and each integration averages its
+    # phase over the screen that passes (frozen_flow_path). 0: each
+    # integration blends a fresh screen with the last over fast_coherence_s.
+    fast_wind_mps: float = 0.0
     outer_scale_km: float = 3.0
     # The noise across a window follows Tsys: atmospheric lines in the signal
     # and the image band (atmosphere.system_temperature), and the receiver's
@@ -80,6 +85,11 @@ class CorruptionModel:
     # amplitude and phase (degrees).
     baseline_amp_rms: float = 0.0
     baseline_phase_rms_deg: float = 0.0
+    # The instrument's own non-closing errors (correlator, bandpass mismatch
+    # between antennas), per baseline and scan, which act on all the signal:
+    # line and continuum alike. The two above act on the continuum share only.
+    baseline_instrumental_amp_rms: float = 0.0
+    baseline_instrumental_phase_rms_deg: float = 0.0
     # Each visibility's noise from the radiometer equation (Tsys, channel width,
     # integration, dish; noise.visibility_noise), the source keeping its flux,
     # instead of a noise set from the run's target S/N (interferometric runs).
@@ -148,6 +158,8 @@ class CorruptionModel:
                 self.fast_path_um_1km,
                 self.baseline_amp_rms,
                 self.baseline_phase_rms_deg,
+                self.baseline_instrumental_amp_rms,
+                self.baseline_instrumental_phase_rms_deg,
             )
         )
 
@@ -328,9 +340,16 @@ class AntennaCorruptions:
     amplitude: np.ndarray  # (nant, ntime)
     phase: np.ndarray  # (nant, ntime)
     path_m: np.ndarray  # (nant, ntime)
-    # Per (antenna1, antenna2, integration): what does not factor by antenna;
+    # Per (antenna1, antenna2, integration): what does not factor by antenna,
+    # on the continuum share (baseline) and on all the signal (instrumental);
     # None: nothing.
     baseline: np.ndarray | None = None
+    instrumental: np.ndarray | None = None
+    # Per (antenna1, antenna2, integration): the variance (m^2) of the pair's
+    # path difference within the integration (a frozen-flow screen moving
+    # past), which lowers the averaged visibility by exp(-sigma^2 / 2), sigma
+    # the phase rms at the channel's wavelength. None: none.
+    path_var_m2: np.ndarray | None = None
     # Each antenna's residual bandpass ripple (BandpassRipple); None: none.
     bandpass: BandpassRipple | None = None
 
@@ -343,12 +362,19 @@ class AntennaCorruptions:
         ``baseline_weight``: the share of the visibility the baseline's own error
         acts on, 1 + w (b - 1); the continuum's share of a channel, since what
         does not close in calibrated data is mostly continuum structure the
-        model lacks, which leaves line emission alone."""
+        model lacks, which leaves line emission alone. The instrumental
+        non-closing error acts on the whole visibility, whatever its share."""
         g = self.amplitude * np.exp(1j * (self.phase + 2.0 * np.pi * self.path_m / wavelength_m))
         gains = g[antnum[:, 0]] * np.conj(g[antnum[:, 1]])
         if self.baseline is not None:
             own = self.baseline[antnum[:, 0], antnum[:, 1]]
             gains = gains * (1.0 + baseline_weight * (own - 1.0))
+        if self.instrumental is not None:
+            gains = gains * self.instrumental[antnum[:, 0], antnum[:, 1]]
+        if self.path_var_m2 is not None:
+            k = 2.0 * np.pi / wavelength_m
+            var = self.path_var_m2[antnum[:, 0], antnum[:, 1]]
+            gains = gains * np.exp(-0.5 * k**2 * var)
         if self.bandpass is not None:
             b = self.bandpass.factors(np.array([SPEED_OF_LIGHT_M_S / wavelength_m]))[:, 0]
             gains = gains * (b[antnum[:, 0]] * np.conj(b[antnum[:, 1]]))[:, None]
@@ -410,6 +436,105 @@ def in_scan_path(
     return np.zeros((nant, ntime))
 
 
+# Sub-samples of an integration per screen pixel the wind carries past, and at most.
+FROZEN_SUBSAMPLES_PER_STEP = 4
+FROZEN_MAX_SUBSAMPLES = 64
+
+
+def _bilinear(screen: np.ndarray, x_px: np.ndarray, y_px: np.ndarray) -> np.ndarray:
+    """The periodic ``screen`` at fractional pixel positions (x along columns)."""
+    n = screen.shape[0]
+    x0, y0 = np.floor(x_px).astype(int), np.floor(y_px).astype(int)
+    fx, fy = x_px - x0, y_px - y0
+    x0, y0 = x0 % n, y0 % n
+    x1, y1 = (x0 + 1) % n, (y0 + 1) % n
+    return (
+        screen[y0, x0] * (1 - fx) * (1 - fy)
+        + screen[y0, x1] * fx * (1 - fy)
+        + screen[y1, x0] * (1 - fx) * fy
+        + screen[y1, x1] * fx * fy
+    )
+
+
+def integration_time(times_s: np.ndarray, scans: np.ndarray) -> float:
+    """The integration's length: the median step between integrations of a scan (0: none)."""
+    steps = np.diff(times_s)[np.diff(scans) == 0]
+    steps = steps[steps > 0]
+    return float(np.median(steps)) if steps.size else 0.0
+
+
+def frozen_flow_samples(
+    model: CorruptionModel,
+    xy: np.ndarray,
+    times_s: np.ndarray,
+    scans: np.ndarray,
+    rng: np.random.Generator,
+) -> np.ndarray:
+    """The frozen-flow screen at the antennas, ``(nsub, ntime, nant)``: per scan
+    one turbulent screen moving at ``fast_wind_mps`` in a direction drawn once,
+    read at ``nsub`` instants spread evenly over each integration (enough for
+    a few per screen pixel the wind carries past), unscaled.
+
+    The screen at antenna position x and time t is the frozen one at
+    x - v t, so an antenna's path in time is the screen's in space along the
+    wind: its structure function at lag tau is the screen's at v tau."""
+    xy = np.asarray(xy, dtype=np.float64)[:, :2]
+    angle = rng.uniform(0.0, 2.0 * np.pi)
+    wind = model.fast_wind_mps * np.array([np.cos(angle), np.sin(angle)])
+    dump = integration_time(times_s, scans)
+    carried = model.fast_wind_mps * dump / SCREEN_STEP_M  # pixels per integration
+    nsub = int(np.clip(np.ceil(FROZEN_SUBSAMPLES_PER_STEP * carried), 1, FROZEN_MAX_SUBSAMPLES))
+    offsets = dump * ((np.arange(nsub) + 0.5) / nsub - 0.5)
+    out = np.zeros((nsub, len(times_s), len(xy)))
+    for s in np.unique(scans):
+        rows = np.flatnonzero(scans == s)
+        # Each sub-instant's time since the scan began, (nsub, nrow).
+        t = times_s[rows][None, :] - times_s[rows[0]] + offsets[:, None]
+        # Where each antenna reads the frozen screen, (nsub, nrow, nant, 2).
+        where = xy[None, None, :, :] - t[:, :, None, None] * wind
+        origin = where.reshape(-1, 2).min(axis=0) - 500.0
+        extent = float(np.ptp(where.reshape(-1, 2), axis=0).max()) + 1_000.0
+        screen = turbulent_screen(rng, extent, model.outer_scale_km, model.fast_slope)
+        px = (where - origin) / SCREEN_STEP_M
+        out[:, rows, :] = _bilinear(screen, px[..., 0], px[..., 1])
+    return out
+
+
+def frozen_flow_path(
+    model: CorruptionModel, xy: np.ndarray, samples: np.ndarray, scans: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
+    """The in-scan path (m, ``(nant, ntime)``) a frozen-flow screen gives, and
+    each antenna pair's path-difference variance within the integration (m^2,
+    ``(nant, nant, ntime)``), from ``frozen_flow_samples``' ``samples``.
+
+    The path is the integration's mean, less each antenna's mean over its scan
+    (that part is the slow phase's); both are scaled so the median antenna
+    pair's rms path difference is ``fast_path_um_1km (separation / 1 km)^fast_slope``,
+    as the blended screen is."""
+    xy = np.asarray(xy, dtype=np.float64)[:, :2]
+    nsub, ntime, nant = samples.shape
+    mean = samples.mean(axis=0)
+    dev = samples - mean[None]
+    # cov(p_i, p_j) within each integration; var(p_i - p_j) = c_ii + c_jj - 2 c_ij.
+    cov = np.einsum("kti,ktj->tij", dev, dev) / nsub
+    diag = np.einsum("tii->ti", cov)
+    var = diag[:, :, None] + diag[:, None, :] - 2.0 * cov
+    fast = mean.copy()
+    for s in np.unique(scans):
+        fast[scans == s] -= fast[scans == s].mean(axis=0)
+    i, j = np.triu_indices(nant, 1)
+    separation = np.hypot(*(xy[i] - xy[j]).T)
+    keep = separation > SCREEN_STEP_M
+    if keep.any() and np.any(fast):
+        rms = np.sqrt(np.mean((fast[:, i[keep]] - fast[:, j[keep]]) ** 2, axis=0))
+        scale = np.median(rms / (separation[keep] / 1_000.0) ** model.fast_slope)
+        if scale > 0:
+            factor = model.fast_path_um_1km * 1e-6 / scale
+            variance = np.clip(var, 0.0, None) * factor**2
+            return (fast * factor).T, np.transpose(variance, (1, 2, 0)).astype(np.float32)
+    return np.zeros((nant, ntime)), np.zeros((nant, nant, ntime), dtype=np.float32)
+
+
 def draw_antenna_corruptions(
     model: CorruptionModel,
     antenna_xy_m: np.ndarray,
@@ -423,11 +548,12 @@ def draw_antenna_corruptions(
     the antennas, the fast screen per integration (each blended with the last
     over ``fast_coherence_s``, less each antenna's mean over its scan, and
     scaled so the median antenna pair's rms path difference follows the
-    model's power law), the baselines' own errors per scan, and each
-    antenna's residual bandpass ripple (its dish's row of ``bandpass_ripple``;
-    ``diameters_m``, each antenna's dish, default 12 m). Each from a stream of
-    its own spawned from ``rng``, so switching one off, or changing its
-    strength, leaves the others' draws as they were.
+    model's power law; with ``fast_wind_mps``, a frozen screen moving past
+    instead, :func:`frozen_flow_path`), the baselines' own errors per scan, and
+    each antenna's residual bandpass ripple (its dish's row of
+    ``bandpass_ripple``; ``diameters_m``, each antenna's dish, default 12 m).
+    Each from a stream of its own spawned from ``rng``, so switching one off,
+    or changing its strength, leaves the others' draws as they were.
     """
     xy = np.asarray(antenna_xy_m, dtype=np.float64)[:, :2]
     times_s = np.asarray(times_s, dtype=np.float64)
@@ -455,11 +581,29 @@ def draw_antenna_corruptions(
             screen = turbulent_screen(slow_rng, extent, model.outer_scale_km, model.slow_slope)
             path[:, scans == s] += (screen[iy, ix] * model.slow_path_um_1km * 1e-6)[:, None]
 
+    path_var = None
     if model.fast_path_um_1km > 0 and nant > 1:
-        fresh = fast_screen_draws(fast_rng, xy, ntime, model.outer_scale_km, model.fast_slope)
-        path += in_scan_path(model, xy, times_s, scans, fresh)
+        if model.fast_wind_mps > 0:
+            samples = frozen_flow_samples(model, xy, times_s, scans, fast_rng)
+            fast, path_var = frozen_flow_path(model, xy, samples, scans)
+            path += fast
+        else:
+            fresh = fast_screen_draws(fast_rng, xy, ntime, model.outer_scale_km, model.fast_slope)
+            path += in_scan_path(model, xy, times_s, scans, fresh)
 
-    baseline = _baseline_errors(model, nant, scans, baseline_rng)
+    # The instrumental term's stream is spawned from the baselines' own, which
+    # spawning leaves as it was: the continuum term's draws do not change.
+    (instrumental_rng,) = baseline_rng.spawn(1)
+    baseline = _baseline_errors(
+        model.baseline_amp_rms, model.baseline_phase_rms_deg, nant, scans, baseline_rng
+    )
+    instrumental = _baseline_errors(
+        model.baseline_instrumental_amp_rms,
+        model.baseline_instrumental_phase_rms_deg,
+        nant,
+        scans,
+        instrumental_rng,
+    )
     bandpass = None
     if model.bandpass_ripple:
         # A fifth child of rng: the first four's draws do not depend on it.
@@ -467,19 +611,25 @@ def draw_antenna_corruptions(
         dishes = np.full(nant, 12.0) if diameters_m is None else np.asarray(diameters_m)
         bandpass = draw_bandpass_ripple(model.bandpass_ripple, dishes, bandpass_rng)
     return AntennaCorruptions(
-        amplitude=amplitude, phase=phase, path_m=path, baseline=baseline, bandpass=bandpass
+        amplitude=amplitude,
+        phase=phase,
+        path_m=path,
+        baseline=baseline,
+        instrumental=instrumental,
+        path_var_m2=path_var,
+        bandpass=bandpass,
     )
 
 
 def _baseline_errors(
-    model: CorruptionModel, nant: int, scans: np.ndarray, rng: np.random.Generator
+    amp_rms: float, phase_rms_deg: float, nant: int, scans: np.ndarray, rng: np.random.Generator
 ) -> np.ndarray | None:
     """Each baseline's own complex error per scan, (nant, nant, ntime); None when off."""
-    if model.baseline_amp_rms <= 0 and model.baseline_phase_rms_deg <= 0:
+    if amp_rms <= 0 and phase_rms_deg <= 0:
         return None
     nscan = int(scans.max()) + 1
-    amp = rng.normal(0.0, model.baseline_amp_rms, (nant, nant, nscan))
-    ph = rng.normal(0.0, np.radians(model.baseline_phase_rms_deg), (nant, nant, nscan))
+    amp = rng.normal(0.0, amp_rms, (nant, nant, nscan))
+    ph = rng.normal(0.0, np.radians(phase_rms_deg), (nant, nant, nscan))
     return np.exp(amp + 1j * ph)[:, :, scans]
 
 

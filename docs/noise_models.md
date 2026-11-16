@@ -823,6 +823,26 @@ errors' draws do not depend on it. `noise validate` simulates a window that
 has its own in-scan fit (`fit.json` beside its `window.json`) with that fit's
 strength, slope and coherence instead.
 
+**Frozen flow** (`wind_mps`, which no released model sets). The water vapour
+layer is carried over the array by the wind more than it changes, so an
+antenna's phase in time follows the screen in space along the wind. With
+`wind_mps` set, each scan draws one turbulent screen, which moves over the
+array at that speed in a direction each observation draws (from the
+in-scan phase's own stream), and an antenna reads it at `x - v t`: its
+structure function at a lag `tau` is the screen's at `v tau`, and
+`coherence_s` does not apply. Each integration averages its phase over the
+screen that passes in it: the screen is read at several instants per
+integration (four per 10 m screen pixel the wind carries past, at most 64),
+the integration's path is their mean, and each baseline's visibility is
+lowered by `exp(-sigma^2 / 2)`, `sigma` the rms of its phase difference
+across those instants at the channel's wavelength. This is the coherence
+loss of averaging a Gaussian phase, and it grows with frequency, wind
+speed and the integration's length. The path is scaled as the blended
+screen's is (each antenna's scan mean removed, the median antenna pair's
+rms path difference on the power law), and the within-integration spread
+with it. `noise fit` measures the blended screen's strength, slope and
+coherence, so a model with `wind_mps` takes its strength from those fits.
+
 | Parameter | Meaning | alma@1 | alma@2 | alma@3 | alma@4 | alma@5 | alma@6 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `path_um_1km` | rms path difference 1 km apart within a scan (microns) | 40 | 130 | 130 | 102 | 96 | 96 |
@@ -830,6 +850,7 @@ strength, slope and coherence instead.
 | `coherence_s` | how long the in-scan phase stays coherent (s) | 10 | 10 | 10 | 20 | 30 | 30 |
 | `dishes` | each dish size's own `path_um_1km` | - | - | - | - | 12 m: 68; 7 m: 224 | 12 m: 68; 7 m: 224 |
 | `log_spread` | rms of the strength's natural log between observations | - | - | - | - | 0.91 | 0.91 |
+| `wind_mps` | frozen flow: the screen's speed over the array (m/s); unset, the blended screen | - | - | - | - | - | - |
 
 ### `baseline_errors`: errors that do not close
 
@@ -861,10 +882,23 @@ the continuum's fraction in that channel), since what does not close in real dat
 emission is left alone. An external sky model, whose continuum is not known
 separately, takes it on all its emission.
 
+**The instrument's own non-closing errors** (`instrumental_amp_rms`,
+`instrumental_phase_rms_deg`, which no released model sets). The
+correlator and the antennas' differing bandpasses also leave errors that do
+not factor, and those act on all the signal. Set, each baseline and scan
+draws a second factor of the same form from a stream spawned from the
+first one's (so the continuum term's draws stay as they are), and it
+multiplies the whole visibility, line and continuum alike: a line-only
+source then shows closure departures too, where the continuum term leaves
+it closed. `noise fit` measures the non-closing residual of bright
+continuum windows as a whole, which the continuum term takes; splitting it
+between the two terms needs bright line windows.
+
 | Parameter | Meaning | alma@1 | alma@2 | alma@3 | alma@4 | alma@5 | alma@6 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `amp_rms` | fractional amplitude error per baseline and scan | 0.06 | 0.102 | 0.102 | 0.101 | 0.112 | 0.112 |
 | `phase_rms_deg` | phase error per baseline and scan (degrees) | 2.5 | 1.8 | 1.8 | 1.6 | 1.5 | 1.5 |
+| `instrumental_amp_rms`, `instrumental_phase_rms_deg` | the instrument's own non-closing error on all the signal (fraction, degrees) | - | - | - | - | - | - |
 
 ### `settings`
 

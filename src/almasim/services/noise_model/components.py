@@ -320,6 +320,18 @@ class FastPhase(NoiseComponent):
         ),
     )
 
+    wind_mps: float | None = Field(
+        default=None,
+        gt=0,
+        le=30,
+        description=(
+            "Frozen flow: the screen moves over the array at this speed (m/s), in a "
+            "direction each observation draws, and each integration averages the phase "
+            "that passes (coherence_s does not apply); unset: each integration blends a "
+            "fresh screen with the last over coherence_s."
+        ),
+    )
+
     @model_validator(mode="after")
     def _one_row_per_dish(self) -> FastPhase:
         sizes = [d.diameter_m for d in self.dishes or ()]
@@ -331,7 +343,7 @@ class FastPhase(NoiseComponent):
     def _without_unset(self, handler: Any) -> dict[str, Any]:
         # A model that leaves them unset keeps the identity (sha256) it has without them.
         data = handler(self)
-        for field in ("dishes", "log_spread"):
+        for field in ("dishes", "log_spread", "wind_mps"):
             if getattr(self, field) is None:
                 data.pop(field, None)
         return data
@@ -346,6 +358,8 @@ class FastPhase(NoiseComponent):
             values["fast_path_by_dish"] = [[d.diameter_m, d.path_um_1km] for d in self.dishes]
         if self.log_spread:
             values["fast_log_spread"] = self.log_spread
+        if self.wind_mps:
+            values["fast_wind_mps"] = self.wind_mps
         return values
 
 
@@ -353,11 +367,56 @@ class BaselineErrors(NoiseComponent):
     """Errors of a baseline that do not factor into its antennas' (closure
     errors self-calibration cannot remove), per scan."""
 
-    amp_rms: float = Field(default=0.0, ge=0, le=1, description="Fractional amplitude rms.")
-    phase_rms_deg: float = Field(default=0.0, ge=0, le=180, description="Phase rms (degrees).")
+    amp_rms: float = Field(
+        default=0.0,
+        ge=0,
+        le=1,
+        description="Fractional amplitude rms, on the continuum share of the signal.",
+    )
+    phase_rms_deg: float = Field(
+        default=0.0,
+        ge=0,
+        le=180,
+        description="Phase rms (degrees), on the continuum share of the signal.",
+    )
+    instrumental_amp_rms: float | None = Field(
+        default=None,
+        ge=0,
+        le=1,
+        description=(
+            "Fractional amplitude rms of the instrument's own non-closing errors, on all "
+            "the signal (line and continuum); unset: none."
+        ),
+    )
+    instrumental_phase_rms_deg: float | None = Field(
+        default=None,
+        ge=0,
+        le=180,
+        description=(
+            "Phase rms (degrees) of the instrument's own non-closing errors, on all the "
+            "signal; unset: none."
+        ),
+    )
+
+    @model_serializer(mode="wrap")
+    def _without_unset(self, handler: Any) -> dict[str, Any]:
+        # A model that leaves them unset keeps the identity (sha256) it has without them.
+        data = handler(self)
+        for field in ("instrumental_amp_rms", "instrumental_phase_rms_deg"):
+            if getattr(self, field) is None:
+                data.pop(field, None)
+        return data
 
     def engine_fields(self) -> dict[str, Any]:
-        return {"baseline_amp_rms": self.amp_rms, "baseline_phase_rms_deg": self.phase_rms_deg}
+        values: dict[str, Any] = {
+            "baseline_amp_rms": self.amp_rms,
+            "baseline_phase_rms_deg": self.phase_rms_deg,
+        }
+        if self.instrumental_amp_rms:
+            values["baseline_instrumental_amp_rms"] = self.instrumental_amp_rms
+        if self.instrumental_phase_rms_deg:
+            values["baseline_instrumental_phase_rms_deg"] = self.instrumental_phase_rms_deg
+        return values
 
 
 class Components(BaseModel):

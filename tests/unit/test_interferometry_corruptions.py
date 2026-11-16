@@ -14,6 +14,9 @@ from almasim.services.interferometry.corruptions import (
     correlated_noise,
     draw_antenna_corruptions,
     draw_bandpass_ripple,
+    frozen_flow_path,
+    frozen_flow_samples,
+    integration_time,
     scan_index,
     spectral_kernel,
     turbulent_screen,
@@ -501,6 +504,116 @@ def test_the_interferometer_draws_its_observations_in_scan_strength():
     same = Interferometer._corruption_fields(sim)["antenna_corruptions"]
     assert np.allclose(fields["antenna_corruptions"].amplitude, same.amplitude)
     assert np.allclose(fields["antenna_corruptions"].path_m, same.path_m)
+
+
+@pytest.mark.unit
+def test_instrumental_non_closing_errors_act_on_lines_and_continuum_alike():
+    """Closure departures as configured: the continuum term moves only the
+    continuum share's closures (none for a line-only channel), the instrumental
+    term moves a line-only and a continuum-only channel's alike, and adding it
+    leaves the continuum term's own draws as they were."""
+    xy = np.random.default_rng(0).uniform(0, 500, (10, 2))
+    times = np.arange(20) * 30.0
+    pairs = baseline_antennas(10)
+    index = {(int(i), int(j)): k for k, (i, j) in enumerate(pairs)}
+
+    def closure(gains):
+        return np.angle(gains[index[0, 1]] * gains[index[1, 2]] * np.conj(gains[index[0, 2]]))
+
+    base = dict(gain_phase_rms_deg=30, scan_length_s=60)
+    continuum = CorruptionModel(**base, baseline_amp_rms=0.05, baseline_phase_rms_deg=5)
+    instrumental = CorruptionModel(
+        **base, baseline_instrumental_amp_rms=0.03, baseline_instrumental_phase_rms_deg=4
+    )
+    both = replace(continuum, baseline_instrumental_amp_rms=0.03,
+                   baseline_instrumental_phase_rms_deg=4)  # fmt: skip
+    drawn = {
+        name: draw_antenna_corruptions(m, xy, times, np.random.default_rng(3))
+        for name, m in (("continuum", continuum), ("instrumental", instrumental), ("both", both))
+    }
+    for name, errors in drawn.items():
+        line = closure(errors.baseline_gains(pairs, 1e-3, baseline_weight=0.0))
+        cont = closure(errors.baseline_gains(pairs, 1e-3, baseline_weight=1.0))
+        if name == "continuum":
+            assert np.allclose(line, 0, atol=1e-5)  # a line-only source closes
+            assert np.std(cont) > np.radians(3)
+        else:
+            assert np.std(line) > np.radians(2) and np.std(cont) > np.radians(2)
+    assert drawn["continuum"].instrumental is None and drawn["instrumental"].baseline is None
+    assert np.array_equal(drawn["both"].baseline, drawn["continuum"].baseline)
+    assert np.array_equal(drawn["both"].instrumental, drawn["instrumental"].instrumental)
+    own = drawn["instrumental"].instrumental[pairs[:, 0], pairs[:, 1], 0]
+    assert np.std(np.log(np.abs(own))) == pytest.approx(0.03, rel=0.3)
+    assert np.degrees(np.std(np.angle(own))) == pytest.approx(4, rel=0.3)
+
+
+def _frozen_model(**overrides):
+    values = dict(fast_path_um_1km=300.0, fast_slope=0.5, fast_wind_mps=10.0, outer_scale_km=3.0)
+    return CorruptionModel(**{**values, **overrides})
+
+
+@pytest.mark.unit
+def test_frozen_flow_coherence_follows_the_gaussian_law():
+    """Each integration's averaged visibility, computed sample by sample over the
+    screen that passes, loses exp(-sigma^2 / 2) of its amplitude, sigma the
+    phase rms within it: what baseline_gains applies from path_var_m2."""
+    rng = np.random.default_rng(3)
+    xy = rng.uniform(0.0, 1_500.0, (20, 2))
+    times = np.arange(40) * 6.0
+    scans = scan_index(times, 120.0)
+    model = _frozen_model()
+    samples = frozen_flow_samples(model, xy, times, scans, np.random.default_rng(5))
+    assert samples.shape[0] == 24  # 4 per 10 m pixel: 60 m per 6 s integration
+    _, var = frozen_flow_path(model, xy, samples, scans)
+    i, j = np.triu_indices(len(xy), 1)
+    raw = samples[:, :, i] - samples[:, :, j]  # (nsub, ntime, nbl)
+    raw_var = raw.var(axis=0)
+    ok = raw_var > 0
+    # The returned variance is the raw one scaled as the path is.
+    factor2 = np.median(var[i, j, :].T[ok] / raw_var[ok])
+    assert np.allclose(var[i, j, :].T[ok], factor2 * raw_var[ok], rtol=1e-4)
+    k = 2 * np.pi / 0.87e-3  # band 7
+    explicit = np.abs(np.mean(np.exp(1j * k * raw * np.sqrt(factor2)), axis=0))
+    predicted = np.exp(-0.5 * k**2 * var[i, j, :].T)
+    assert 0.3 < np.median(predicted) < 0.99  # the decorrelation is visible
+    assert np.mean(explicit) == pytest.approx(np.mean(predicted), rel=0.03)
+
+
+@pytest.mark.unit
+def test_frozen_flow_temporal_structure_follows_the_screen_along_the_wind():
+    """An antenna's path difference tau apart is the screen's v tau apart:
+    path_um_1km (v tau / 1 km)^slope, as the array's spatial law."""
+    rng = np.random.default_rng(11)
+    xy = rng.uniform(0.0, 1_000.0, (24, 2))
+    times = np.arange(600) * 1.0
+    scans = np.zeros(times.size, dtype=int)
+    model = _frozen_model()
+    samples = frozen_flow_samples(model, xy, times, scans, np.random.default_rng(2))
+    path, _ = frozen_flow_path(model, xy, samples, scans)
+    for lag in (10, 20, 30):  # 100 to 300 m along the wind
+        rms = np.sqrt(np.mean((path[:, lag:] - path[:, :-lag]) ** 2))
+        expected = model.fast_path_um_1km * 1e-6 * (10.0 * lag / 1_000.0) ** model.fast_slope
+        assert rms == pytest.approx(expected, rel=0.3)
+
+
+@pytest.mark.unit
+def test_frozen_flow_replaces_the_blended_screen_and_reaches_the_gains():
+    xy = np.random.default_rng(0).uniform(0.0, 800.0, (8, 2))
+    times = np.arange(30) * 6.0
+    blended = draw_antenna_corruptions(
+        _frozen_model(fast_wind_mps=0.0), xy, times, np.random.default_rng(1)
+    )
+    assert blended.path_var_m2 is None
+    frozen = draw_antenna_corruptions(_frozen_model(), xy, times, np.random.default_rng(1))
+    assert frozen.path_var_m2.shape == (8, 8, 30)
+    assert np.allclose(np.diagonal(frozen.path_var_m2), 0.0, atol=1e-18)
+    assert integration_time(times, np.zeros(30, dtype=int)) == 6.0
+    pairs = baseline_antennas(8)
+    loose = replace(frozen, path_var_m2=None).baseline_gains(pairs, 0.87e-3)
+    gains = frozen.baseline_gains(pairs, 0.87e-3)
+    # The within-integration loss only lowers amplitudes, never raises them.
+    assert np.all(np.abs(gains) <= np.abs(loose) + 1e-6)
+    assert np.mean(np.abs(gains)) < np.mean(np.abs(loose))
 
 
 BAND1_RIPPLE = ((12.0, 50.0, 25.0, 0.01, 3.0), (7.0, 50.0, 40.0, 0.01, 3.0))

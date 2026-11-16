@@ -311,6 +311,51 @@ def test_the_in_scan_phase_has_a_strength_per_dish_and_a_spread():
 
 
 @pytest.mark.unit
+def test_the_in_scan_phase_can_flow_frozen_past_the_array():
+    """wind_mps set reaches the engine; unset, every released model keeps its identity."""
+    from almasim.services.noise_model import NoiseModel
+
+    alma = released_model("alma")
+    data = json.loads(alma.model_dump_json())
+    assert "wind_mps" not in data["components"]["fast_phase"]
+    assert "fast_wind_mps" not in alma.engine_fields()
+    data["components"]["fast_phase"]["wind_mps"] = 8.0
+    model = NoiseModel.model_validate(data)
+    assert model.sha256() != alma.sha256()
+    fields = model.engine_fields()
+    assert fields["fast_wind_mps"] == 8.0
+    assert CorruptionModel.from_mapping(fields).fast_wind_mps == 8.0
+    assert NoiseModel.from_corruption_fields(fields).components.fast_phase.wind_mps == 8.0
+    data["components"]["fast_phase"]["wind_mps"] = 0.0
+    with pytest.raises(ValidationError):
+        NoiseModel.model_validate(data)
+
+
+@pytest.mark.unit
+def test_baseline_errors_can_add_the_instruments_own():
+    """Set, the instrumental terms reach the engine; unset, every released model
+    keeps its identity."""
+    from almasim.services.noise_model import NoiseModel
+
+    alma = released_model("alma")
+    data = json.loads(alma.model_dump_json())
+    assert "instrumental_amp_rms" not in data["components"]["baseline_errors"]
+    data["components"]["baseline_errors"].update(
+        instrumental_amp_rms=0.02, instrumental_phase_rms_deg=1.0
+    )
+    model = NoiseModel.model_validate(data)
+    assert model.sha256() != alma.sha256()
+    fields = model.engine_fields()
+    assert fields["baseline_instrumental_amp_rms"] == 0.02
+    assert fields["baseline_instrumental_phase_rms_deg"] == 1.0
+    engine = CorruptionModel.from_mapping(fields)
+    assert engine.baseline_instrumental_amp_rms == 0.02
+    back = NoiseModel.from_corruption_fields(fields).components.baseline_errors
+    assert (back.instrumental_amp_rms, back.instrumental_phase_rms_deg) == (0.02, 1.0)
+    assert back.amp_rms == alma.components.baseline_errors.amp_rms
+
+
+@pytest.mark.unit
 def test_antenna_gains_can_carry_a_residual_bandpass_ripple():
     """Set, each dish's ripple reaches the engine; unset, every released model
     keeps its identity."""
