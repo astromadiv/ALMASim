@@ -34,6 +34,7 @@ def _fake_ms(
     scans: int = 1,
     dish: float = 12.0,
     larger_dishes: tuple[int, ...] = (),
+    short_dumps: int = 0,
 ) -> dict[str, FakeTable]:
     rng = np.random.default_rng(seed)
     a1, a2 = np.triu_indices(NANT, 1)
@@ -73,6 +74,12 @@ def _fake_ms(
         # left flagged.
         weight[::high_weight_every, 0] = 1e6
         flag[::high_weight_every] |= high_weight_flagged
+    interval = np.full(nrow, 6.0)
+    if short_dumps:
+        # The last times are the short dumps that end a subscan, flagged whole.
+        short = np.repeat(step, nbl) >= NTIME - short_dumps
+        interval[short] = 1.5
+        flag[short] = True
     ddid = np.zeros(nrow, dtype=int)
     field = np.zeros(nrow, dtype=int)
     # One more window and an autocorrelation per time, which must not count.
@@ -86,7 +93,7 @@ def _fake_ms(
         "DATA_DESC_ID": np.concatenate([ddid, np.zeros(extra, int)]),
         "FIELD_ID": np.concatenate([field, np.zeros(extra, int)]),
         "TIME": np.concatenate([times, times[:extra]]),
-        "INTERVAL": np.full(nrow + extra, 6.0),
+        "INTERVAL": np.concatenate([interval, interval[:extra]]),
     }
     freq = 230e9 + 15.625e6 * np.arange(NCHAN)
     nspw = 4
@@ -221,6 +228,18 @@ def test_flagged_rows_over_the_maximum_weight_are_counted_once(fake_ms):
     assert e.high_weight_fraction == 0.0
     # Flagged: the high-weight quarter, and the other rows' few flagged channels.
     assert e.flagged_fraction == pytest.approx(0.25 + 0.75 / 17 * 4 / NCHAN, abs=0.01)
+
+
+@pytest.mark.unit
+def test_the_flagged_share_weighs_each_value_by_its_integration_time(fake_ms):
+    # 40 of 200 times are short dumps (1.5 s against 6 s), flagged whole:
+    # a fifth of the rows, but 1/17 of the time.
+    ms = fake_ms("w.ms", short_dumps=40)
+    e = extract.extract_window(ms, SPW, "target", max_visibilities=10**9)[0].exposure
+    short_time = 40 * 1.5 / (40 * 1.5 + 160 * 6.0)
+    channels = 4 / NCHAN / 17  # the other rows' few flagged channels
+    assert e.flagged_fraction == pytest.approx(short_time + (1 - short_time) * channels, abs=0.005)
+    assert e.flagged_fraction < 0.1  # counted per value it would be over 0.2
 
 
 @pytest.mark.unit

@@ -59,7 +59,8 @@ class _Sums:
     antenna_count: np.ndarray = field(init=False)
     antenna_rows: np.ndarray = field(init=False)
     # Per baseline (ANTENNA1 * nant + ANTENNA2): rows over the maximum WEIGHT,
-    # flagged values and values, and the Stokes I sums (stokes_sum, stokes_count).
+    # flagged values and values, each value weighed by its row's integration
+    # time, and the Stokes I sums (stokes_sum, stokes_count).
     baseline: dict[str, np.ndarray] = field(init=False)
     rows: int = 0
 
@@ -80,7 +81,11 @@ class _Sums:
         rows over the maximum WEIGHT, on the baselines between the array's
         antennas (antenna_rows): the rows of an antenna whose data are all
         flagged are not the array's. The two add up to the share the image
-        does without; a flagged value of a row over the maximum is counted once."""
+        does without; a flagged value of a row over the maximum is counted once.
+        Each value weighs as its row's integration time (INTERVAL), as its
+        data do in the image: the short dumps that end a subscan (0.576 s
+        against 2.016 s) are flagged whole, and counted per value they would
+        weigh as much as a full one."""
         array = self.antenna_rows > 0
         between = (array[:, None] & array[None, :]).ravel()
         b = {key: value[between].sum() for key, value in self.baseline.items()}
@@ -152,6 +157,7 @@ def extract_window(
                 ant2=a2[first : first + count * step : step],
                 hands=hands[:2],
                 max_weight=max_weight,
+                interval=exposure_cols["INTERVAL"][first : first + count * step : step],
             )
 
     thermal = _thermal(sums, lines, step)
@@ -260,18 +266,21 @@ def _accumulate(
     ant2: np.ndarray,
     hands: list[int],
     max_weight: float | None = None,
+    interval: np.ndarray | None = None,
 ) -> None:
-    """Add one chunk of rows (nrow, nchan, ncorr) to the sums."""
+    """Add one chunk of rows (nrow, nchan, ncorr) to the sums; ``interval``
+    (each row's integration time, 1 without it) weighs the flagged shares."""
     imaged = np.ones(weight.shape[0], dtype=bool)
+    seconds = np.ones(weight.shape[0]) if interval is None else np.asarray(interval, float)
     if max_weight:
         imaged = weight.max(axis=1) <= max_weight
     pair = ant1 * sums.nant + ant2
     for key, value in (
         # The unflagged values of rows over the maximum WEIGHT: the archive
         # pipeline may have flagged such a row already, and flagged counts it.
-        ("high", ((~imaged)[:, None, None] & ~flag).sum(axis=(1, 2)).astype(np.float64)),
-        ("flagged", flag.sum(axis=(1, 2)).astype(np.float64)),
-        ("values", np.full(pair.size, float(flag[0].size))),
+        ("high", ((~imaged)[:, None, None] & ~flag).sum(axis=(1, 2)) * seconds),
+        ("flagged", flag.sum(axis=(1, 2)) * seconds),
+        ("values", float(flag[0].size) * seconds),
     ):
         sums.baseline[key] += np.bincount(pair, value, sums.nant * sums.nant)
     if weight.shape[1] != data.shape[2]:
