@@ -210,6 +210,7 @@ class NoiseModel(BaseModel):
                 )
                 or None,
                 log_spread=c["fast_log_spread"] or None,
+                wind_mps=c["fast_wind_mps"] or None,
             )
         if c["baseline_amp_rms"] > 0 or c["baseline_phase_rms_deg"] > 0:
             parts["baseline_errors"] = BaselineErrors(

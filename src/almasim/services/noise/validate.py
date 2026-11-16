@@ -230,6 +230,7 @@ def with_window_fast_phase(model: NoiseModel, fit_path: Path) -> NoiseModel:
         path_um_1km=own.path_um_1km,
         slope=own.slope,
         coherence_s=own.coherence_s or fast.coherence_s,
+        wind_mps=fast.wind_mps,
     )
     components = model.components.model_copy(update={"fast_phase": window_fast})
     return model.model_copy(update={"components": components})
