@@ -956,7 +956,13 @@ uses: an MS often lists antennas whose data are all flagged (up to 15 of
 43 on the MADIV-16 windows), and the array that observed is the rest. Its
 `flagged_fraction` and `high_weight_fraction` are measured on the baselines
 between those antennas, so the simulated window, observed by the array
-alone, misses only the data the array's own baselines miss.
+alone, misses only the data the array's own baselines miss. Each value in
+them weighs as its row's integration time (`INTERVAL`), as its data do in
+the image: an MS ends many subscans with a short dump (0.576 s against
+2.016 s on the band 8 to 10 TDM windows) that the pipeline flags whole, and
+the simulated window, whose dumps are all full, misses only the time those
+dumps hold (on window X2b74 of band 9: 0.32 of its data, where counting each
+value alike gives 0.40).
 
 This is window 81 (band 6, 12 m), shortened:
 

@@ -50,13 +50,15 @@ class Exposure(_Record):
     frequency_ghz: float
     correlations: int
     flagged_fraction: float = Field(
-        description="The flagged share of the values on the baselines between the antennas."
+        description="The flagged share of the values on the baselines between the antennas, "
+        "each value weighed by its row's integration time."
     )
     high_weight_fraction: float = Field(
         default=0.0,
         description="The share of the values, on the baselines between the antennas, that are "
         "unflagged in rows whose WEIGHT exceeds the imaging's maximum (image image-from-ms "
-        "--max-weight), which the image leaves out besides the flagged ones.",
+        "--max-weight), which the image leaves out besides the flagged ones; each value "
+        "weighed by its row's integration time.",
     )
     elevation_deg: float | None = Field(default=None, description="The target's median elevation.")
     hour_angle_h: float | None = Field(
