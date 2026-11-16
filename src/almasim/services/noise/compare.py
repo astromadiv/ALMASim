@@ -258,8 +258,8 @@ def _cube_width_scale(pair: Pair) -> float:
 def _bandwidth_scale(pair: Pair) -> float:
     """The simulated continuum's noise over the real window's band. ``noise
     validate`` simulates at most 1024 of a window's channels, and the
-    continuum's noise goes as one over the square root of the sum of its
-    channels' weights, each one over its noise variance: over the real Tsys
+    continuum's channels weigh alike (an MS's WEIGHT is one per row), so its
+    noise variance is the channels' mean variance over their number: over the real Tsys
     spectrum where validate recorded the simulated channels
     (:meth:`.channels.SimulatedBand.scales`), else sqrt(simulated / real
     bandwidth) (1 when either window is unknown)."""

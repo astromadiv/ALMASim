@@ -76,8 +76,8 @@ def test_the_scales_bring_the_central_channels_to_the_whole_window():
     scales = band.scales(real)
     # Visibilities: the mean variance, 2.5 over the window against 4.
     assert scales["visibility"] == pytest.approx(np.sqrt(2.5 / 4))
-    # Continuum: weights 1/4 + 1/4 of 1 + 1/4 + 1/4 + 1.
-    assert scales["band"] == pytest.approx(np.sqrt(0.5 / 2.5))
+    # Continuum, its channels weighed alike: (2/4) x mean variance 2.5 / 4.
+    assert scales["band"] == pytest.approx(np.sqrt(2 / 4 * 2.5 / 4))
     assert scales["cube"] == pytest.approx(np.sqrt(2.5 / 4))
     # Line channels are left out of both sides' visibilities.
     lined = SimulatedBand(total=4, first=1, count=2, line_channels="1")

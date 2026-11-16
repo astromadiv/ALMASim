@@ -1234,9 +1234,11 @@ Eleven choices keep the comparison fair, and one limit remains:
   variance and carries no sky), `v(k)`, over the simulated channels S and
   the window's channels W: the visibility noise (`visibility.unit_jy`) by
   sqrt(mean v over W / mean v over S), both without the line channels; the
-  continuum noise (`cont.sigma` and `jk.sigma`, natural weighting) by
-  sqrt(sum 1/v over S / sum 1/v over W), which is sqrt(1024 / 1920) for a
-  flat Tsys (w99: noise higher by 1.37); the cube noise by sqrt(median v
+  continuum noise (`cont.sigma` and `jk.sigma`) by sqrt((N_S / N_W) mean v
+  over W / mean v over S), N the number of channels: an MS's WEIGHT is one
+  per row, so a continuum image weighs its channels alike and its noise
+  variance is their mean variance over their number. For a flat Tsys that is
+  sqrt(1024 / 1920) (w99: noise higher by 1.37); the cube noise by sqrt(median v
   over W / median v over S). Without the real window's Tsys (no SYSCAL) or
   a `band.json`, Tsys counts as flat.
 - *Each hand.* `noise extract` measures the simulated MS per hand, as the

@@ -72,8 +72,10 @@ class SimulatedBand:
         """Factors that bring a simulated metric to the real window's channels,
         from the real Tsys spectrum (1 without one, or when every channel is
         simulated): ``visibility``, the mean noise variance over the line-free
-        channels; ``band``, a continuum image (natural weighting: each channel
-        weighs as one over its variance); ``cube``, the median channel."""
+        channels; ``band``, a continuum image, whose channels weigh alike (an
+        MS's WEIGHT is one per row, for all its channels): its noise variance
+        is the channels' mean variance over their number; ``cube``, the
+        median channel."""
         profile = None if real is None or real.tsys is None else real.tsys.profile
         if profile is None or len(profile) != self.total or self.count >= self.total:
             variance = np.ones(self.total)
@@ -84,7 +86,9 @@ class SimulatedBand:
         visibility = (
             float(np.sqrt(variance[free].mean() / variance[both].mean())) if both.any() else 1.0
         )
-        band = float(np.sqrt((1 / variance[sub]).sum() / (1 / variance).sum()))
+        # Mean variance over N alike-weighted channels, divided by N: the
+        # simulated channels' over the window's.
+        band = float(np.sqrt(self.count / self.total * variance.mean() / variance[sub].mean()))
         cube = float(np.sqrt(np.median(variance) / np.median(variance[sub])))
         return {"visibility": visibility, "band": band, "cube": cube}
 
