@@ -33,7 +33,7 @@ def test_alma_is_released_and_named_by_version():
     with pytest.raises(ValueError, match="no version 99"):
         resolve_noise_model("alma@99")
     assert set(alma.enabled()) == set(COMPONENT_NAMES)
-    assert alma.provenance is not None and alma.provenance.windows == 127
+    assert alma.provenance is not None and alma.provenance.windows == 148
 
 
 @pytest.mark.unit
@@ -152,10 +152,10 @@ def test_products_record_the_model_that_made_them(tmp_path):
 
     params = _params(tmp_path, noise_model="alma")
     line = _noise_model_line(params)
-    assert line == f"alma@5 (sha256 {released_model('alma').sha256()})"  # the newest
+    assert line == f"alma@6 (sha256 {released_model('alma').sha256()})"  # the newest
     assert _noise_model_line(_params(tmp_path)) is None
     identity = released_model("alma").identity()
-    assert identity["label"] == "alma@5" and identity["components"] == list(COMPONENT_NAMES)
+    assert identity["label"] == "alma@6" and identity["components"] == list(COMPONENT_NAMES)
     spec = history_table("p", np.array([0.0, 1.0]), (f"noise_model={json.dumps(identity)}",))
     assert list(spec.values["APP_PARAMS"])[1].startswith("noise_model=")
     assert list(history_table("p", np.array([0.0, 1.0])).values["APP_PARAMS"]) == ["p"]
