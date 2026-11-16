@@ -5,6 +5,7 @@ channels left out alike, and windows whose MS lists channels falling."""
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -107,6 +108,8 @@ def test_compare_takes_the_simulated_visibilities_to_the_real_channels():
     )
     assert _value(banded, "visibility.unit_jy", simulated=True) == pytest.approx(2000.0)
     assert _value(banded, "visibility.unit_jy", simulated=False) == pytest.approx(2000.0)
+    # A record, not a number, has no value.
+    assert _value(banded, "visibility", simulated=True) is None
 
 
 @pytest.mark.unit
@@ -116,3 +119,81 @@ def test_the_simulated_band_is_recorded_and_read_back(tmp_path):
     path.write_text(band.to_json())
     assert SimulatedBand.read(path) == band
     assert SimulatedBand.read(tmp_path / "none.json") is None
+
+
+class _SpectralWindows:
+    """A SPECTRAL_WINDOW table: window 0 rising, window 1 falling."""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def getcell(self, column, row):
+        assert column == "CHAN_WIDTH"
+        return np.array([1.0e6, 1.0e6]) * (1 if row == 0 else -1)
+
+
+@pytest.mark.unit
+def test_the_channel_order_is_read_from_the_windows_channel_widths(monkeypatch):
+    from almasim.services.imaging import ms_geometry
+    from almasim.services.noise.channels import channels_falling
+
+    opened = []
+
+    def table(path, ack=False):
+        opened.append(path)
+        return _SpectralWindows()
+
+    monkeypatch.setattr(ms_geometry, "import_casacore_tables", lambda: table)
+    assert channels_falling("/d/a.ms", 0) == {"falling": False}
+    assert channels_falling("/d/a.ms", 1) == {"falling": True}
+    assert opened == ["/d/a.ms/SPECTRAL_WINDOW"] * 2
+
+
+@pytest.mark.unit
+def test_a_windows_band_takes_its_order_and_line_channels(monkeypatch, tmp_path):
+    from almasim.services.noise import validate as v
+    from almasim.services.noise.batch import WindowTask
+    from almasim.services.runtime import child
+
+    calls = []
+
+    def call_in_child(target, kwargs, **options):
+        calls.append((target, dict(kwargs)))
+        return {"falling": True}
+
+    monkeypatch.setattr(child, "call_in_child", call_in_child)
+    real = _window("w")
+    real = real.model_copy(update={"exposure": real.exposure.model_copy(update={"channels": 3840})})
+    task = WindowTask(ms="/d/a.ms", spw=5, name="w", line_channels="1500~1599")
+    band = v.window_band(task, real)
+    assert calls == [
+        ("almasim.services.noise.channels:channels_falling", {"ms": "/d/a.ms", "spw": 5})
+    ]
+    assert (band.total, band.first, band.count, band.falling) == (3840, 1408, 1024, True)
+    # Real channels 1500-1599 are the simulated window's 92-191, numbered
+    # from the falling end: 1023 - 191 = 832 to 1023 - 92 = 931.
+    assert band.simulated_line_channels() == "832~931"
+
+
+@pytest.mark.unit
+def test_the_simulated_window_is_measured_without_its_line_channels(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    from almasim.services.noise import validate as v
+
+    calls = []
+
+    def run(command, capture_output, text):
+        calls.append(command)
+        out = Path(command[command.index("--out") + 1])
+        (out / "windows" / "w").mkdir(parents=True)
+        (out / "windows" / "w" / "window.json").write_text(_window("w").model_dump_json())
+        return SimpleNamespace(returncode=0, stderr="", stdout="")
+
+    monkeypatch.setattr(v.subprocess, "run", run)
+    v.measure(tmp_path / "sim.ms", "w", tmp_path, line_channels="832~931")
+    (command,) = calls
+    assert command[command.index("--line-channels") + 1] == "832~931"
