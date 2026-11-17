@@ -67,6 +67,7 @@
 	let listFiles = $state(false);
 	let includeText = $state('');
 	let excludeText = $state('');
+	let pb = $state(true);
 	let extract = $state(true);
 	let unpack = $state(true);
 	let calibrate = $state(true);
@@ -83,7 +84,7 @@
 	const include = $derived(parsePatterns(includeText));
 	const exclude = $derived(parsePatterns(excludeText));
 	const picked = $derived(
-		products ? selection(products, productFilter, include, exclude) : { count: 0, bytes: 0 }
+		products ? selection(products, productFilter, include, exclude, pb) : { count: 0, bytes: 0 }
 	);
 	const downloadBytes = $derived(picked.bytes);
 	/** The ticked rows, opened on the Simulate page instead. */
@@ -234,6 +235,7 @@
 			productFilter,
 			include,
 			exclude,
+			pb,
 			extract,
 			unpack,
 			calibrate
@@ -445,6 +447,15 @@
 								the files inside each archive”, and among whole archives otherwise.</span
 							>
 						</label>
+						<label class="flex items-start gap-2 text-sm"
+							><input type="checkbox" class="mt-1" bind:checked={pb} />
+							<span
+								>With each <code>*.pbcor.fits</code> image, its primary beam (<code
+									>*.pb.fits.gz</code
+								>) and the image before primary-beam correction (<code>*.image.fits</code>, written
+								next to them)</span
+							></label
+						>
 						<PathPicker bind:value={destination} label="Destination" allowCreate required />
 						<p class="m-0 text-sm" class:text-danger={space && space.free_bytes < downloadBytes}>
 							{picked.count} file{picked.count === 1 ? '' : 's'}, {formatBytes(downloadBytes)} to download{space

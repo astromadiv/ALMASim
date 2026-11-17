@@ -23,6 +23,9 @@ ALMASim can:
 - list the files inside each member's product and auxiliary tars, and pick
   single files by name, for example only the cleaned `*.pbcor.fits` images
   ([below](#choosing-single-files))
+- with each picked `*.pbcor.fits` image, download its primary beam and write
+  the image before primary-beam correction
+  ([below](#primary-beams-and-the-images-before-correction))
 - skip the raw ASDMs of execution blocks ALMA never calibrated (below)
 - download them across the ESO, NRAO and NAOJ mirrors, at most 10 transfers
   per mirror (`--max-parallel`, default 3, capped at 30)
@@ -87,6 +90,31 @@ almasim products download --products-csv resolved.csv \
   --product-filter fits --expand-archives \
   --include '*_sci.*.pbcor.fits' --exclude '*.mfs.*' \
   --destination images --yes
+```
+
+### Primary beams and the images before correction
+
+With each `<name>.pbcor.fits` image that `--include` and `--exclude` pick,
+`products download` also downloads its primary beam, `<name>.pb.fits.gz` from
+the same product tar, unless an `--exclude` glob names it. After the
+download it writes `<name>.image.fits` next to them: the corrected image
+times the primary beam, the image before primary-beam correction, whose
+noise is flat across the field. Pixels the pipeline blanked below its
+primary-beam limit stay blank. Each image keeps the corrected image's header
+and its `BEAMS` table, with a `HISTORY` card naming both inputs. The product
+is taken one channel at a time, so a cube never has to fit in memory. An
+image newer than both its inputs is left as it is, so a second run over the
+same destination writes only the missing ones; the summary counts the images
+written, those already there and the corrected images without a primary
+beam. Pbcor images that `--extract-tar` unpacks from whole product tars get
+their images too. `--no-pb` downloads only the picked files.
+
+```bash
+# the science targets' continuum images, their primary beams, and the
+# continuum images before primary-beam correction (*.cont.I.image.fits)
+almasim products download --products-csv resolved.csv \
+  --product-filter fits --expand-archives \
+  --include '*.cont.I.pbcor.fits' --destination images --yes
 ```
 
 `almasim products resolve --expand-archives` saves the files instead of the
@@ -215,15 +243,20 @@ from almasim.services.download import (
     resolve_products,
     save_products_csv,
     select_files,
+    with_primary_beams,
+    write_uncorrected_images,
 )
 
 products = resolve_products(metadata["member_ous_uid"].tolist())
 save_products_csv(products, "resolved.csv")
 summary = download_products(filter_products(products, "auxiliary"), "downloads", extract_tar=True)
 
-# only the primary-beam-corrected images inside the product tars
-images = select_files(expand_archives(filter_products(products, "fits")), ["*.pbcor.fits"])
-download_products(images, "images")
+# only the primary-beam-corrected images inside the product tars, with their
+# primary beams, then the images before primary-beam correction
+listing = expand_archives(filter_products(products, "fits"))
+images = with_primary_beams(select_files(listing, ["*.pbcor.fits"]), listing)
+summary = download_products(images, "images")
+write_uncorrected_images("images", [f.filename for f in summary.files if f.status == "completed"])
 ```
 
 ## Web console

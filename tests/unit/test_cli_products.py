@@ -94,6 +94,8 @@ def test_products_download_slurm_postprocess_path(tmp_path, monkeypatch):
         return SimpleNamespace(
             destination=str(destination),
             files_completed=1,
+            files=[],
+            extracted_files=[],
             files_failed=0,
             manifest_path=str(destination / "download_manifest.json"),
         )
@@ -141,6 +143,8 @@ def test_products_download_sync_path(tmp_path, monkeypatch):
         return SimpleNamespace(
             destination=str(tmp_path / "downloads"),
             files_completed=1,
+            files=[],
+            extracted_files=[],
             files_failed=0,
             manifest_path=None,
             raw_measurement_sets=[],
@@ -201,6 +205,8 @@ def test_products_download_sync_without_postprocess_keeps_single_call(tmp_path, 
         lambda *args, **kwargs: SimpleNamespace(
             destination=str(tmp_path / "downloads"),
             files_completed=1,
+            files=[],
+            extracted_files=[],
             files_failed=0,
             manifest_path=None,
             raw_measurement_sets=[],
@@ -251,6 +257,8 @@ def test_products_download_picks_files_inside_the_archives(tmp_path, monkeypatch
         return SimpleNamespace(
             destination=str(destination),
             files_completed=len(products),
+            files=[],
+            extracted_files=[],
             files_failed=0,
             manifest_path=None,
             raw_measurement_sets=[],
@@ -355,6 +363,8 @@ def test_products_download_skip_qa0_semipass_filters_raw_products(tmp_path, monk
         return SimpleNamespace(
             destination=str(tmp_path / "downloads"),
             files_completed=1,
+            files=[],
+            extracted_files=[],
             files_failed=0,
             manifest_path=None,
             raw_measurement_sets=[],
@@ -593,3 +603,70 @@ def test_stage_errors_map_to_exit_codes():
     with pytest.raises(typer.Exit) as info, cli_products._stage_errors():
         raise archive_pipeline.StageUsageError("bad combination")
     assert info.value.exit_code == 2
+
+
+def test_products_download_brings_the_primary_beams_and_the_uncorrected_images(
+    tmp_path, monkeypatch
+):
+    """--pb (the default) adds each picked pbcor image's primary beam and writes
+    <name>.image.fits after the download; --no-pb downloads only what was picked."""
+    import numpy as np
+    from astropy.io import fits
+
+    from almasim.services.download import DataProduct
+
+    def product(filename):
+        return DataProduct(
+            access_url=f"https://example.org/{filename}",
+            uid="uid://A",
+            filename=filename,
+            content_length=5,
+            content_type="",
+            product_type="fits",
+            semantics="#this",
+            path="P/member.A/product",
+        )
+
+    listing = [
+        product(n) for n in ("m.mfs.I.pbcor.fits", "m.mfs.I.pb.fits.gz", "m.mfs.I.mask.fits.gz")
+    ]
+    downloaded: list[list[str]] = []
+
+    def fake_download(products, destination, **kwargs):
+        downloaded.append([p.filename for p in products])
+        folder = destination / "P" / "member.A" / "product"
+        folder.mkdir(parents=True, exist_ok=True)
+        for p in products:  # the files as the archive serves them
+            data = np.full((1, 1, 4, 4), 2.0 if "pbcor" in p.filename else 0.5, np.float32)
+            fits.PrimaryHDU(data).writeto(folder / p.filename, overwrite=True)
+        return SimpleNamespace(
+            destination=str(destination),
+            files_completed=len(products),
+            files_failed=0,
+            files=[SimpleNamespace(filename=p.relative_path, status="completed") for p in products],
+            extracted_files=[],
+            manifest_path=None,
+            raw_measurement_sets=[],
+            calibrated_measurement_sets=[],
+        )
+
+    monkeypatch.setattr(cli_products, "_resolve_products_from_inputs", lambda **kwargs: listing)
+    monkeypatch.setattr(cli_products, "expand_archives", lambda products, layout: products)
+    monkeypatch.setattr(cli_products, "download_products", fake_download)
+    argv = [
+        "products", "download", "--member-ous-uid", "uid://A", "--expand-archives",
+        "--include", "*.pbcor.fits", "--destination", str(tmp_path), "--yes",
+    ]  # fmt: skip
+
+    result = runner.invoke(cli.app, argv)
+    assert result.exit_code == 0, result.output
+    assert downloaded[-1] == ["m.mfs.I.pbcor.fits", "m.mfs.I.pb.fits.gz"]
+    image = tmp_path / "P" / "member.A" / "product" / "m.mfs.I.image.fits"
+    assert np.allclose(fits.getdata(image), 1.0)  # 2 x 0.5
+    assert "Images before primary-beam correction: 1 written" in result.output
+
+    image.unlink()
+    result = runner.invoke(cli.app, [*argv, "--no-pb"])
+    assert result.exit_code == 0, result.output
+    assert downloaded[-1] == ["m.mfs.I.pbcor.fits"]
+    assert not image.exists()

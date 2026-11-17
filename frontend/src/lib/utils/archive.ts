@@ -39,6 +39,11 @@ export interface DownloadChoice {
 	include?: string[];
 	/** Filename globs: files matching one of them are skipped. */
 	exclude?: string[];
+	/**
+	 * With each picked `*.pbcor.fits` image, its primary beam and the image
+	 * before correction (the CLI's default); false: only the picked files.
+	 */
+	pb?: boolean;
 	extract: boolean;
 	unpack: boolean;
 	calibrate: boolean;
@@ -58,6 +63,7 @@ export function downloadArgv(choice: DownloadChoice): string[] {
 	];
 	for (const pattern of choice.include ?? []) argv.push('--include', pattern);
 	for (const pattern of choice.exclude ?? []) argv.push('--exclude', pattern);
+	if (choice.pb === false) argv.push('--no-pb');
 	// Each step needs the one before it.
 	if (choice.extract || choice.unpack || choice.calibrate) argv.push('--extract-tar');
 	if (choice.unpack || choice.calibrate) argv.push('--unpack-ms');
@@ -162,20 +168,43 @@ export function matchesPatterns(name: string, include: string[], exclude: string
 	return (include.length === 0 || hit(include)) && !hit(exclude);
 }
 
-/** The files and bytes a download picks: its product filter, then the filename globs. */
+const PBCOR_SUFFIX = '.pbcor.fits';
+const PB_SUFFIXES = ['.pb.fits.gz', '.pb.fits'];
+
+/**
+ * The files and bytes a download picks: its product filter, then the filename
+ * globs; with `pb`, as `products download --pb` does, each picked pbcor
+ * image's primary beam from the same folder too (unless an exclude names it).
+ */
 export function selection(
 	records: Record<string, string>[],
 	filter: string,
 	include: string[] = [],
-	exclude: string[] = []
+	exclude: string[] = [],
+	pb = true
 ): { count: number; bytes: number } {
-	let count = 0;
-	let bytes = 0;
-	for (const record of records) {
-		if (filter !== 'all' && (record.product_type || 'other') !== filter) continue;
-		if (!matchesPatterns(record.filename ?? '', include, exclude)) continue;
-		count += 1;
-		bytes += Number(record.content_length) || 0;
+	const listed = records.filter(
+		(record) => filter === 'all' || (record.product_type || 'other') === filter
+	);
+	const place = (record: Record<string, string>) => `${record.path ?? ''}/${record.filename ?? ''}`;
+	const picked = new Set(
+		listed.filter((record) => matchesPatterns(record.filename ?? '', include, exclude))
+	);
+	if (pb && (include.length > 0 || exclude.length > 0)) {
+		const byPlace = new Map(listed.map((record) => [place(record), record]));
+		for (const record of [...picked]) {
+			const name = record.filename ?? '';
+			if (!name.endsWith(PBCOR_SUFFIX)) continue;
+			const stem = name.slice(0, -PBCOR_SUFFIX.length);
+			for (const suffix of PB_SUFFIXES) {
+				const beam = byPlace.get(`${record.path ?? ''}/${stem}${suffix}`);
+				if (!beam) continue;
+				if (matchesPatterns(beam.filename, [], exclude)) picked.add(beam);
+				break;
+			}
+		}
 	}
-	return { count, bytes };
+	let bytes = 0;
+	for (const record of picked) bytes += Number(record.content_length) || 0;
+	return { count: picked.size, bytes };
 }

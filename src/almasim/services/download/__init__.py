@@ -18,6 +18,7 @@ from .datalink import (
 from .models import PRODUCT_TYPES, DataProduct, DownloadSummary, FileDownloadStatus, format_bytes
 from .orchestrate import _cleanup_download_inputs as _cleanup_download_inputs
 from .orchestrate import download_products
+from .primary_beams import with_primary_beams, write_uncorrected_images
 from .transfer import MAX_PARALLEL_PER_MIRROR as MAX_PARALLEL_PER_MIRROR
 from .transfer import MAX_PARALLEL_TOTAL as MAX_PARALLEL_TOTAL
 
@@ -37,4 +38,6 @@ __all__ = [
     "save_products_csv",
     "load_products_csv",
     "download_products",
+    "with_primary_beams",
+    "write_uncorrected_images",
 ]
