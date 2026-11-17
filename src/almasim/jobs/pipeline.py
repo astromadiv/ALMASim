@@ -35,11 +35,12 @@ def archive_to_images(
 
     ``query`` are ``almasim metadata`` options (``--science-keyword``,
     ``--band``…); ``download`` and ``imaging`` add options to those steps.
-    Everything lands in ``folder``: metadata.csv, downloads/, ms/ (raw and
-    calibrated measurement sets), params.csv, images/.
+    Everything lands in ``folder``: metadata.csv, params.csv and downloads/, the
+    ALMA delivery tree, whose member folders hold the raw and calibrated
+    measurement sets and the images.
     """
     f = Path(folder)
-    calibrated = f / "ms" / "calibrated_ms"
+    tree = f / "downloads"
     return [
         Step("Query the archive", ["metadata", "--save-csv", str(f / "metadata.csv"), *query]),
         Step(
@@ -54,20 +55,18 @@ def archive_to_images(
                 "--extract-tar",
                 "--unpack-ms",
                 "--generate-calibrated-visibilities",
-                "--archive-output-root",
-                str(f / "ms"),
                 *download,
             ],
         ),
         Step(
             "Imaging parameters",
-            ["image", "compute-parameters", str(calibrated), str(f / "params.csv")],
+            ["image", "compute-parameters", str(tree), str(f / "params.csv")],
         ),
         Step(
             "Imaging",
-            ["image", "image-from-ms", str(f / "params.csv"), str(f / "images"), *imaging],
+            ["image", "image-from-ms", str(f / "params.csv"), str(tree), *imaging],
         ),
-        Step("Clean quality", ["image", "clean-quality", str(f / "images")]),
+        Step("Clean quality", ["image", "clean-quality", str(tree)]),
     ]
 
 

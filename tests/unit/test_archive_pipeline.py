@@ -296,7 +296,7 @@ def test_calibrate_single_uid_streams_logs_and_returns_expected_output(tmp_path,
     assert isinstance(cmd, list)
     assert "--overwrite-outputs" in cmd
     assert "--skip-casa-data-update" in cmd
-    assert "--no-organize-delivery" in cmd  # the command that started it organizes once
+    assert "--no-index-delivery" in cmd  # the command that started it indexes once
 
     assert kwargs["cwd"].endswith("ALMASim")
     assert "PYTHONPATH" in kwargs["env"]

@@ -458,8 +458,8 @@ def _calibrate_single_uid(
         "--casa-data-root",
         effective_casa_data,
         "--skip-casa-data-update",
-        # The command that started the workers organizes the delivery tree once, at the end.
-        "--no-organize-delivery",
+        # The command that started the workers indexes the delivery tree once, at the end.
+        "--no-index-delivery",
     ]
     if overwrite:
         cmd.append("--overwrite-outputs")
@@ -1000,7 +1000,7 @@ def _run_extract_jobs(
 def _run_parallel_archive_jobs(  # noqa: C901
     *,
     download_root: Path,
-    archive_output_root: Path,
+    archive_output_root: Path | None,
     unpack_ms: bool,
     generate_calibrated_visibilities: bool,
     postprocess_backend: str,
@@ -1015,8 +1015,9 @@ def _run_parallel_archive_jobs(  # noqa: C901
 ) -> tuple[list[str], list[str]]:
     if failures is None:
         failures = []
-    raw_ms_root = archive_output_root / "raw_ms"
-    calibrated_ms_root = archive_output_root / "calibrated_ms"
+    from .delivery import archive_ms_roots
+
+    raw_ms_root, calibrated_ms_root = archive_ms_roots(download_root, archive_output_root)
 
     if unpack_ms:
         asdm_uids = _extract_asdm_uids_from_download_root(download_root)
@@ -1046,7 +1047,7 @@ def _run_parallel_archive_jobs(  # noqa: C901
 
     # One CASA runtime data directory for both stages, populated on the submit node.
     worker_casa_data = _preflight_casa_data(
-        archive_output_root, casa_data_root, skip_casa_data_update, echo
+        archive_output_root or download_root, casa_data_root, skip_casa_data_update, echo
     )
     skip_casa_data_update = True
 
@@ -1138,7 +1139,7 @@ def _run_parallel_archive_jobs(  # noqa: C901
 
 def run_archive_stages(
     download_root: Path,
-    archive_output_root: Path,
+    archive_output_root: Path | None = None,
     *,
     unpack_ms: bool = True,
     calibrate: bool = True,
@@ -1152,14 +1153,16 @@ def run_archive_stages(
 ) -> ArchiveStageResult:
     """Unpack and calibrate every UID under ``download_root``, one subprocess per UID.
 
-    Raw MSs go to ``<archive_output_root>/raw_ms`` and calibrated ones to
-    ``calibrated_ms``. A failed UID is recorded in the result's ``failures``
+    Each MS goes into its member folder of the delivery tree under
+    ``download_root`` (``raw/``, ``calibrated/``); with ``archive_output_root``, raw MSs
+    go to ``<archive_output_root>/raw_ms`` and calibrated ones to ``calibrated_ms``
+    instead. A failed UID is recorded in the result's ``failures``
     (with a ``.failed`` marker next to its output) and the others go on.
     """
     result = ArchiveStageResult()
     result.raw_ms, result.calibrated_ms = _run_parallel_archive_jobs(
         download_root=Path(download_root),
-        archive_output_root=Path(archive_output_root),
+        archive_output_root=Path(archive_output_root) if archive_output_root else None,
         unpack_ms=unpack_ms,
         generate_calibrated_visibilities=calibrate,
         postprocess_backend=postprocess_backend,

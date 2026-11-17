@@ -56,9 +56,11 @@ almasim products download --products-csv resolved.csv \
 `almasim metadata --save-products-csv` resolves the products in the same run
 as the query. A file already on disk at its full size is not downloaded again,
 and an interrupted transfer resumes from its `.part` file. Each run writes
-`download_manifest.json` in the destination folder. Raw and calibrated
-MeasurementSets go under `--archive-output-root` (default
-`<destination>/archive_ms`). Each stage can also run on its own: `almasim
+`download_manifest.json` in the destination folder. Each raw and calibrated
+MeasurementSet goes into its member folder of the delivery tree in the
+destination (see [The delivery tree](#the-delivery-tree));
+`--archive-output-root` puts them in `raw_ms/` and `calibrated_ms/` of a folder
+of their own instead. Each stage can also run on its own: `almasim
 visibilities extract`, `unpack` and `calibrate`. See
 [`almasim products download`](cli.md#almasim-products-download) for every
 option.
@@ -148,44 +150,51 @@ the auxiliary tar was extracted or listed file by file.
 
 ## The delivery tree
 
-Every image and MeasurementSet ALMASim downloads or makes traces back to its
-project, science goal, group and member OUS through the ALMA delivery tree:
+Every image and MeasurementSet ALMASim downloads or makes lives in the ALMA
+delivery tree, in the folder of its member OUS, below its project, science
+goal and group:
 
 ```text
 <root>/ous_index.csv
 <root>/<project>/science_goal.<uid>/group.<uid>/member.<uid>/
-    product/  calibration/  qa/  script/  log/  raw/   as ALMA delivers them
-    calibrated/<eb>.ms.split.cal                        a link to each calibrated MS
+    product/  calibration/  qa/  script/  log/          as ALMA delivers them
+    raw/<eb>.asdm.sdm                                   the ASDMs, as ALMA delivers them
+    raw/<eb>.ms  raw/<eb>.ms.flagversions               the raw MSs, next to their ASDMs
+    calibrated/<eb>.ms.split.cal                        the calibrated MSs
+    images/SPW-<n>_<field>/wsclean-*.fits               image-from-ms --by-member
+    images/<eb>.ms.split/SPW-<n>_FIELD-<f>/             image-from-ms of one EB's MS
 ```
 
 The extracted tars carry the tree in their paths, and `--layout delivery`
 puts single files at the same paths. Each member's `qa/` folder
-holds one `<eb>.qa0_report.pdf` per execution block, and its `calibration/`
-folder one `<eb>.ms.calapply.txt` per calibrated block, so the tree says which
-member each execution block belongs to. When `products download` unpacks or
-calibrates, and when `visibilities calibrate` finishes, ALMASim links each
-calibrated MS into its member's `calibrated/` folder, where ALMA's
-scriptForPI puts it, and rewrites `ous_index.csv`. The index has one row per
+holds one `<eb>.qa0_report.pdf` per execution block, its `calibration/`
+folder one `<eb>.ms.calapply.txt` per calibrated block, and its `raw/`
+folder each downloaded ASDM, so the tree says which member each execution
+block belongs to. `visibilities unpack` writes each raw MS next to its ASDM,
+and `visibilities calibrate` each calibrated MS into the member's
+`calibrated/` folder, where ALMA's scriptForPI puts it, with the stage's
+`.done` or `.failed` marker beside it; `products download` does both. An
+execution block no member lists goes to `<root>/working/<eb>.ms` (raw) or
+`<root>/<eb>.ms.split.cal` (calibrated). `--output-dir` (and `--raw-ms-root`)
+give a stage a folder of its own instead, with every MS in it; the CI
+regression chain runs that way.
+
+`visibilities calibrate` and `products download` then rewrite
+`ous_index.csv` at the root of the tree. The index has one row per
 execution block: `eb_uid`, `project_code`, `science_goal_uid`,
 `group_ous_uid`, `member_ous_uid`, `member_folder` (relative to the index),
 `alma_calibrated` (`yes` when the member has the block's calapply file) and
-the paths of its `raw_ms` and `calibrated_ms`.
+the paths of its `raw_ms` and `calibrated_ms`, those in its member folder
+first and else those in the stages' own folders. A calibrated MS in such a
+folder whose execution block no member lists is reported.
 
-The MSs stay in `--archive-output-root`; the links are relative, so the tree
-and the MS folders move together. Running again keeps the links that are
-right, drops the ones whose MS is gone, and never replaces a real file or
-folder. A calibrated MS whose execution block no member lists is reported and
-left unlinked. `visibilities calibrate --no-organize-delivery` skips the step.
-For MSs already on disk, `almasim visibilities organize` builds the links and
-the index on its own:
+An image-from-ms output directory that is the root of the tree (it holds
+`ous_index.csv`) puts each imaging task in its member's `images/` folder
+(see [Imaging a member](imaging.md#imaging-a-member-from-all-its-execution-blocks)),
+and `image compute-parameters` given the root reads the members'
+`calibrated/` folders.
 
-```bash
-almasim visibilities organize --delivery-root downloads \
-  --calibrated-ms-root downloads/archive_ms/calibrated_ms \
-  --raw-ms-root downloads/archive_ms/raw_ms
-```
-
-The library entry point is `almasim.services.archive.organize_delivery`, and
+The library entry point is `almasim.services.archive.write_ous_index`, and
 `read_ous_index` reads the index back as `{eb_uid: row}`. `member_status`
 reads it member by member. A member is complete when every execution block
 ALMA calibrated for it has a calibrated MS. Only a complete member is imaged

@@ -174,7 +174,10 @@ def derive_parameters(
 def compute_parameters(
     archive_folder: Path = typer.Argument(
         default=Path("."),
-        help="Processed MSs folder (default: current directory)",
+        help=(
+            "Processed MSs folder (default: current directory). In an ALMA delivery tree the "
+            "--pattern is matched in the members' calibrated/ folders."
+        ),
     ),
     output_metadata_file: Path = typer.Argument(
         default=Path("imaging_parameters.csv"),
@@ -225,7 +228,7 @@ def compute_parameters(
     """
     if intent and not science_only:
         raise typer.BadParameter("--intent selects fields; it cannot be combined with --all-spws")
-    mss = sorted(archive_folder.glob(pattern))
+    mss = _find_mss(archive_folder, pattern)
     if len(mss) == 0:
         typer.echo(f"Cannot find any MS in {archive_folder}")
         raise typer.Exit(code=1)
@@ -770,6 +773,11 @@ def image_from_ms(
     the log path) next to its output directory, and ``SPW-<n>.log`` with the
     full WSClean output. A rerun skips the tasks with a ``.done`` marker and
     retries the rest, so an interrupted batch can simply be resubmitted.
+
+    An output directory that is the root of an ALMA delivery tree (it holds
+    ``ous_index.csv``) puts each task in its member's folder:
+    ``<member>/images/SPW-<n>_<field>`` with --by-member, and
+    ``<member>/images/<ms>/SPW-<n>`` for one EB's MS.
     """
     o = ImageFromMsOptions(**locals())
     imaging, execution = _image_from_ms_options(o)
@@ -895,6 +903,15 @@ def _image_from_ms_tasks(o: ImageFromMsOptions, imaging: ImagingOptions) -> list
     return tasks
 
 
+def _find_mss(folder: Path, pattern: str) -> list[Path]:
+    """The MSs in ``folder`` matching ``pattern`` (in a tree: its members' calibrated/)."""
+    from ..services.archive.delivery import CALIBRATED_FOLDER, is_delivery_root
+
+    if is_delivery_root(folder):
+        pattern = f"*/science_goal.*/group.*/member.*/{CALIBRATED_FOLDER}/{pattern}"
+    return sorted(folder.glob(pattern))
+
+
 def _member_rows(o: ImageFromMsOptions, parameters: pd.DataFrame) -> pd.DataFrame:
     """The CSV's rows merged per member, window and field (``member_parameters``)."""
     from ..services.archive.delivery import read_ous_index
@@ -931,7 +948,7 @@ def _run_image_from_ms(
         casa_data = str(_prepare_selfcal_casa_data(o.output_directory, o.casa_data_root))
     typer.echo(
         f"Imaging {len(tasks)} (MS, SPW, field) task(s); "
-        "per-task logs: <output>/<ms>/SPW-<n>[_FIELD-<id>].log"
+        "per-task logs: SPW-<n>[_FIELD-<id>].log next to each task's folder"
     )
 
     failures: list[TaskFailure] = []

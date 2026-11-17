@@ -577,7 +577,7 @@ def test_archive_stages_run_one_process_per_uid(tmp_path, monkeypatch):
     assert "calibrating uid___A" in messages
 
     assert seen["unpack_ms"] is True and seen["calibrate"] is True
-    assert seen["archive_root"] == destination / "archive_ms"
+    assert seen["archive_root"] is None  # each MS goes into its member folder of the tree
     assert summary.raw_measurement_sets == ["/raw/a.ms"]
     assert summary.calibrated_measurement_sets == ["/cal/a.ms.split.cal"]
     manifest = json.loads((destination / "download_manifest.json").read_text())
@@ -635,5 +635,5 @@ def test_archive_stage_messages_and_cleanup(tmp_path, monkeypatch, caplog):
             clean_intermediate_files=True,
         )
     assert "unpacking" in caplog.text and "one UID failed" in caplog.text
-    assert cleaned["raw"] == destination / "archive_ms" / "raw_ms"
+    assert cleaned["raw"] == destination.resolve()  # the tree
     assert [str(p) for p in cleaned["outputs"]] == ["/cal/a.ms.split.cal"]

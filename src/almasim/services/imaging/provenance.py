@@ -13,7 +13,7 @@ correction, continuum subtraction, the quality maps) copy these cards and add
 their own ``HISTORY``.
 
 The OUS UIDs come from the delivery tree's ``ous_index.csv``
-(:func:`almasim.services.archive.delivery.organize_delivery`), looked up by
+(:func:`almasim.services.archive.delivery.write_ous_index`), looked up by
 the execution block in the MS's name.
 """
 
@@ -155,8 +155,8 @@ def stamp_fits(path: str | os.PathLike[str], provenance: fits.Header) -> bool:
 def find_ous_index(ms_path: str | os.PathLike[str]) -> Path | None:
     """The ``ous_index.csv`` in the MS's folder or the nearest folder above it.
 
-    ``products download`` keeps the MSs under the destination's ``archive_ms``
-    and the index at the destination, so an MS it made finds its index.
+    ``products download`` keeps the MSs in the delivery tree of its destination
+    and the index at its root, so an MS it made finds its index.
     """
     from almasim.services.archive.delivery import INDEX_FILENAME
 

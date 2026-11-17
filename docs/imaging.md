@@ -89,7 +89,8 @@ almasim image image-from-ms imaging_parameters.csv /data/images \
   --task-timeout 7200
 ```
 
-**compute-parameters** reads each MS (`--pattern`, default `*.cal`) with
+**compute-parameters** reads each MS (`--pattern`, default `*.cal`, matched in
+the members' `calibrated/` folders when the folder is a delivery tree's root) with
 python-casacore and writes the WSClean geometry of each spectral window:
 field of view (the primary beam's half-power width for the smallest dish),
 synthesized beam and reference frequency, with the window's name
@@ -106,7 +107,12 @@ instead).
 
 **image-from-ms** runs one WSClean per CSV row, each in its own subprocess on
 a worker, writing to `<output>/<ms stem>/SPW-<n>_FIELD-<f>/wsclean-*.fits`
-(`SPW-<n>/` for a row without a single field). Next to that directory it
+(`SPW-<n>/` for a row without a single field). When `<output>` is the root of
+an ALMA delivery tree (it holds `ous_index.csv`), the task goes into the
+member folder of the MS's execution block instead,
+`<member>/images/<ms stem>/SPW-<n>_FIELD-<f>/`, and an MS the index does not
+list keeps `<output>/<ms stem>/...`
+([The delivery tree](downloads.md#the-delivery-tree)). Next to that directory it
 leaves:
 
 | file | meaning |
@@ -181,7 +187,16 @@ way. Fields are matched by name too. A mosaic, whose pointings share one name,
 is listed and left out.
 
 A member task writes to `<output>/member.<uid>/SPW-<n>_<field>/`, where
-`<n>` is the window's id in the earliest execution block. Its single-window
+`<n>` is the window's id in the earliest execution block. With the delivery
+tree's root as `<output>` it writes into the member's own folder,
+`<member>/images/SPW-<n>_<field>/`:
+
+```bash
+almasim image image-from-ms imaging_parameters.csv /data/deliveries --by-member --cube
+```
+
+`pb-correct`, `clean-quality` and the noise commands given the same root find
+the tasks there. Its single-window
 MS combines all the execution blocks (`build_member_window_ms`). The window
 and field of each block are extracted as for any task. CASA `mstransform` then
 regrids each copy onto one LSRK channel grid, and CASA `concat` joins them
@@ -228,7 +243,8 @@ add a `HISTORY` line of their own.
 ### Cleaning quality
 
 `almasim image clean-quality <output_root>` measures how much source signal
-the clean left in the residuals of each task. It writes `quality.json` per
+the clean left in the residuals of each task (in a delivery tree's root, the
+tasks in the members' `images/` folders). It writes `quality.json` per
 task (continuum and cube statistics), moment maps of the line and of the
 residual for cubes (`quality/cube-*.fits`), and a summary CSV
 (`clean-quality.csv`). `almasim.services.imaging.quality` documents each

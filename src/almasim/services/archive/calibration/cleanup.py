@@ -50,11 +50,24 @@ def cleanup_intermediate_calibration_data(
     """Remove raw MS, working copies and (optionally) original data after a full success.
 
     Every path that contains a calibrated output (or the output root itself) is
-    protected and left untouched.
+    protected and left untouched. In a delivery tree the raw MS of each
+    calibrated one is removed from its member's ``raw/`` folder, with its flag
+    versions and markers; the tree itself stays.
     """
+    from ..delivery import is_delivery_root
+    from ..unpack import raw_ms_path
+
     output_path = Path(output_root).expanduser().resolve()
     protected = [*calibrated_mss, output_path]
-    _remove_tree_after_success(raw_ms_root, protected, logger_fn=logger_fn)
+    if is_delivery_root(raw_ms_root):
+        for calibrated in calibrated_mss:
+            raw = raw_ms_path(raw_ms_root, Path(calibrated).name.removesuffix(".ms.split.cal"))
+            for suffix in ("", ".flagversions"):
+                _remove_tree_after_success(raw.with_name(raw.name + suffix), protected, logger_fn)
+            for marker in (".done", ".failed"):
+                raw.with_name(raw.name + marker).unlink(missing_ok=True)
+    else:
+        _remove_tree_after_success(raw_ms_root, protected, logger_fn=logger_fn)
     _remove_tree_after_success(output_path / "working", protected, logger_fn=logger_fn)
     if original_data_root is not None:
         _remove_tree_after_success(original_data_root, protected, logger_fn=logger_fn)

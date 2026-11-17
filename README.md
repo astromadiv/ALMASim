@@ -453,33 +453,26 @@ almasim products download \
 almasim visibilities extract \
   --source-root examples/output/downloads
 
+# Each MS goes into its member folder of the delivery tree in --input-root: the raw MS
+# next to its ASDM (raw/<eb>.ms), the calibrated one in calibrated/<eb>.ms.split.cal;
+# calibrate then writes ous_index.csv at the root of the tree (see docs/downloads.md).
+# --output-dir gives a stage a folder of its own instead.
 almasim visibilities unpack \
   --input-root examples/output/downloads \
-  --output-dir examples/output/archive_ms/raw_ms \
   --backend slurm \
   --slurm-workers 8
 
 almasim visibilities calibrate \
   --input-root examples/output/downloads \
-  --raw-ms-root examples/output/archive_ms/raw_ms \
-  --output-dir examples/output/archive_ms/calibrated_ms \
   --backend slurm \
   --slurm-workers 8
-
-# Calibration links each calibrated MS into its member's calibrated/ folder of the
-# delivery tree and writes ous_index.csv there (see docs/downloads.md); for MSs
-# already on disk:
-almasim visibilities organize \
-  --delivery-root examples/output/downloads \
-  --calibrated-ms-root examples/output/archive_ms/calibrated_ms \
-  --raw-ms-root examples/output/archive_ms/raw_ms
 
 # Unpack/calibrate run every UID in its own subprocess (sync and slurm alike), so a
 # CASA crash on one execution block is skipped and the rest of the batch continues.
 # Skipped UIDs are listed at the end and the command exits with status 1; pass
 # --fail-fast to abort on the first failure instead.
 #
-# Every finished calibration gets a marker <output-root>/<uid>.ms.split.cal.done; on a
+# Every finished calibration gets a marker <uid>.ms.split.cal.done next to its MS; on a
 # re-run UIDs with a marker are skipped automatically (--overwrite-outputs redoes them),
 # while partial outputs or working copies left by a crash are replaced. To trust an
 # output produced before markers existed, create its .done file by hand (touch).
@@ -487,8 +480,9 @@ almasim visibilities organize \
 # the split succeeds; pass --keep-working-copies to retain it.
 #
 # Following progress: each UID writes <output-root>/logs/<uid>.calibrate.log
-# (or <uid>.unpack.log) with the full CASA output, so on Slurm you can
-#   tail -f examples/output/archive_ms/calibrated_ms/logs/*.calibrate.log
+# (or <uid>.unpack.log; the output root is the tree's root by default) with the full
+# CASA output, so on Slurm you can
+#   tail -f examples/output/downloads/logs/*.calibrate.log
 # from the submit node. The submit node also prints the last log line of every
 # running UID once a minute. Dask worker stdout/stderr lands in ~/dask-worker-logs.
 
@@ -509,8 +503,9 @@ almasim products download \
 # every FITS header names its project, science goal, group and member OUS, its
 # execution blocks and the WSClean commands that made it
 # (see docs/imaging.md)
-almasim image compute-parameters examples/output/archive_ms/calibrated_ms imaging_parameters.csv
-almasim image image-from-ms imaging_parameters.csv examples/output/images \
+# Given the delivery tree's root, both work in the members' folders (calibrated/, images/).
+almasim image compute-parameters examples/output/downloads imaging_parameters.csv
+almasim image image-from-ms imaging_parameters.csv examples/output/downloads \
   --num-cores 10 --slurm-queue normal --slurm-workers 8
 
 # Run WSClean through ALMASim (all WSClean flags are forwarded unchanged)
@@ -519,7 +514,7 @@ almasim clean -- \
   -size 1024 1024 \
   -scale 0.1asec \
   -niter 20000 \
-  examples/output/archive_ms/calibrated_ms/*.ms.split.cal
+  examples/output/downloads/*/science_goal.*/group.*/member.*/calibrated/*.ms.split.cal
 
 # Run a staged simulation from the first row of the metadata CSV
 almasim simulation \

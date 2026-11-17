@@ -139,9 +139,10 @@ def test_the_archive_template_hands_files_from_step_to_step(tmp_path, profile):
     night = tmp_path / "night"
     assert steps[0].argv[:3] == ["metadata", "--save-csv", str(night / "metadata.csv")]
     assert str(night / "metadata.csv") in steps[1].argv
-    assert steps[2].argv[2:] == [str(night / "ms" / "calibrated_ms"), str(night / "params.csv")]
-    assert steps[3].argv[-1] == "--cube"
-    assert steps[4].argv == ["image", "clean-quality", str(night / "images")]
+    assert "--archive-output-root" not in steps[1].argv  # the MSs go into the delivery tree
+    assert steps[2].argv[2:] == [str(night / "downloads"), str(night / "params.csv")]
+    assert steps[3].argv[3:] == [str(night / "downloads"), "--cube"]
+    assert steps[4].argv == ["image", "clean-quality", str(night / "downloads")]
     plans = [plan_job(s.argv, profile) for s in steps]
     assert [p.executor for p in plans] == ["slurm"] * 5
     assert "--yes" in plans[0].argv and "--yes" in plans[1].argv  # both ask otherwise

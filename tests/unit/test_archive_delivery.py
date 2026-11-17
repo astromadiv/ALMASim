@@ -1,4 +1,4 @@
-"""The ALMA delivery tree: calibrated MSs linked into their members, and its index."""
+"""The ALMA delivery tree: the MSs in their members' folders, and its index."""
 
 from __future__ import annotations
 
@@ -9,11 +9,21 @@ from typer.testing import CliRunner
 
 from almasim import cli
 from almasim.cli import products as cli_products
-from almasim.services.archive.delivery import (
-    folder_uid,
-    member_folders,
-    organize_delivery,
+from almasim.services.archive.calibration.cleanup import cleanup_intermediate_calibration_data
+from almasim.services.archive.calibration.discovery import find_raw_ms_directories
+from almasim.services.archive.calibration.split import (
+    calibrated_output_path,
+    calibration_marker_path,
 )
+from almasim.services.archive.delivery import (
+    archive_ms_roots,
+    eb_member_folder,
+    folder_uid,
+    is_delivery_root,
+    member_folders,
+    write_ous_index,
+)
+from almasim.services.archive.unpack import raw_ms_marker_path, raw_ms_path
 
 runner = CliRunner()
 
@@ -76,22 +86,64 @@ def test_each_execution_block_is_placed_by_its_qa0_report_or_calapply_file(tmp_p
     assert member.member_ous_uid == "uid://A001/X1/X3"
 
 
-def test_calibrated_mss_are_linked_into_their_members_and_indexed(tmp_path):
+def test_an_asdm_in_raw_places_its_execution_block_too(tmp_path):
+    root, first, _, _, _ = _tree(tmp_path)
+    _ms(first / "raw", "uid___A002_X9_X5.asdm.sdm")
+    assert member_folders(root)["uid___A002_X9_X5"].path == first
+
+
+def test_the_stages_write_each_ms_into_its_member_folder(tmp_path):
+    root, first, second, _, _ = _tree(tmp_path)
+    assert is_delivery_root(root) and not is_delivery_root(tmp_path / "archive_ms")
+
+    assert raw_ms_path(root, "uid___A002_X9_X1") == first / "raw" / "uid___A002_X9_X1.ms"
+    assert (
+        raw_ms_marker_path(root, "uid___A002_X9_X1") == first / "raw" / "uid___A002_X9_X1.ms.done"
+    )
+    assert calibrated_output_path(root, "uid___A002_X9_X3") == (
+        second / "calibrated" / "uid___A002_X9_X3.ms.split.cal"
+    )
+    assert calibration_marker_path(root, "uid___A002_X9_X3").parent == second / "calibrated"
+    # An EB no member lists, and any folder that is not a tree, keep the flat paths.
+    assert (
+        raw_ms_path(root, "uid___A002_X9_X8") == root.resolve() / "working" / "uid___A002_X9_X8.ms"
+    )
+    flat = tmp_path / "archive_ms" / "calibrated_ms"
+    assert calibrated_output_path(flat, "uid___A002_X9_X1") == (
+        flat.resolve() / "uid___A002_X9_X1.ms.split.cal"
+    )
+
+    assert archive_ms_roots(root, None) == (root.resolve(), root.resolve())
+    archive = tmp_path / "ms"
+    assert archive_ms_roots(root, archive) == (archive / "raw_ms", archive / "calibrated_ms")
+
+
+def test_a_member_extracted_later_is_found(tmp_path, monkeypatch):
+    root, _, _, _, _ = _tree(tmp_path)
+    assert eb_member_folder(root, "uid___A002_X9_X1") is not None
+    later = _member(root, "member.uid___A001_X1_X7", ["uid___A002_X9_X7"])
+    monkeypatch.setattr("almasim.services.archive.delivery._RESCAN_SECONDS", 0.0)
+    assert eb_member_folder(root, "uid___A002_X9_X7") == later.resolve()
+
+
+def test_the_raw_mss_of_a_tree_are_found_in_the_members_raw_folders(tmp_path):
+    root, first, second, _, _ = _tree(tmp_path)
+    _ms(first / "raw", "uid___A002_X9_X1.ms")
+    _ms(second / "raw", "uid___A002_X9_X3.ms")
+    _ms(first / "calibrated", "uid___A002_X9_X2.ms")  # not a raw MS's place
+    found = find_raw_ms_directories(root)
+    assert [p.name for p in found] == ["uid___A002_X9_X1.ms", "uid___A002_X9_X3.ms"]
+
+
+def test_the_index_lists_the_mss_in_the_tree_and_in_flat_folders(tmp_path):
     root, first, second, calibrated, raw = _tree(tmp_path)
+    in_tree = _ms(second / "calibrated", "uid___A002_X9_X3.ms.split.cal")
+    raw_in_tree = _ms(second / "raw", "uid___A002_X9_X3.ms")
 
-    done = organize_delivery(root, calibrated, raw, echo=lambda message: None)
+    done = write_ous_index(root, calibrated, raw, echo=lambda message: None)
 
-    link = first / "calibrated" / "uid___A002_X9_X1.ms.split.cal"
-    assert link.is_symlink() and not os.path.isabs(os.readlink(link))
-    assert link.resolve() == (calibrated / "uid___A002_X9_X1.ms.split.cal").resolve()
-    assert (second / "calibrated" / "uid___A002_X9_X3.ms.split.cal").is_symlink()
-    assert sorted(p.name for p in (first / "calibrated").iterdir()) == [
-        "uid___A002_X9_X1.ms.split.cal",
-        "uid___A002_X9_X2.ms.split.cal",
-    ]
-    assert done.linked == 3
+    assert done.execution_blocks == 3 and done.calibrated == 3
     assert [os.path.basename(p) for p in done.without_member] == ["uid___A002_X9_X8.ms.split.cal"]
-
     with done.index_path.open() as handle:
         rows = {row["eb_uid"]: row for row in csv.DictReader(handle)}
     assert done.index_path == root / "ous_index.csv"
@@ -106,59 +158,60 @@ def test_calibrated_mss_are_linked_into_their_members_and_indexed(tmp_path):
     assert rows["uid___A002_X9_X2"]["raw_ms"] == ""
     assert rows["uid___A002_X9_X2"]["alma_calibrated"] == "yes", "it has a calapply file"
     assert rows["uid___A002_X9_X1"]["alma_calibrated"] == "no", "only a QA0 report"
-    assert rows["uid___A002_X9_X3"]["calibrated_ms"] == str(
-        calibrated / "uid___A002_X9_X3.ms.split.cal"
-    )
+    assert rows["uid___A002_X9_X3"]["calibrated_ms"] == str(in_tree), "the tree's MS first"
+    assert rows["uid___A002_X9_X3"]["raw_ms"] == str(raw_in_tree)
+    assert not (first / "calibrated").exists(), "nothing is linked or moved"
 
 
-def test_organizing_again_keeps_good_links_and_drops_dangling_ones(tmp_path):
-    root, first, _, calibrated, raw = _tree(tmp_path)
-    organize_delivery(root, calibrated, raw, echo=lambda message: None)
-    (calibrated / "uid___A002_X9_X2.ms.split.cal").rmdir()
-    real = first / "calibrated" / "uid___A002_X9_X1.ms.split.cal"
-    real.unlink()
-    real.mkdir()  # a real MS someone put there is never replaced
+def test_cleanup_in_a_tree_removes_only_the_raw_mss(tmp_path):
+    root, first, _, _, _ = _tree(tmp_path)
+    raw = _ms(first / "raw", "uid___A002_X9_X1.ms")
+    _ms(first / "raw", "uid___A002_X9_X1.ms.flagversions")
+    (first / "raw" / "uid___A002_X9_X1.ms.done").write_text("{}")
+    asdm = _ms(first / "raw", "uid___A002_X9_X1.asdm.sdm")
+    calibrated = _ms(first / "calibrated", "uid___A002_X9_X1.ms.split.cal")
+    _ms(root / "working", "uid___A002_X9_X1.calibration")
 
-    again = organize_delivery(root, calibrated, raw, echo=lambda message: None)
+    cleanup_intermediate_calibration_data(root, root, [calibrated])
 
-    assert again.linked == 0
-    assert real.is_dir() and not real.is_symlink()
-    assert not (first / "calibrated" / "uid___A002_X9_X2.ms.split.cal").is_symlink()
+    assert not raw.exists() and not (first / "raw" / "uid___A002_X9_X1.ms.flagversions").exists()
+    assert not (first / "raw" / "uid___A002_X9_X1.ms.done").exists()
+    assert not (root / "working").exists()
+    assert calibrated.is_dir() and asdm.is_dir() and (first / "qa").is_dir()
 
 
-def test_visibilities_organize_builds_the_tree(tmp_path):
-    root, first, _, calibrated, raw = _tree(tmp_path)
-    index = tmp_path / "index.csv"
+def test_calibrate_indexes_the_tree_and_writes_into_it_by_default(tmp_path, monkeypatch):
+    root, _, _, _, _ = _tree(tmp_path)
+    seen = {}
 
+    def _calibrate(**kwargs):
+        seen.update(kwargs)
+        return []
+
+    monkeypatch.setattr(cli_products, "_run_calibrate_jobs", _calibrate)
+    result = runner.invoke(cli.app, ["visibilities", "calibrate", "--input-root", str(root)])
+    assert result.exit_code == 0, result.output
+    assert seen["raw_ms_root"] == seen["output_root"] == root.resolve()
+    assert (root / "ous_index.csv").is_file()
+
+    (root / "ous_index.csv").unlink()
     result = runner.invoke(
         cli.app,
-        [
-            "visibilities", "organize", "--delivery-root", str(root),
-            "--calibrated-ms-root", str(calibrated), "--raw-ms-root", str(raw),
-            "--index-csv", str(index),
-        ],
-    )  # fmt: skip
-
+        ["visibilities", "calibrate", "--input-root", str(root), "--no-index-delivery"],
+    )
     assert result.exit_code == 0, result.output
-    assert "3 calibrated MS link(s) made" in result.output
-    assert "1 calibrated MS(s) have no member folder" in result.output
-    assert (first / "calibrated" / "uid___A002_X9_X1.ms.split.cal").is_symlink()
-    assert index.is_file()
+    assert not (root / "ous_index.csv").exists()
 
 
-def test_calibrate_organizes_the_tree_unless_told_not_to(tmp_path, monkeypatch):
-    root, first, _, calibrated, raw = _tree(tmp_path)
-    monkeypatch.setattr(cli_products, "_run_calibrate_jobs", lambda **kwargs: [])
-    args = [
-        "visibilities", "calibrate", "--input-root", str(root),
-        "--raw-ms-root", str(raw), "--output-dir", str(calibrated),
-    ]  # fmt: skip
+def test_unpack_writes_next_to_the_asdms_by_default(tmp_path, monkeypatch):
+    root, _, _, _, _ = _tree(tmp_path)
+    seen = {}
 
-    result = runner.invoke(cli.app, [*args, "--no-organize-delivery"])
+    def _unpack(**kwargs):
+        seen.update(kwargs)
+        return []
+
+    monkeypatch.setattr(cli_products, "_run_unpack_jobs", _unpack)
+    result = runner.invoke(cli.app, ["visibilities", "unpack", "--input-root", str(root)])
     assert result.exit_code == 0, result.output
-    assert not (first / "calibrated").exists()
-
-    result = runner.invoke(cli.app, args)
-    assert result.exit_code == 0, result.output
-    assert (first / "calibrated" / "uid___A002_X9_X1.ms.split.cal").is_symlink()
-    assert (root / "ous_index.csv").is_file()
+    assert seen["output_root"] == root.resolve()

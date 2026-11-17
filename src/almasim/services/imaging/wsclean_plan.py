@@ -6,6 +6,7 @@ arguments, the task directories and the cube plan.
 
 from __future__ import annotations
 
+import functools
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
@@ -229,6 +230,30 @@ def row_provenance(
     )
 
 
+def delivery_members(output_directory: Path) -> dict[str, str] | None:
+    """``{eb: member folder}`` when ``output_directory`` is a delivery tree's root, else None.
+
+    A delivery root holds the tree's ``ous_index.csv`` (``write_ous_index``);
+    the member folders are relative to it.
+    """
+    from almasim.services.archive.delivery import INDEX_FILENAME
+
+    index = Path(output_directory) / INDEX_FILENAME
+    try:
+        stamp = index.stat().st_mtime_ns
+    except OSError:
+        return None
+    return _read_delivery_members(index, stamp)
+
+
+@functools.lru_cache(maxsize=4)
+def _read_delivery_members(index: Path, stamp: int) -> dict[str, str]:
+    """The index's member folders by EB, read once per version of the file (``stamp``)."""
+    from almasim.services.archive.delivery import read_ous_index
+
+    return {eb: row["member_folder"] for eb, row in read_ous_index(index).items()}
+
+
 def task_directory(output_directory: Path, row: pd.Series) -> tuple[Path, tuple[int, ...]]:
     """A parameter row's task directory under ``output_directory`` and its field ids.
 
@@ -236,17 +261,33 @@ def task_directory(output_directory: Path, row: pd.Series) -> tuple[Path, tuple[
     one window never share an image; rows without a field, or with a list
     (CSVs from before per-field rows), keep SPW-<n>. A member row's directory is
     ``<member folder>/SPW-<n>_<field name>`` (``member_task_name``), its field 0.
+
+    When ``output_directory`` is the root of a delivery tree (it holds
+    ``ous_index.csv``) the tasks go into the members' own folders:
+    ``<member folder>/images/SPW-<n>_<field name>`` for a member row and
+    ``<member folder>/images/<ms>/SPW-<n>...`` for the MS of one of its EBs. An MS
+    the index does not list keeps ``<output>/<ms>/SPW-<n>...``.
     """
+    from almasim.services.archive.delivery import IMAGES_FOLDER
+
+    output_directory = Path(output_directory)
+    members = delivery_members(output_directory)
     if is_member_row(row):
-        member = Path(str(row["member_folder"])).name
-        return Path(output_directory) / member / member_task_name(row), (0,)
+        folder = str(row["member_folder"])
+        if members is not None:
+            return output_directory / folder / IMAGES_FOLDER / member_task_name(row), (0,)
+        return output_directory / Path(folder).name / member_task_name(row), (0,)
     input_filename = Path(row["filename"]).expanduser().absolute()
     spw = int(row["spectral_window_id"])
     field_args = _field_arguments(row)
     field_ids = tuple(int(f) for f in field_args[1].split(",")) if field_args else ()
     single_field = field_ids[0] if len(field_ids) == 1 else None
     task_name = f"SPW-{spw}" if single_field is None else f"SPW-{spw}_FIELD-{single_field}"
-    return Path(output_directory) / input_filename.stem / task_name, field_ids
+    parent = output_directory
+    eb = input_filename.name.split(".ms", 1)[0]
+    if members is not None and eb in members:
+        parent = output_directory / members[eb] / IMAGES_FOLDER
+    return parent / input_filename.stem / task_name, field_ids
 
 
 def _check_member_rows(parameters: pd.DataFrame, single_window: bool) -> None:
@@ -257,7 +298,10 @@ def _check_member_rows(parameters: pd.DataFrame, single_window: bool) -> None:
 def _task_label(outdir: Path, ms: Path, spw: int, single_field: int | None, member: bool) -> str:
     """``<ms stem>_<spw>[_f<field>]``, or ``<member folder>_<task folder>`` for a member."""
     if member:
-        return f"{outdir.parent.name}_{outdir.name}"
+        folder = outdir.parent
+        if folder.name == "images":  # <member folder>/images/<task> in a delivery tree
+            folder = folder.parent
+        return f"{folder.name}_{outdir.name}"
     return f"{ms.stem}_{spw}" + ("" if single_field is None else f"_f{single_field}")
 
 
