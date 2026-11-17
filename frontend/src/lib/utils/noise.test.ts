@@ -6,6 +6,7 @@ import {
 	defaultFolder,
 	lastImaging,
 	lastSearch,
+	measured,
 	newestValidation,
 	releaseArgv,
 	releaseNameProblem,
@@ -170,5 +171,57 @@ describe('what the chain made', () => {
 		expect(releasedAs(models, '0123456789abcdef')).toBe('zwicky-alma@1');
 		expect(releasedAs(models, 'ffff')).toBeNull();
 		expect(releasedAs(models, '')).toBeNull();
+	});
+});
+
+describe('what noise extract measured', () => {
+	it('keep the measurements, leave out bookkeeping and sections no window has', () => {
+		const report = {
+			windows: 2,
+			sections: [
+				{
+					key: 'input',
+					title: 'The window measured',
+					intro: '',
+					metrics: [{ key: 'input.ms', kind: 'text', measured: false, windows: 2 }]
+				},
+				{
+					key: 'thermal',
+					title: 'Thermal noise against WEIGHT',
+					intro: 'The noise against WEIGHT.',
+					metrics: [
+						{
+							key: 'thermal.scale',
+							unit: 'ratio',
+							meaning: '1 when WEIGHT is right',
+							kind: 'number',
+							measured: true,
+							windows: 2,
+							median: 1.2,
+							low: 1.06,
+							high: 1.34
+						}
+					]
+				},
+				{
+					key: 'visibility.total_power',
+					title: 'Total-power dishes',
+					intro: '',
+					metrics: [{ key: 'visibility.total_power.antennas', measured: true, windows: 0 }]
+				}
+			],
+			notes: { w2: ['no SYSCAL'] }
+		};
+		const found = measured(report);
+		expect(found?.windows).toBe(2);
+		expect(found?.sections.map((s) => s.key)).toEqual(['thermal']);
+		expect(found?.sections[0].metrics[0]).toMatchObject({
+			key: 'thermal.scale',
+			median: 1.2,
+			yes: null
+		});
+		expect(found?.notes).toEqual({ w2: ['no SYSCAL'] });
+		expect(measured(null)).toBeNull();
+		expect(measured({ sections: [] })).toBeNull();
 	});
 });

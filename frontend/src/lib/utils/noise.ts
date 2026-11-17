@@ -15,6 +15,9 @@ export const WINDOWS_CSV = 'windows.csv';
 export const ROWS_CSV = 'rows.csv';
 export const CANDIDATE_JSON = 'candidate.json';
 export const COMPARISON_JSON = 'comparison.json';
+/** What `noise extract` measured, as data and as a page (almasim.services.noise.report). */
+export const EXTRACT_REPORT_JSON = 'extract_report.json';
+export const EXTRACT_REPORT_MD = 'extract_report.md';
 /** Each step's failed windows (almasim.services.noise.batch.run_tasks). */
 export const FAILURES: Record<string, string> = {
 	extract: 'failures.json',
@@ -296,4 +299,70 @@ export function releasedAs(models: readonly NoiseModelInfo[], sha256: string): s
 		(m) => m.source === 'site' && m.provenance?.validated === sha256.slice(0, 12)
 	);
 	return found?.spec ?? null;
+}
+
+/** One measured quantity across the windows (extract_report.json). */
+export interface MeasuredMetric {
+	key: string;
+	unit: string;
+	meaning: string;
+	kind: 'number' | 'flag' | 'text' | 'profile';
+	/** Windows that have it. */
+	windows: number;
+	median: number | null;
+	low: number | null;
+	high: number | null;
+	/** A flag's windows where it holds. */
+	yes: number | null;
+}
+
+export interface MeasuredSection {
+	key: string;
+	title: string;
+	intro: string;
+	metrics: MeasuredMetric[];
+}
+
+export interface Measured {
+	windows: number;
+	sections: MeasuredSection[];
+	notes: Record<string, string[]>;
+}
+
+/**
+ * What `noise extract` measured, for the page: each section's measurements
+ * (the bookkeeping, such as the MS's path, left out) with their spread across
+ * the windows; sections no window measured are left out.
+ */
+export function measured(report: unknown): Measured | null {
+	const r = report as {
+		windows?: number;
+		sections?: (Omit<MeasuredSection, 'metrics'> & {
+			metrics?: (Partial<MeasuredMetric> & { measured?: boolean })[];
+		})[];
+		notes?: Record<string, string[]>;
+	} | null;
+	if (!r || typeof r.windows !== 'number' || !Array.isArray(r.sections)) return null;
+	const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+	const sections = r.sections
+		.map((section) => ({
+			key: section.key,
+			title: section.title,
+			intro: section.intro ?? '',
+			metrics: (section.metrics ?? [])
+				.filter((m) => m.measured && (m.windows ?? 0) > 0)
+				.map((m) => ({
+					key: m.key ?? '',
+					unit: m.unit ?? '',
+					meaning: m.meaning ?? '',
+					kind: m.kind ?? 'number',
+					windows: m.windows ?? 0,
+					median: num(m.median),
+					low: num(m.low),
+					high: num(m.high),
+					yes: num(m.yes)
+				}))
+		}))
+		.filter((section) => section.metrics.length > 0);
+	return { windows: r.windows, sections, notes: r.notes ?? {} };
 }

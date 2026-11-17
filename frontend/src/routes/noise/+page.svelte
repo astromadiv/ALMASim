@@ -25,6 +25,8 @@
 	import {
 		CANDIDATE_JSON,
 		COMPARISON_JSON,
+		EXTRACT_REPORT_JSON,
+		EXTRACT_REPORT_MD,
 		FAILURES,
 		ROWS_CSV,
 		WINDOWS_CSV,
@@ -34,6 +36,7 @@
 		defaultFolder,
 		lastImaging,
 		lastSearch,
+		measured,
 		newestValidation,
 		releaseArgv,
 		releaseNameProblem,
@@ -42,6 +45,7 @@
 		sig,
 		verdict,
 		windowsArgv,
+		type Measured,
 		type Verdict
 	} from '#lib/utils/noise.js';
 	import type { NoiseModelInfo } from '#lib/utils/noisePicker.js';
@@ -162,9 +166,11 @@
 		return () => (stale = true);
 	});
 
-	// 4. What the chain made: each step's failed windows, the candidate, the verdict.
+	// 4. What the chain made: each step's failed windows, what the windows measure,
+	// the candidate, the verdict.
 	const folderOfChain = $derived(chain[0] ? chainFolder(chain[0].argv) : null);
 	let failures = $state<Record<string, Record<string, string>>>({});
+	let measurements = $state<Measured | null>(null);
 	let candidate = $state<(ReturnType<typeof candidateValues> & { label: string }) | null>(null);
 	let result = $state<Verdict | null>(null);
 	let comparisonFile = $state<string | null>(null);
@@ -190,6 +196,14 @@
 					next[key] = ((await readJson(`${f}/${FAILURES[key]}`)) ?? {}) as Record<string, string>;
 				} catch {
 					// no failures file: the step did not get that far
+				}
+			}
+			let report: Measured | null = null;
+			if (chain[1]?.finished) {
+				try {
+					report = measured(await readJson(`${f}/${EXTRACT_REPORT_JSON}`));
+				} catch {
+					report = null; // no report: the measuring did not get that far
 				}
 			}
 			let found: typeof candidate = null;
@@ -220,6 +234,7 @@
 			}
 			if (stale) return;
 			failures = next;
+			measurements = report;
 			candidate = found;
 			result = judged;
 			comparisonFile = judged ? judgedFile : null;
@@ -555,6 +570,71 @@
 				{/each}
 			</ol>
 		</section>
+
+		{#if measurements}
+			<section class="alma-panel flex flex-col gap-4 rounded-lg p-5" aria-labelledby="n4m">
+				<h2 id="n4m" class="m-0 text-xl font-semibold">Measured noise</h2>
+				<p class="m-0 text-sm text-fg-muted">
+					What <code>noise extract</code> measured on the {measurements.windows} window{measurements.windows ===
+					1
+						? ''
+						: 's'}, before any model is fitted: each quantity's median over the windows and their
+					16–84% range, with its unit and meaning. The full report, with each window's values, is
+					<code class="break-all">{folderOfChain}/{EXTRACT_REPORT_MD}</code>.
+				</p>
+				{#each measurements.sections as section (section.key)}
+					<details class="text-sm" open={section.key === 'thermal' || section.key === 'visibility'}>
+						<summary class="cursor-pointer font-semibold">{section.title}</summary>
+						{#if section.intro}<p class="m-0 mt-1 text-xs text-fg-muted">{section.intro}</p>{/if}
+						<div class="mt-2 overflow-x-auto">
+							<table class="text-sm">
+								<thead>
+									<tr class="text-left text-xs font-semibold tracking-wide text-fg-muted uppercase">
+										<th scope="col" class="px-3 py-2">Quantity</th>
+										<th scope="col" class="px-3 py-2 text-right">Median</th>
+										<th scope="col" class="px-3 py-2 text-right">16–84%</th>
+										<th scope="col" class="px-3 py-2 text-right">Windows</th>
+										<th scope="col" class="px-3 py-2">Unit</th>
+										<th scope="col" class="px-3 py-2">Meaning</th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each section.metrics as m (m.key)}
+										<tr class="border-t border-sunk align-top">
+											<td class="px-3 py-1 font-mono text-xs">{m.key}</td>
+											{#if m.kind === 'flag'}
+												<td class="px-3 py-1 text-right font-mono">{m.yes} yes</td>
+												<td class="px-3 py-1"></td>
+											{:else}
+												<td class="px-3 py-1 text-right font-mono">{sig(m.median)}</td>
+												<td class="px-3 py-1 text-right font-mono whitespace-nowrap"
+													>{sig(m.low)} to {sig(m.high)}</td
+												>
+											{/if}
+											<td class="px-3 py-1 text-right font-mono">{m.windows}</td>
+											<td class="px-3 py-1 text-xs whitespace-nowrap">{m.unit}</td>
+											<td class="max-w-prose px-3 py-1 text-xs text-fg-muted">{m.meaning}</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+					</details>
+				{/each}
+				{#if Object.keys(measurements.notes).length}
+					<details class="text-sm">
+						<summary class="cursor-pointer text-fg-muted"
+							>{Object.keys(measurements.notes).length} window(s) with something not measured</summary
+						>
+						<ul class="mt-2 text-xs">
+							{#each Object.entries(measurements.notes) as [name, notes] (name)}
+								<li><span class="font-mono">{name}</span>: {notes.join('; ')}</li>
+							{/each}
+						</ul>
+					</details>
+				{/if}
+			</section>
+		{/if}
 
 		{#if candidate}
 			<section class="alma-panel flex flex-col gap-4 rounded-lg p-5" aria-labelledby="n5">

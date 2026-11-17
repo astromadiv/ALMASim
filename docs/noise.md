@@ -243,7 +243,7 @@ in the guide runs every step with real numbers; in short:
 ```
 almasim noise windows params.csv --images cubes/ --metadata results.csv \
     --products products.csv --out noise/                                    # windows.csv, rows.csv
-almasim noise extract --windows windows.csv --out noise/ --backend slurm    # window.json
+almasim noise extract --windows windows.csv --out noise/ --backend slurm    # window.json, extract_report.md
 almasim noise fit --windows windows.csv --out noise/ --backend slurm        # fit.json
 almasim noise aggregate --out noise/                                        # noise/candidate.json
 almasim simulation ... --noise-model noise/candidate.json               # try it
@@ -289,7 +289,13 @@ their Tsys over the own dishes' from `SYSCAL` and the efficiency both imply
 go in `visibility.total_power`),
 and each antenna's own noise shape (`antenna.npz`). Rows are
 sampled evenly over the observation, up to `--max-visibilities`, and read in
-chunks.
+chunks. It then writes its report in `--out`: `extract_report.md` gives every
+quantity measured with its unit, meaning and spread across the windows, and
+each window's main values; `extract_measurements.csv` holds every quantity
+of every window (see
+[Step 1](noise_models.md#step-1-measure-every-window-noise-extract)).
+`almasim noise report --out noise/` writes them again for an existing
+extraction.
 
 **`noise fit`** fits what calibration leaves on a bright window, the values of
 the `slow_phase`, `fast_phase`, `antenna_gains` and `baseline_errors`
