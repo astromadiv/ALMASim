@@ -111,7 +111,7 @@
 				if (metadata) values = initialValues(metadata);
 				const roots = await api.GET('/api/v2/files/roots');
 				const first = roots.data?.roots.find((r) => r.exists && !r.runs);
-				if (first && !destination) destination = `${first.path.replace(/\/$/, '')}/almasim-archive`;
+				if (first && !destination) destination = `${first.path.replace(/\/$/, '')}/data`;
 			} catch (err) {
 				loadError = err;
 			}

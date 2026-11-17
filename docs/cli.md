@@ -123,7 +123,7 @@ $ almasim products download [OPTIONS]
 * `--skip-qa0-semipass`: Skip raw ASDMs whose execution block is QA0 SemiPass, read from the <eb>.qa0_report.pdf in the member's extracted auxiliary delivery. ALMA never delivers calibration for these, so they can never be calibrated. Download and extract the auxiliary products first; a raw product without a readable report is kept.
 * `--qa0-report-root <path>`: Root holding the extracted auxiliary deliveries (<project>/science_goal.*/group.*/member.*/qa/). Defaults to --destination.
 * `--save-products-csv <path>`: Save resolved products CSV before download.  [default: ~/almasim_outputs/resolved_products.csv]
-* `--destination <path>`: Directory for downloaded files.  [default: ~/almasim_outputs/downloads]
+* `--destination <path>`: The data folder: the ALMA delivery tree the files go into, and the MSs made from them (default ~/almasim_outputs/data; any folder, such as a shared one, works).  [default: ~/almasim_outputs/data]
 * `--max-parallel <int range>`: Max concurrent downloads across ALMA mirrors; capped at 30 (10 per mirror).  [default: 3; x>=1]
 * `--extract-tar`: Extract downloaded tar/tgz archives.
 * `--unpack-ms`: Import extracted ASDMs into raw MeasurementSets.
@@ -248,7 +248,7 @@ $ almasim visibilities extract [OPTIONS]
 
 **Options**:
 
-* `--source-root <path>`: Directory containing downloaded archive files.  [default: ~/almasim_outputs/downloads]
+* `--source-root <path>`: The data folder holding the downloaded archive files.  [default: ~/almasim_outputs/data]
 * `--destination <path>`: Extraction destination (defaults to --source-root).
 * `--recursive / --no-recursive`: Recursively search --source-root for .tar/.tgz archives.  [default: recursive]
 * `--delete-archives`: Delete each archive after successful extraction.
@@ -275,7 +275,7 @@ $ almasim visibilities unpack [OPTIONS]
 
 **Options**:
 
-* `--input-root <path>`: Directory containing extracted ASDM directories.  [default: ~/almasim_outputs/downloads]
+* `--input-root <path>`: The data folder: the delivery tree holding the extracted ASDMs.  [default: ~/almasim_outputs/data]
 * `--output-dir, --output-root <path>`: Directory where raw MeasurementSets are written (<dir>/working/<eb>.ms). By default each goes next to its ASDM in its member folder of the delivery tree under --input-root (raw/<eb>.ms).
 * `--asdm-uid <str>`: Optional ASDM UID(s) to process. Repeat or pass comma-separated values.
 * `--casa-data-root <path>`: Optional CASA runtime data directory.
@@ -307,7 +307,7 @@ $ almasim visibilities calibrate [OPTIONS]
 
 **Options**:
 
-* `--input-root <path>`: ALMA delivery root containing calibration products.  [default: ~/almasim_outputs/downloads]
+* `--input-root <path>`: The data folder: the delivery tree holding the calibration products.  [default: ~/almasim_outputs/data]
 * `--raw-ms-root <path>`: Directory containing raw MeasurementSets (default: the members' raw/ folders of the delivery tree under --input-root).
 * `--output-dir, --output-root <path>`: Directory where calibrated MeasurementSets are written. By default each goes into its member folder of the delivery tree under --input-root (calibrated/<eb>.ms.split.cal).
 * `--asdm-uid <str>`: Optional UID(s) to calibrate. Repeat or pass comma-separated values.

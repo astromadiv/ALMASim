@@ -120,7 +120,8 @@ install; `almasim doctor` says when it is missing).
 
 Search the ALMA archive (with the filters of `almasim metadata`: project,
 source, band, science keyword and more), tick observations, find their
-products, and download them, raw or calibrated, to a folder you choose. Each step is a job. The
+products, and download them, raw or calibrated, to a data folder: `data/` in
+the first storage folder unless you choose another. Each step is a job. The
 ticked rows can go straight to *Simulate* instead. Unpacked and calibrated
 MeasurementSets go into their member folders of the ALMA delivery tree under
 the destination (`raw/`, `calibrated/`), which `ous_index.csv` indexes

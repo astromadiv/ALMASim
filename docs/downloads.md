@@ -48,7 +48,7 @@ almasim products resolve --metadata-csv metadata.csv \
 # download every product, extract the archives, and write calibrated
 # MeasurementSets with 4 Slurm workers
 almasim products download --products-csv resolved.csv \
-  --product-filter all --destination downloads --extract-tar \
+  --product-filter all --destination data --extract-tar \
   --unpack-ms --generate-calibrated-visibilities \
   --backend slurm --slurm-workers 4 --yes
 ```
@@ -56,7 +56,10 @@ almasim products download --products-csv resolved.csv \
 `almasim metadata --save-products-csv` resolves the products in the same run
 as the query. A file already on disk at its full size is not downloaded again,
 and an interrupted transfer resumes from its `.part` file. Each run writes
-`download_manifest.json` in the destination folder. Each raw and calibrated
+`download_manifest.json` in the destination folder. The destination is the
+data folder, `~/almasim_outputs/data` unless `--destination` names another
+(a shared folder, say), and `visibilities extract`, `unpack` and `calibrate`
+read the same folder by default. Each raw and calibrated
 MeasurementSet goes into its member folder of the delivery tree in the
 destination (see [The delivery tree](#the-delivery-tree));
 `--archive-output-root` puts them in `raw_ms/` and `calibrated_ms/` of a folder
@@ -219,11 +222,11 @@ first, so download in two passes:
 ```bash
 # 1. auxiliary products first: small, and they carry the QA0 reports
 almasim products download --products-csv resolved.csv \
-  --product-filter auxiliary --destination downloads --extract-tar --yes
+  --product-filter auxiliary --destination data --extract-tar --yes
 
 # 2. raw ASDMs, minus the SemiPass execution blocks
 almasim products download --products-csv resolved.csv \
-  --product-filter raw --destination downloads --extract-tar \
+  --product-filter raw --destination data --extract-tar \
   --skip-qa0-semipass --yes
 ```
 

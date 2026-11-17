@@ -420,7 +420,7 @@ almasim products resolve \
 almasim products download \
   --products-csv examples/output/resolved_products.csv \
   --product-filter all \
-  --destination examples/output/downloads \
+  --destination examples/output/data \
   --extract-tar
 
 # Only the cleaned, primary-beam-corrected images, listed inside the product tars,
@@ -436,34 +436,34 @@ almasim products download \
 almasim products download \
   --products-csv examples/output/resolved_products.csv \
   --product-filter auxiliary \
-  --destination examples/output/downloads \
+  --destination examples/output/data \
   --extract-tar --yes
 almasim products download \
   --products-csv examples/output/resolved_products.csv \
   --product-filter raw \
-  --destination examples/output/downloads \
+  --destination examples/output/data \
   --extract-tar --skip-qa0-semipass --yes
 
 # Split archive stages so download/extract/unpack/calibrate can run independently
 # (`almasim products extract/unpack/calibrate` remain as hidden aliases)
 almasim products download \
   --products-csv examples/output/resolved_products.csv \
-  --destination examples/output/downloads
+  --destination examples/output/data
 
 almasim visibilities extract \
-  --source-root examples/output/downloads
+  --source-root examples/output/data
 
 # Each MS goes into its member folder of the delivery tree in --input-root: the raw MS
 # next to its ASDM (raw/<eb>.ms), the calibrated one in calibrated/<eb>.ms.split.cal;
 # calibrate then writes ous_index.csv at the root of the tree (see docs/downloads.md).
 # --output-dir gives a stage a folder of its own instead.
 almasim visibilities unpack \
-  --input-root examples/output/downloads \
+  --input-root examples/output/data \
   --backend slurm \
   --slurm-workers 8
 
 almasim visibilities calibrate \
-  --input-root examples/output/downloads \
+  --input-root examples/output/data \
   --backend slurm \
   --slurm-workers 8
 
@@ -482,14 +482,14 @@ almasim visibilities calibrate \
 # Following progress: each UID writes <output-root>/logs/<uid>.calibrate.log
 # (or <uid>.unpack.log; the output root is the tree's root by default) with the full
 # CASA output, so on Slurm you can
-#   tail -f examples/output/downloads/logs/*.calibrate.log
+#   tail -f examples/output/data/logs/*.calibrate.log
 # from the submit node. The submit node also prints the last log line of every
 # running UID once a minute. Dask worker stdout/stderr lands in ~/dask-worker-logs.
 
 # Download + unpack ASDM + calibrate using Slurm-backed parallel post-processing
 almasim products download \
   --products-csv examples/output/resolved_products.csv \
-  --destination examples/output/downloads \
+  --destination examples/output/data \
   --extract-tar \
   --unpack-ms \
   --generate-calibrated-visibilities \
@@ -504,8 +504,8 @@ almasim products download \
 # execution blocks and the WSClean commands that made it
 # (see docs/imaging.md)
 # Given the delivery tree's root, both work in the members' folders (calibrated/, images/).
-almasim image compute-parameters examples/output/downloads imaging_parameters.csv
-almasim image image-from-ms imaging_parameters.csv examples/output/downloads \
+almasim image compute-parameters examples/output/data imaging_parameters.csv
+almasim image image-from-ms imaging_parameters.csv examples/output/data \
   --num-cores 10 --slurm-queue normal --slurm-workers 8
 
 # Run WSClean through ALMASim (all WSClean flags are forwarded unchanged)
@@ -514,7 +514,7 @@ almasim clean -- \
   -size 1024 1024 \
   -scale 0.1asec \
   -niter 20000 \
-  examples/output/downloads/*/science_goal.*/group.*/member.*/calibrated/*.ms.split.cal
+  examples/output/data/*/science_goal.*/group.*/member.*/calibrated/*.ms.split.cal
 
 # Run a staged simulation from the first row of the metadata CSV
 almasim simulation \

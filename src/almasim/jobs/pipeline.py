@@ -35,12 +35,12 @@ def archive_to_images(
 
     ``query`` are ``almasim metadata`` options (``--science-keyword``,
     ``--band``…); ``download`` and ``imaging`` add options to those steps.
-    Everything lands in ``folder``: metadata.csv, params.csv and downloads/, the
+    Everything lands in ``folder``: metadata.csv, params.csv and data/, the
     ALMA delivery tree, whose member folders hold the raw and calibrated
     measurement sets and the images.
     """
     f = Path(folder)
-    tree = f / "downloads"
+    tree = f / "data"
     return [
         Step("Query the archive", ["metadata", "--save-csv", str(f / "metadata.csv"), *query]),
         Step(
@@ -51,7 +51,7 @@ def archive_to_images(
                 "--metadata-csv",
                 str(f / "metadata.csv"),
                 "--destination",
-                str(f / "downloads"),
+                str(tree),
                 "--extract-tar",
                 "--unpack-ms",
                 "--generate-calibrated-visibilities",

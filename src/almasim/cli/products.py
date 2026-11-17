@@ -522,9 +522,12 @@ def products_download(
         rich_help_panel="Download",
     ),
     destination: Path = typer.Option(
-        default_output_path("downloads"),
+        default_output_path("data"),
         "--destination",
-        help="Directory for downloaded files.",
+        help=(
+            "The data folder: the ALMA delivery tree the files go into, and the MSs made from "
+            "them (default ~/almasim_outputs/data; any folder, such as a shared one, works)."
+        ),
         rich_help_panel="Download",
     ),
     max_parallel: int = typer.Option(
@@ -861,9 +864,9 @@ def _print_download_summary(
 @products_app.command("extract", hidden=True)
 def products_extract(
     source_root: Path = typer.Option(
-        default_output_path("downloads"),
+        default_output_path("data"),
         "--source-root",
-        help="Directory containing downloaded archive files.",
+        help="The data folder holding the downloaded archive files.",
         rich_help_panel="Inputs",
     ),
     destination: Path | None = typer.Option(
@@ -949,9 +952,9 @@ def products_extract(
 @products_app.command("unpack", hidden=True)
 def products_unpack(
     input_root: Path = typer.Option(
-        default_output_path("downloads"),
+        default_output_path("data"),
         "--input-root",
-        help="Directory containing extracted ASDM directories.",
+        help="The data folder: the delivery tree holding the extracted ASDMs.",
         rich_help_panel="Inputs",
     ),
     output_root: Path | None = typer.Option(
@@ -1050,9 +1053,9 @@ def products_unpack(
 @products_app.command("calibrate", hidden=True)
 def products_calibrate(
     input_root: Path = typer.Option(
-        default_output_path("downloads"),
+        default_output_path("data"),
         "--input-root",
-        help="ALMA delivery root containing calibration products.",
+        help="The data folder: the delivery tree holding the calibration products.",
         rich_help_panel="Inputs",
     ),
     raw_ms_root: Path | None = typer.Option(
