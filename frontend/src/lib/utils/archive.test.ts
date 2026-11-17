@@ -60,6 +60,12 @@ describe('the archive runs', () => {
 		).toEqual(['--include', '*.pbcor.fits', '--include', '*.cont.*', '--exclude', '*_bp.*']);
 	});
 
+	it('leave the primary beams out only when asked', () => {
+		expect(downloadArgv(base)).not.toContain('--no-pb');
+		expect(downloadArgv({ ...base, pb: true })).not.toContain('--no-pb');
+		expect(downloadArgv({ ...base, pb: false }).slice(8)).toEqual(['--no-pb']);
+	});
+
 	it('put the MeasurementSets in the chosen folder, when they make any', () => {
 		const choice = { ...base, msFolder: ' /data/ms ' };
 		expect(downloadArgv({ ...choice, calibrate: true }).slice(-2)).toEqual([
@@ -131,7 +137,13 @@ describe('reading the CSV files back', () => {
 				['P_auxiliary.tar', 'auxiliary', '7']
 			]
 		);
-		expect(selection(files, 'all', ['*.pbcor.fits'])).toEqual({ count: 2, bytes: 320 });
+		// The cube's primary beam comes with its pbcor image, as with --pb.
+		expect(selection(files, 'all', ['*.pbcor.fits'])).toEqual({ count: 3, bytes: 420 });
+		expect(selection(files, 'all', ['*.pbcor.fits'], [], false)).toEqual({ count: 2, bytes: 320 });
+		expect(selection(files, 'all', ['*.pbcor.fits'], ['*.pb.fits.gz'])).toEqual({
+			count: 2,
+			bytes: 320
+		});
 		expect(selection(files, 'fits', ['*.pbcor.fits'], ['*.cube.*'])).toEqual({
 			count: 1,
 			bytes: 20

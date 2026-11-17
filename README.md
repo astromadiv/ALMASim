@@ -423,7 +423,8 @@ almasim products download \
   --destination examples/output/downloads \
   --extract-tar
 
-# Only the cleaned, primary-beam-corrected images, listed inside the product tars
+# Only the cleaned, primary-beam-corrected images, listed inside the product tars,
+# with their primary beams and the images before correction (<name>.image.fits)
 almasim products download \
   --products-csv examples/output/resolved_products.csv \
   --product-filter fits --expand-archives --include '*.pbcor.fits' \

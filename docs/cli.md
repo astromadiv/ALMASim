@@ -119,6 +119,7 @@ $ almasim products download [OPTIONS]
 * `--layout <delivery|flat>`: Where --expand-archives puts the files it lists: 'delivery' in the folders of the ALMA delivery tree, <project>/science_goal.*/group.*/member.*/product/ (or calibration/, qa/, script/, log/), read from the start of one tar per member; 'flat' in --destination itself.  [default: delivery]
 * `--include <str>`: Download only files whose name matches this glob, for example '*.pbcor.fits'. Repeat or pass comma-separated globs; a file matching any of them is kept.
 * `--exclude <str>`: Skip files whose name matches this glob. Repeat or pass comma-separated globs.
+* `--pb / --no-pb`: With each '*.pbcor.fits' image picked, also download its primary beam ('*.pb.fits.gz', from the same product tar), and write the image before primary-beam correction, '<name>.image.fits' = pbcor x pb, next to them. Extracted product tars get their images too.  [default: pb]
 * `--skip-qa0-semipass`: Skip raw ASDMs whose execution block is QA0 SemiPass, read from the <eb>.qa0_report.pdf in the member's extracted auxiliary delivery. ALMA never delivers calibration for these, so they can never be calibrated. Download and extract the auxiliary products first; a raw product without a readable report is kept.
 * `--qa0-report-root <path>`: Root holding the extracted auxiliary deliveries (<project>/science_goal.*/group.*/member.*/qa/). Defaults to --destination.
 * `--save-products-csv <path>`: Save resolved products CSV before download.  [default: ~/almasim_outputs/resolved_products.csv]

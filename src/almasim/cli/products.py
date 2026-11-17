@@ -59,6 +59,8 @@ from ..services.download import (
     resolve_products,
     save_products_csv,
     select_files,
+    with_primary_beams,
+    write_uncorrected_images,
 )
 from ._options import (
     Backend,
@@ -403,6 +405,7 @@ class DownloadOptions:
     layout: Layout
     include: list[str] | None
     exclude: list[str] | None
+    pb: bool
     skip_qa0_semipass: bool
     qa0_report_root: Path | None
     save_products_csv_path: Path | None
@@ -484,6 +487,17 @@ def products_download(
         None,
         "--exclude",
         help="Skip files whose name matches this glob. Repeat or pass comma-separated globs.",
+        rich_help_panel="Selection",
+    ),
+    pb: bool = typer.Option(
+        True,
+        "--pb/--no-pb",
+        help=(
+            "With each '*.pbcor.fits' image picked, also download its primary beam "
+            "('*.pb.fits.gz', from the same product tar), and write the image before "
+            "primary-beam correction, '<name>.image.fits' = pbcor x pb, next to them. "
+            "Extracted product tars get their images too."
+        ),
         rich_help_panel="Selection",
     ),
     skip_qa0_semipass: bool = typer.Option(
@@ -630,6 +644,24 @@ def products_download(
         _print_download_summary(
             summary, summary.raw_measurement_sets, summary.calibrated_measurement_sets
         )
+        _write_uncorrected_images(options, summary)
+
+
+def _write_uncorrected_images(o: DownloadOptions, summary: Any) -> None:
+    """With --pb, each downloaded or extracted pbcor image's <name>.image.fits."""
+    if not o.pb:
+        return
+    files = [s.filename for s in summary.files if s.status == "completed"]
+    images = write_uncorrected_images(summary.destination, [*files, *summary.extracted_files])
+    if not (images.written or images.present or images.without_beam or images.failed):
+        return
+    typer.echo(
+        f"Images before primary-beam correction: {len(images.written)} written, "
+        f"{len(images.present)} already there, "
+        f"{len(images.without_beam)} pbcor image(s) without a primary beam"
+    )
+    for image, error in images.failed.items():
+        typer.echo(f"  could not write {image}: {error}", err=True)
 
 
 def _pick_files(o: DownloadOptions, products: list[Any]) -> list[Any]:
@@ -638,7 +670,11 @@ def _pick_files(o: DownloadOptions, products: list[Any]) -> list[Any]:
         products = _expand_archives(products, o.layout)
     include, exclude = split_csv_values(o.include) or [], split_csv_values(o.exclude) or []
     if include or exclude:
+        listing = products
         products = select_files(products, include, exclude)
+        if o.pb:
+            # Each picked pbcor image's primary beam, unless --exclude names it.
+            products = select_files(with_primary_beams(products, listing), [], exclude)
     if not products:
         fail(
             f"No products matched --product-filter={o.product_filter.lower()}"
@@ -773,6 +809,7 @@ def _download_and_postprocess(o: DownloadOptions, selected: list[Any]) -> None:
         Path(summary.destination), archive_root / "calibrated_ms", archive_root / "raw_ms"
     )
     _print_download_summary(summary, raw_mss, calibrated_mss, show_extraction_failures=True)
+    _write_uncorrected_images(o, summary)
     if o.clean_intermediate_files and o.generate_calibrated_visibilities:
         if stage_failures:
             typer.echo(

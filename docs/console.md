@@ -136,6 +136,11 @@ patterns, and the page counts the files and bytes they pick before you start
 the download. The files go in the ALMA delivery tree under the destination,
 `<project>/science_goal.*/group.*/member.*/product/` and the member's other
 folders ([Choosing single files](downloads.md#choosing-single-files)).
+With *With each \*.pbcor.fits image, its primary beam …* ticked (the
+default), each picked pbcor image brings its primary beam, counted in the
+files and bytes, and the download writes the image before primary-beam
+correction next to them
+([Primary beams and the images before correction](downloads.md#primary-beams-and-the-images-before-correction)).
 
 ![Archive](images/console/archive.png)
 
