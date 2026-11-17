@@ -28,8 +28,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output-root",
         type=Path,
-        default=REPO_ROOT / "examples" / "output" / "archive_ms",
-        help="Root directory where raw_ms/ and calibrated_ms/ outputs are written.",
+        default=None,
+        help=(
+            "Write raw_ms/ and calibrated_ms/ here. By default each MS goes into its member "
+            "folder of the delivery tree (raw/, calibrated/)."
+        ),
     )
     parser.add_argument(
         "--asdm",
@@ -83,12 +86,13 @@ def main() -> None:
     from almasim.services.archive import (
         create_calibrated_measurement_sets,
         create_measurement_sets,
-        organize_delivery,
+        write_ous_index,
     )
+    from almasim.services.archive.delivery import archive_ms_roots
 
-    output_root = args.output_root.expanduser().resolve()
-    raw_ms_root = output_root / "raw_ms"
-    calibrated_ms_root = output_root / "calibrated_ms"
+    output_root = args.output_root.expanduser().resolve() if args.output_root else None
+    # Without --output-root each MS goes into its member folder of the delivery tree.
+    raw_ms_root, calibrated_ms_root = archive_ms_roots(args.input_root, output_root)
 
     print(f"Input root: {args.input_root.expanduser().resolve()}")
     print(f"Output root: {output_root}")
@@ -131,9 +135,9 @@ def main() -> None:
     for calibrated_ms in calibrated_mss:
         print(f"  {calibrated_ms}")
 
-    # Link each calibrated MS into its member's calibrated/ folder and index the tree.
+    # Index the tree: each execution block, its member and its MSs.
     if not args.delete_input_root:
-        organize_delivery(args.input_root, calibrated_ms_root, raw_ms_root, echo=print)
+        write_ous_index(args.input_root, calibrated_ms_root, raw_ms_root, echo=print)
 
 
 if __name__ == "__main__":

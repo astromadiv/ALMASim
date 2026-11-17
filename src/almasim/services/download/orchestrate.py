@@ -214,17 +214,16 @@ def download_products(  # noqa: C901
                 extraction_failed.append(str(tar_path))
 
     archive_failures: list[str] = []
+    archive_root: Path | None = None
     if unpack_ms or generate_calibrated_visibilities:
         from almasim.services.archive import cleanup_intermediate_calibration_data
+        from almasim.services.archive.delivery import archive_ms_roots, write_ous_index
         from almasim.services.archive.pipeline import run_archive_stages
 
         archive_root = (
-            Path(archive_output_root).expanduser().resolve()
-            if archive_output_root
-            else destination_path / "archive_ms"
+            Path(archive_output_root).expanduser().resolve() if archive_output_root else None
         )
-        raw_ms_root = archive_root / "raw_ms"
-        calibrated_ms_root = archive_root / "calibrated_ms"
+        raw_ms_root, calibrated_ms_root = archive_ms_roots(destination_path, archive_root)
 
         def _echo(message: str, *, err: bool = False) -> None:
             if logger_fn is not None:
@@ -253,6 +252,11 @@ def download_products(  # noqa: C901
                 [Path(path) for path in calibrated_measurement_sets],
                 logger_fn=logger_fn,
             )
+        # Before the downloaded inputs go: the qa/ reports place each EB in its member.
+        try:
+            write_ous_index(destination_path, calibrated_ms_root, raw_ms_root, echo=_echo)
+        except OSError as exc:
+            _echo(f"Could not index the delivery tree under {destination_path}: {exc}", err=True)
 
     files_completed = sum(1 for status in statuses if status.status == "completed")
     files_failed = sum(1 for status in statuses if status.status == "failed")
@@ -289,7 +293,7 @@ def download_products(  # noqa: C901
             statuses,
             extracted_files,
             protected_roots=[
-                archive_root,
+                *([archive_root] if archive_root is not None else []),
                 *(Path(path) for path in calibrated_measurement_sets),
             ],
         )

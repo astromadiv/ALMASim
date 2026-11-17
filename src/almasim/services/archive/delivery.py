@@ -1,19 +1,20 @@
-"""Keep calibrated MeasurementSets in the ALMA delivery tree, and index it.
+"""The ALMA delivery tree, where every MeasurementSet and image of a member lives, and its index.
 
 An ALMA delivery is a tree of member ObsUnitSets:
 ``<project>/science_goal.<uid>/group.<uid>/member.<uid>/``, with the member's
 ``product/``, ``calibration/``, ``qa/``, ``script/``, ``log/`` and ``raw/``
 folders. Every execution block of a member has a ``<eb>.qa0_report.pdf`` in its
-``qa/`` folder, and a delivered calibration an ``<eb>.ms.calapply.txt`` in its
-``calibration/`` folder, so the tree says which member each EB belongs to.
+``qa/`` folder, a delivered calibration an ``<eb>.ms.calapply.txt`` in its
+``calibration/`` folder, and a downloaded ASDM is ``raw/<eb>.asdm.sdm``, so the
+tree says which member each EB belongs to.
 
-:func:`organize_delivery` links each calibrated MS into its member's
-``calibrated/`` folder, as ALMA's scriptForPI does, and writes
-``ous_index.csv`` at the root of the tree: one row per execution block, with
-its project, science goal, group and member, whether ALMA calibrated it (it has a
-calapply file), and its MSs. The MSs themselves stay where the archive stages
-write them; the links are relative, so the tree and the MS folders can move
-together.
+The archive stages write into the tree when their output folder is its root:
+the raw MS next to its ASDM, ``raw/<eb>.ms``, the calibrated MS in
+``calibrated/<eb>.ms.split.cal``, where ALMA's scriptForPI puts it, and the
+images in ``images/`` (:func:`eb_member_folder` finds the folder).
+:func:`write_ous_index` writes ``ous_index.csv`` at the root of the tree: one row
+per execution block, with its project, science goal, group and member, whether
+ALMA calibrated it (it has a calapply file), and its MSs.
 
 :func:`member_status` reads the index member by member: a member is complete
 when every execution block ALMA calibrated for it has a calibrated MS, and only
@@ -25,7 +26,8 @@ from __future__ import annotations
 import csv
 import logging
 import os
-from collections.abc import Callable, Iterable
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -35,18 +37,26 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "CALIBRATED_FOLDER",
+    "IMAGES_FOLDER",
+    "RAW_FOLDER",
     "INDEX_FILENAME",
-    "DeliveryOrganized",
+    "DeliveryIndex",
     "MemberFolder",
     "MemberStatus",
+    "archive_ms_roots",
+    "eb_member_folder",
     "folder_uid",
+    "is_delivery_root",
     "member_folders",
     "member_status",
-    "organize_delivery",
     "read_ous_index",
+    "write_ous_index",
 ]
 
 CALIBRATED_FOLDER = "calibrated"
+RAW_FOLDER = "raw"
+IMAGES_FOLDER = "images"
+_RESCAN_SECONDS = 60.0
 INDEX_FILENAME = "ous_index.csv"
 _INDEX_COLUMNS = [
     "eb_uid",
@@ -73,14 +83,15 @@ class MemberFolder:
 
 
 @dataclass
-class DeliveryOrganized:
-    """What :func:`organize_delivery` did."""
+class DeliveryIndex:
+    """What :func:`write_ous_index` wrote."""
 
     index_path: Path
     execution_blocks: int
-    linked: int
+    calibrated: int
+    """Execution blocks with a calibrated MS."""
     without_member: list[str]
-    """Calibrated MSs whose execution block no member folder lists."""
+    """Calibrated MSs outside the tree whose execution block no member folder lists."""
 
 
 @dataclass(frozen=True)
@@ -111,8 +122,9 @@ def folder_uid(folder_name: str) -> str:
 def member_folders(root: str | os.PathLike[str]) -> dict[str, MemberFolder]:
     """Each execution block of the tree under ``root`` and its member folder.
 
-    An EB counts as the member's when its ``qa/`` folder has the EB's QA0 report
-    or its ``calibration/`` folder the EB's calapply file.
+    An EB counts as the member's when its ``qa/`` folder has the EB's QA0 report,
+    its ``calibration/`` folder the EB's calapply file or its ``raw/`` folder the
+    EB's ASDM.
     """
     members: dict[str, MemberFolder] = {}
     for path in sorted(index_member_directories(Path(root)).values()):
@@ -129,6 +141,7 @@ def member_folders(root: str | os.PathLike[str]) -> dict[str, MemberFolder]:
             p.name.removesuffix(".ms.calapply.txt")
             for p in path.glob("calibration/*.ms.calapply.txt")
         }
+        ebs |= {p.name.removesuffix(".asdm.sdm") for p in path.glob(f"{RAW_FOLDER}/*.asdm.sdm")}
         for eb in ebs:
             if eb in members and members[eb].path != path:
                 logger.warning("%s is listed by %s and %s", eb, members[eb].path, path)
@@ -164,27 +177,46 @@ def member_status(index: dict[str, dict[str, str]]) -> dict[str, MemberStatus]:
     return status
 
 
-def _link(target: Path, link: Path) -> bool:
-    """Point ``link`` at ``target`` (relative); a real file or folder there is left alone."""
-    relative = os.path.relpath(target, link.parent)
-    if link.is_symlink():
-        if os.readlink(link) == relative:
-            return False
-        link.unlink()
-    elif link.exists():
-        logger.warning("%s exists and is not a link; it is left as it is", link)
-        return False
-    link.parent.mkdir(parents=True, exist_ok=True)
-    link.symlink_to(relative)
-    return True
+def is_delivery_root(root: str | os.PathLike[str]) -> bool:
+    """Whether ``root`` holds a delivery tree (``<project>/science_goal.*`` folders)."""
+    return any(Path(root).expanduser().glob("*/science_goal.*"))
 
 
-def _prune_dangling(member_paths: Iterable[Path]) -> None:
-    """Drop the ``calibrated/`` links whose MS is gone."""
-    for member in member_paths:
-        for link in (member / CALIBRATED_FOLDER).glob("*"):
-            if link.is_symlink() and not link.exists():
-                link.unlink()
+_members_seen: dict[Path, tuple[float, dict[str, Path]]] = {}
+
+
+def eb_member_folder(root: str | os.PathLike[str], eb: str) -> Path | None:
+    """The member folder of execution block ``eb`` in the delivery tree at ``root``.
+
+    None when ``root`` holds no delivery tree or no member lists ``eb``. The tree
+    is read once per process; an EB not found makes it read again, at most once a
+    minute, so members extracted meanwhile are found.
+    """
+    root = Path(root).expanduser().resolve()
+    seen = _members_seen.get(root)
+    if seen is None or (eb not in seen[1] and time.monotonic() - seen[0] > _RESCAN_SECONDS):
+        members = (
+            {name: member.path for name, member in member_folders(root).items()}
+            if is_delivery_root(root)
+            else {}
+        )
+        seen = _members_seen[root] = (time.monotonic(), members)
+    return seen[1].get(eb)
+
+
+def archive_ms_roots(
+    delivery_root: str | os.PathLike[str], archive_output_root: str | os.PathLike[str] | None
+) -> tuple[Path, Path]:
+    """The raw and calibrated MS roots of a download into ``delivery_root``.
+
+    Without ``archive_output_root`` both are the tree itself, so each MS goes into
+    its member folder; with it, ``<archive_output_root>/raw_ms`` and ``calibrated_ms``.
+    """
+    if archive_output_root is None:
+        root = Path(delivery_root).expanduser().resolve()
+        return root, root
+    archive = Path(archive_output_root).expanduser().resolve()
+    return archive / "raw_ms", archive / "calibrated_ms"
 
 
 def _ms_by_eb(ms_root: Path | None, suffix: str) -> dict[str, Path]:
@@ -198,40 +230,40 @@ def _ms_by_eb(ms_root: Path | None, suffix: str) -> dict[str, Path]:
     }
 
 
-def organize_delivery(
+def write_ous_index(
     delivery_root: str | os.PathLike[str],
-    calibrated_ms_root: str | os.PathLike[str] | None,
+    calibrated_ms_root: str | os.PathLike[str] | None = None,
     raw_ms_root: str | os.PathLike[str] | None = None,
     *,
     index_path: str | os.PathLike[str] | None = None,
     echo: Callable[[str], object] = logger.info,
-) -> DeliveryOrganized:
-    """Link every calibrated MS into its member's ``calibrated/`` folder and write the index.
+) -> DeliveryIndex:
+    """Write the tree's ``ous_index.csv``: every execution block, its member and its MSs.
 
-    The calibrated MSs are the folders in ``calibrated_ms_root`` (``<eb>.ms.split.cal``),
-    the raw ones those in ``raw_ms_root`` (``<eb>.ms``). It is safe to run again: a
-    link already right is kept, a link whose MS is gone is dropped, and the index is
-    rewritten. ``index_path`` defaults to ``<delivery_root>/ous_index.csv``.
+    An EB's MSs are those in its member folder (``raw/<eb>.ms``,
+    ``calibrated/<eb>.ms.split.cal``) or else those in ``raw_ms_root`` and
+    ``calibrated_ms_root``, for stages given a folder of their own. The index is
+    rewritten whole; ``index_path`` defaults to ``<delivery_root>/ous_index.csv``.
     """
     root = Path(delivery_root)
     members = member_folders(root)
-    calibrated_root = Path(calibrated_ms_root) if calibrated_ms_root else None
-    calibrated = _ms_by_eb(calibrated_root, ".ms.split.cal")
+    calibrated = _ms_by_eb(
+        Path(calibrated_ms_root) if calibrated_ms_root else None, ".ms.split.cal"
+    )
     raw = _ms_by_eb(Path(raw_ms_root) if raw_ms_root else None, ".ms")
-
-    linked = 0
-    without_member: list[str] = []
-    for eb, ms in calibrated.items():
-        member = members.get(eb)
-        if member is None:
-            without_member.append(str(ms))
-            continue
-        linked += _link(ms, member.path / CALIBRATED_FOLDER / ms.name)
-    _prune_dangling({member.path for member in members.values()})
+    without_member = [str(ms) for eb, ms in calibrated.items() if eb not in members]
+    for eb, member in members.items():
+        for found, folder, suffix in (
+            (calibrated, CALIBRATED_FOLDER, ".ms.split.cal"),
+            (raw, RAW_FOLDER, ".ms"),
+        ):
+            in_tree = member.path / folder / f"{eb}{suffix}"
+            if in_tree.is_dir():
+                found[eb] = in_tree
 
     index = Path(index_path) if index_path else root / INDEX_FILENAME
     index.parent.mkdir(parents=True, exist_ok=True)
-    # One temporary file per process: organize runs may overlap on one tree.
+    # One temporary file per process: index writes may overlap on one tree.
     temporary = index.with_name(f"{index.name}.{os.getpid()}.tmp")
     with temporary.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle, lineterminator="\n")
@@ -254,10 +286,11 @@ def organize_delivery(
             )
     os.replace(temporary, index)
 
+    with_calibrated = sum(1 for eb in members if eb in calibrated)
     echo(
         f"Delivery tree {root}: {len(members)} execution blocks in "
-        f"{len({m.path for m in members.values()})} members; {linked} calibrated MS link(s) "
-        f"made; index {index}"
+        f"{len({m.path for m in members.values()})} members, {with_calibrated} calibrated; "
+        f"index {index}"
     )
     if without_member:
         echo(
@@ -265,4 +298,4 @@ def organize_delivery(
             + ", ".join(Path(p).name for p in without_member[:5])
             + (" ..." if len(without_member) > 5 else "")
         )
-    return DeliveryOrganized(index, len(members), linked, without_member)
+    return DeliveryIndex(index, len(members), with_calibrated, without_member)

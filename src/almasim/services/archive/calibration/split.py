@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import logging
 import os
-import shutil
 from collections.abc import Callable
 from pathlib import Path
 
 from ...casa import tools as casa_tools
 from ...markers import StageMarkers
+from ...ms.remove import remove_measurement_set
 from ...utils import LogFn, report
+from ..delivery import CALIBRATED_FOLDER, eb_member_folder
 
 logger = logging.getLogger(__name__)
 
@@ -33,8 +34,14 @@ def science_spws(ms_path: str | os.PathLike[str]) -> str:
 
 
 def calibrated_output_path(output_root: str | os.PathLike[str], uid: str) -> Path:
-    """Return the calibrated science MS path for ``uid``."""
-    return Path(output_root).expanduser().resolve() / f"{uid}.ms.split.cal"
+    """Where ``uid``'s calibrated science MS goes: ``<member>/calibrated/<uid>.ms.split.cal``
+    when ``output_root`` is a delivery tree that places ``uid``,
+    ``<output_root>/<uid>.ms.split.cal`` otherwise."""
+    root = Path(output_root).expanduser().resolve()
+    member = eb_member_folder(root, uid)
+    if member is not None:
+        return member / CALIBRATED_FOLDER / f"{uid}.ms.split.cal"
+    return root / f"{uid}.ms.split.cal"
 
 
 def calibration_marker_path(output_root: str | os.PathLike[str], uid: str) -> Path:
@@ -113,14 +120,14 @@ def split_calibrated_science_ms(
 ) -> Path:
     """Split science SPWs into ``<uid>.ms.split.cal`` and write its completion marker."""
     output_path = Path(output_root).expanduser().resolve()
-    output_path.mkdir(parents=True, exist_ok=True)
-    output_ms = output_path / f"{calibrated_working_ms.name}.split.cal"
     uid = calibrated_working_ms.name.removesuffix(".ms")
+    output_ms = calibrated_output_path(output_path, uid)
+    output_ms.parent.mkdir(parents=True, exist_ok=True)
     marker = calibration_marker_path(output_path, uid)
-    if output_ms.exists():
+    if output_ms.exists() or output_ms.is_symlink():
         if not overwrite:
             raise RuntimeError(f"Calibrated output MS already exists: {output_ms}")
-        shutil.rmtree(output_ms)
+        remove_measurement_set(output_ms)
     marker.unlink(missing_ok=True)
 
     spws = science_spws(calibrated_working_ms)

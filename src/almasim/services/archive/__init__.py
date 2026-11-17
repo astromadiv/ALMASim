@@ -18,13 +18,13 @@ from .calibration import (
     write_calibration_marker,
 )
 from .delivery import (
-    DeliveryOrganized,
+    DeliveryIndex,
     MemberFolder,
     MemberStatus,
     member_folders,
     member_status,
-    organize_delivery,
     read_ous_index,
+    write_ous_index,
 )
 from .qa0 import (
     QA0FilterResult,
@@ -84,11 +84,11 @@ __all__ = [
     "qa0_report_path",
     "read_qa0_report",
     "restore_pipeline_flags",
-    "DeliveryOrganized",
+    "DeliveryIndex",
     "MemberFolder",
     "MemberStatus",
     "member_folders",
     "member_status",
-    "organize_delivery",
+    "write_ous_index",
     "read_ous_index",
 ]

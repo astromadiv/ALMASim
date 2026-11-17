@@ -76,13 +76,27 @@ def find_raw_ms_directories(
     raw_ms_root: str | os.PathLike[str],
     asdm_uid: str | None = None,
 ) -> list[Path]:
-    """Find raw imported MS directories below ``raw_ms_root``."""
+    """Find raw imported MS directories below ``raw_ms_root``.
+
+    In a delivery tree only the members' ``raw/`` folders and ``working/`` are
+    searched, not the calibrated MSs and products beside them.
+    """
+    from ..delivery import RAW_FOLDER, is_delivery_root
+
     root = Path(raw_ms_root).expanduser().resolve()
     if not root.is_dir():
         raise RuntimeError(f"Raw MS root does not exist or is not a directory: {root}")
 
+    candidates = (
+        [
+            *root.glob(f"*/science_goal.*/group.*/member.*/{RAW_FOLDER}/*.ms"),
+            *root.glob("working/*.ms"),
+        ]
+        if is_delivery_root(root)
+        else root.rglob("*.ms")
+    )
     raw_mss = []
-    for candidate in root.rglob("*.ms"):
+    for candidate in candidates:
         if not candidate.is_dir():
             continue
         if asdm_uid is not None and candidate.name != f"{asdm_uid}.ms":

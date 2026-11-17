@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 
 import {
 	calibratedMsFolder,
-	defaultMsFolder,
 	downloadArgv,
 	matchesPatterns,
 	memberOusUids,
@@ -76,13 +75,11 @@ describe('the archive runs', () => {
 		expect(downloadArgv({ ...base, msFolder: '  ', unpack: true })).not.toContain(
 			'--archive-output-root'
 		);
-		expect(defaultMsFolder('/data/archive/')).toBe('/data/archive/archive_ms');
-		expect(defaultMsFolder(' ')).toBe('');
 	});
 
 	it('tell the Imaging page where a download put its calibrated MSs', () => {
 		const run = downloadArgv({ ...base, calibrate: true });
-		expect(calibratedMsFolder(run)).toBe('/data/archive/archive_ms/calibrated_ms');
+		expect(calibratedMsFolder(run)).toBe('/data/archive'); // the delivery tree
 		expect(calibratedMsFolder(downloadArgv({ ...base, calibrate: true, msFolder: '/ms/' }))).toBe(
 			'/ms/calibrated_ms'
 		);

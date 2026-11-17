@@ -19,10 +19,19 @@ SUMMARY_FILENAME = "clean-quality.csv"
 
 
 def find_task_dirs(root: Path) -> list[Path]:
-    """Every directory under ``root`` (``root`` included) holding a continuum or cube image."""
+    """Every directory under ``root`` (``root`` included) holding a continuum or cube image.
+
+    In a delivery tree (``root`` holds ``ous_index.csv``) only the members'
+    ``images/`` folders are searched, not the MSs and products beside them.
+    """
+    from almasim.services.archive.delivery import IMAGES_FOLDER, INDEX_FILENAME
+
     root = Path(root)
     names = (IMAGE_FILENAME, CUBE_IMAGE_FILENAME)
-    found = {path.parent for name in names for path in root.rglob(name)}
+    tops = [root]
+    if (root / INDEX_FILENAME).is_file():
+        tops = sorted(root.glob(f"*/science_goal.*/group.*/member.*/{IMAGES_FOLDER}"))
+    found = {path.parent for top in tops for name in names for path in top.rglob(name)}
     return sorted(found)
 
 

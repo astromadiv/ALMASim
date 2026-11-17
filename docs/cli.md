@@ -123,12 +123,12 @@ $ almasim products download [OPTIONS]
 * `--skip-qa0-semipass`: Skip raw ASDMs whose execution block is QA0 SemiPass, read from the <eb>.qa0_report.pdf in the member's extracted auxiliary delivery. ALMA never delivers calibration for these, so they can never be calibrated. Download and extract the auxiliary products first; a raw product without a readable report is kept.
 * `--qa0-report-root <path>`: Root holding the extracted auxiliary deliveries (<project>/science_goal.*/group.*/member.*/qa/). Defaults to --destination.
 * `--save-products-csv <path>`: Save resolved products CSV before download.  [default: ~/almasim_outputs/resolved_products.csv]
-* `--destination <path>`: Directory for downloaded files.  [default: ~/almasim_outputs/downloads]
+* `--destination <path>`: The data folder: the ALMA delivery tree the files go into, and the MSs made from them (default ~/almasim_outputs/data; any folder, such as a shared one, works).  [default: ~/almasim_outputs/data]
 * `--max-parallel <int range>`: Max concurrent downloads across ALMA mirrors; capped at 30 (10 per mirror).  [default: 3; x>=1]
 * `--extract-tar`: Extract downloaded tar/tgz archives.
 * `--unpack-ms`: Import extracted ASDMs into raw MeasurementSets.
 * `--generate-calibrated-visibilities`: Apply delivered calibrations and write calibrated MeasurementSets.
-* `--archive-output-root <path>`: Root directory for archive_ms raw_ms/calibrated_ms products.
+* `--archive-output-root <path>`: Write the raw and calibrated MSs to <root>/raw_ms and <root>/calibrated_ms. By default each goes into its member folder of the delivery tree under --destination (raw/<eb>.ms next to its ASDM, calibrated/<eb>.ms.split.cal).
 * `--casa-data-root <path>`: Optional CASA runtime data directory.
 * `--skip-casa-data-update`: Do not auto-download CASA runtime data if missing.
 * `--clean-intermediate-files`: Clean downloaded/intermediate raw files after calibrated outputs are created.
@@ -233,7 +233,6 @@ $ almasim visibilities [OPTIONS] COMMAND [ARGS]...
 * `extract`: Extract ALMA archive tarballs as a...
 * `unpack`: Import ASDM directories into raw...
 * `calibrate`: Create calibrated MeasurementSets as a...
-* `organize`: Link the calibrated MSs into their member...
 * `spw-overview`: Print the spectral-window summary for one...
 * `flag-summary`: Summarise flagging and visibility...
 
@@ -249,7 +248,7 @@ $ almasim visibilities extract [OPTIONS]
 
 **Options**:
 
-* `--source-root <path>`: Directory containing downloaded archive files.  [default: ~/almasim_outputs/downloads]
+* `--source-root <path>`: The data folder holding the downloaded archive files.  [default: ~/almasim_outputs/data]
 * `--destination <path>`: Extraction destination (defaults to --source-root).
 * `--recursive / --no-recursive`: Recursively search --source-root for .tar/.tgz archives.  [default: recursive]
 * `--delete-archives`: Delete each archive after successful extraction.
@@ -276,8 +275,8 @@ $ almasim visibilities unpack [OPTIONS]
 
 **Options**:
 
-* `--input-root <path>`: Directory containing extracted ASDM directories.  [default: ~/almasim_outputs/downloads]
-* `--output-dir, --output-root <path>`: Directory where raw MeasurementSets are written.  [default: ~/almasim_outputs/downloads/archive_ms/raw_ms]
+* `--input-root <path>`: The data folder: the delivery tree holding the extracted ASDMs.  [default: ~/almasim_outputs/data]
+* `--output-dir, --output-root <path>`: Directory where raw MeasurementSets are written (<dir>/working/<eb>.ms). By default each goes next to its ASDM in its member folder of the delivery tree under --input-root (raw/<eb>.ms).
 * `--asdm-uid <str>`: Optional ASDM UID(s) to process. Repeat or pass comma-separated values.
 * `--casa-data-root <path>`: Optional CASA runtime data directory.
 * `--skip-casa-data-update`: Do not auto-download CASA runtime data if missing.
@@ -297,6 +296,9 @@ $ almasim visibilities unpack [OPTIONS]
 
 Create calibrated MeasurementSets as a standalone step.
 
+In an ALMA delivery tree (--input-root) each calibrated MS goes into its
+member folder, and ous_index.csv at the root of the tree indexes them.
+
 **Usage**:
 
 ```console
@@ -305,9 +307,9 @@ $ almasim visibilities calibrate [OPTIONS]
 
 **Options**:
 
-* `--input-root <path>`: ALMA delivery root containing calibration products.  [default: ~/almasim_outputs/downloads]
-* `--raw-ms-root <path>`: Directory containing raw MeasurementSets.  [default: ~/almasim_outputs/downloads/archive_ms/raw_ms]
-* `--output-dir, --output-root <path>`: Directory where calibrated MeasurementSets are written.  [default: ~/almasim_outputs/downloads/archive_ms/calibrated_ms]
+* `--input-root <path>`: The data folder: the delivery tree holding the calibration products.  [default: ~/almasim_outputs/data]
+* `--raw-ms-root <path>`: Directory containing raw MeasurementSets (default: the members' raw/ folders of the delivery tree under --input-root).
+* `--output-dir, --output-root <path>`: Directory where calibrated MeasurementSets are written. By default each goes into its member folder of the delivery tree under --input-root (calibrated/<eb>.ms.split.cal).
 * `--asdm-uid <str>`: Optional UID(s) to calibrate. Repeat or pass comma-separated values.
 * `--casa-data-root <path>`: Optional CASA runtime data directory.
 * `--skip-casa-data-update`: Do not auto-download CASA runtime data if missing.
@@ -323,25 +325,6 @@ $ almasim visibilities calibrate [OPTIONS]
 * `--clean-intermediate-files`: Remove intermediate raw and working files after successful calibration.
 * `--continue-on-error / --fail-fast`: Skip UIDs whose processing fails and carry on with the rest, then exit non-zero with a summary (default). --fail-fast aborts on the first failure.  [default: continue-on-error]
 * `--keep-working-copies`: Keep each UID's working directory (raw MS copy plus caltables, about 1.8x the raw MS) after its calibrated output is written. By default it is removed.
-* `--organize-delivery / --no-organize-delivery`: Link each calibrated MS into its member folder of the ALMA delivery tree (<project>/science_goal.*/group.*/member.*/calibrated/) and write ous_index.csv at the root of the tree. The tree is --input-root.  [default: organize-delivery]
-* `--help`: Show this message and exit.
-
-### `almasim visibilities organize`
-
-Link the calibrated MSs into their member folders and index the delivery tree.
-
-**Usage**:
-
-```console
-$ almasim visibilities organize [OPTIONS]
-```
-
-**Options**:
-
-* `--delivery-root <path>`: Root of the ALMA delivery tree (<project>/science_goal.*/group.*/member.*/).  [required]
-* `--calibrated-ms-root <path>`: Folder of the calibrated MSs (<eb>.ms.split.cal).  [required]
-* `--raw-ms-root <path>`: Folder of the raw MSs (<eb>.ms), recorded in the index.
-* `--index-csv <path>`: Where to write the index (default: <delivery-root>/ous_index.csv).
 * `--help`: Show this message and exit.
 
 ### `almasim visibilities spw-overview`
@@ -458,7 +441,7 @@ $ almasim image compute-parameters [OPTIONS] [archive_folder] [output_metadata_f
 
 **Arguments**:
 
-* `archive_folder`: Processed MSs folder (default: current directory)  [default: .]
+* `archive_folder`: Processed MSs folder (default: current directory). In an ALMA delivery tree the --pattern is matched in the members' calibrated/ folders.  [default: .]
 * `output_metadata_file`: Parameters CSV file (default: imaging_parameters.csv)  [default: imaging_parameters.csv]
 
 **Options**:
@@ -478,6 +461,11 @@ Each task leaves ``SPW-<n>.done`` or ``SPW-<n>.failed`` (with the error and
 the log path) next to its output directory, and ``SPW-<n>.log`` with the
 full WSClean output. A rerun skips the tasks with a ``.done`` marker and
 retries the rest, so an interrupted batch can simply be resubmitted.
+
+An output directory that is the root of an ALMA delivery tree (it holds
+``ous_index.csv``) puts each task in its member's folder:
+``<member>/images/SPW-<n>_<field>`` with --by-member, and
+``<member>/images/<ms>/SPW-<n>`` for one EB's MS.
 
 **Usage**:
 

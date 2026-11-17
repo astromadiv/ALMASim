@@ -15,9 +15,11 @@ from ..casa import tasks as casa_tasks
 from ..casa.environment import configure_casa_environment
 from ..casa.runtime_data import ensure_casa_runtime_data, find_existing_casa_data
 from ..markers import StageMarkers
+from ..ms.remove import remove_measurement_set
 from ..ms.verify import verify_measurement_set
 from ..utils import LogFn, report
 from .asdm import asdm_name, find_asdm_directories, verify_asdm_directory
+from .delivery import RAW_FOLDER, eb_member_folder
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +31,14 @@ def casa_log_path(output_root: str | os.PathLike[str], stage: str, uid: str | No
 
 
 def raw_ms_path(output_root: str | os.PathLike[str], uid: str) -> Path:
-    """Return the raw MeasurementSet path for ``uid``."""
-    return Path(output_root).expanduser().resolve() / "working" / f"{uid}.ms"
+    """Where ``uid``'s raw MS goes: next to its ASDM, ``<member>/raw/<uid>.ms``, when
+    ``output_root`` is a delivery tree that places ``uid``; ``<output_root>/working/<uid>.ms``
+    otherwise."""
+    root = Path(output_root).expanduser().resolve()
+    member = eb_member_folder(root, uid)
+    if member is not None:
+        return member / RAW_FOLDER / f"{uid}.ms"
+    return root / "working" / f"{uid}.ms"
 
 
 def raw_ms_marker_path(output_root: str | os.PathLike[str], uid: str) -> Path:
@@ -95,7 +103,8 @@ def create_measurement_set(
     """
     raw_asdm_path = Path(raw_asdm).expanduser().resolve()
     asdm_uid = asdm_name(raw_asdm_path)
-    working_dir = Path(output_root).expanduser().resolve() / "working"
+    output_ms = raw_ms_path(output_root, asdm_uid)
+    working_dir = output_ms.parent
 
     if not raw_asdm_path.is_dir():
         raise RuntimeError(f"Cannot find raw ASDM directory: {raw_asdm_path}")
@@ -104,7 +113,6 @@ def create_measurement_set(
     logger.debug("Working directory: %s", working_dir)
 
     output_root_path = Path(output_root).expanduser().resolve()
-    output_ms = working_dir / f"{asdm_uid}.ms"
 
     if not overwrite and output_ms.exists():
         if raw_ms_marker_path(output_root_path, asdm_uid).is_file():
@@ -142,6 +150,11 @@ def create_measurement_set(
     # replace it, so ``overwrite`` is unconditionally True below.
     raw_ms_marker_path(output_root_path, asdm_uid).unlink(missing_ok=True)
     raw_ms_failure_marker_path(output_root_path, asdm_uid).unlink(missing_ok=True)
+    # A link at the MS's path (a tree whose MSs were moved in by hand) is
+    # replaced together with the MS it points to.
+    for old in (output_ms, output_ms.with_name(output_ms.name + ".flagversions")):
+        if old.is_symlink():
+            remove_measurement_set(old)
     current_dir = Path.cwd()
     try:
         # Refuse a half-extracted ASDM up front, as a recorded failure. Left to

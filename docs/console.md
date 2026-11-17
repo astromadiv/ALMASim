@@ -120,13 +120,14 @@ install; `almasim doctor` says when it is missing).
 
 Search the ALMA archive (with the filters of `almasim metadata`: project,
 source, band, science keyword and more), tick observations, find their
-products, and download them, raw or calibrated, to a folder you choose. Each step is a job. The
+products, and download them, raw or calibrated, to a data folder: `data/` in
+the first storage folder unless you choose another. Each step is a job. The
 ticked rows can go straight to *Simulate* instead. Unpacked and calibrated
-MeasurementSets go to their own folder (`raw_ms/` and `calibrated_ms/` in
-it), by default `archive_ms/` in the destination. Each calibrated MS is also
-linked into its member's `calibrated/` folder in the ALMA delivery tree under
-the destination, which `ous_index.csv` indexes
-([The delivery tree](downloads.md#the-delivery-tree)).
+MeasurementSets go into their member folders of the ALMA delivery tree under
+the destination (`raw/`, `calibrated/`), which `ous_index.csv` indexes
+([The delivery tree](downloads.md#the-delivery-tree)); a *Separate
+MeasurementSets folder* gets them in its `raw_ms/` and `calibrated_ms/`
+instead.
 
 To download single files, such as only the cleaned `*.pbcor.fits` images,
 tick *List the files inside each archive* before finding the products: the
@@ -174,8 +175,9 @@ Image calibrated MeasurementSets with WSClean: the console works out the
 imaging parameters of each spectral window, images them all in one Slurm
 driver with its own workers, follows the windows as they finish, and then
 measures how well each was cleaned. The folder to image starts as the
-`calibrated_ms/` of your last archive download that calibrated, and the
-output folder is yours to choose. While the imaging runs, *Dask dashboard*
+delivery tree of your last archive download that calibrated (or its separate
+`calibrated_ms/`), and the output folder is yours to choose; the tree's root
+puts each image in its member's `images/` folder. While the imaging runs, *Dask dashboard*
 shows its workers at work. Every image's FITS header names its project,
 science goal, group and member OUS, from the `ous_index.csv` of that
 download, and the WSClean commands that made it

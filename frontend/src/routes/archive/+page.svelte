@@ -21,7 +21,6 @@
 	import {
 		PRODUCTS_CSV,
 		RESULTS_CSV,
-		defaultMsFolder,
 		downloadArgv,
 		memberOusUids,
 		parsePatterns,
@@ -60,9 +59,8 @@
 
 	let openCsv = $state('');
 	let destination = $state('');
-	// Follows the destination (<destination>/archive_ms) until it is changed by hand.
+	// Empty: the MSs go into the members' folders of the delivery tree.
 	let msFolder = $state('');
-	let msFolderDefault = '';
 	let productFilter = $state('all');
 	let listFiles = $state(false);
 	let includeText = $state('');
@@ -113,7 +111,7 @@
 				if (metadata) values = initialValues(metadata);
 				const roots = await api.GET('/api/v2/files/roots');
 				const first = roots.data?.roots.find((r) => r.exists && !r.runs);
-				if (first && !destination) destination = `${first.path.replace(/\/$/, '')}/almasim-archive`;
+				if (first && !destination) destination = `${first.path.replace(/\/$/, '')}/data`;
 			} catch (err) {
 				loadError = err;
 			}
@@ -176,12 +174,6 @@
 			(err) => !stale && (productsError = err)
 		);
 		return () => (stale = true);
-	});
-
-	$effect(() => {
-		const next = defaultMsFolder(destination);
-		if (msFolder === msFolderDefault) msFolder = next;
-		msFolderDefault = next;
 	});
 
 	// Free space where the download goes, a moment after the folder changes.
@@ -484,10 +476,9 @@
 						{#if unpack || calibrate}
 							<PathPicker
 								bind:value={msFolder}
-								label="MeasurementSets folder"
+								label="Separate MeasurementSets folder (optional)"
 								allowCreate
-								required
-								hint="Raw MSs go to raw_ms/ in it and calibrated ones to calibrated_ms/; the Imaging page starts from the last download's calibrated_ms/."
+								hint="Empty: each MS goes into its member folder of the delivery tree in the download folder (raw/, calibrated/). A folder here gets raw_ms/ and calibrated_ms/ instead. The Imaging page starts from the last download's calibrated MSs."
 							/>
 						{/if}
 						<div>
@@ -496,7 +487,6 @@
 								class="btn-accent"
 								disabled={busy ||
 									!destination.trim() ||
-									((unpack || calibrate) && !msFolder.trim()) ||
 									downloadBytes === 0 ||
 									(space !== null && space.free_bytes < downloadBytes)}
 								onclick={download}>Download {formatBytes(downloadBytes)}</button

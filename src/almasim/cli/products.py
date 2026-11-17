@@ -349,46 +349,40 @@ def _update_manifest_measurement_sets(
         typer.echo(f"Could not update manifest {path}", err=True)
 
 
-def _organize_delivery(delivery_root: Path, calibrated_ms_root: Path, raw_ms_root: Path) -> None:
-    """Link the calibrated MSs into their member folders and index the tree; never fails the run."""
-    from ..services.archive.delivery import organize_delivery
+def _write_ous_index(delivery_root: Path, calibrated_ms_root: Path, raw_ms_root: Path) -> None:
+    """Index the delivery tree and its MSs (``ous_index.csv``); never fails the run."""
+    from ..services.archive.delivery import is_delivery_root, write_ous_index
 
+    if not is_delivery_root(delivery_root):
+        return
     try:
-        organize_delivery(delivery_root, calibrated_ms_root, raw_ms_root, echo=typer.echo)
+        write_ous_index(delivery_root, calibrated_ms_root, raw_ms_root, echo=typer.echo)
     except OSError as exc:
-        typer.echo(f"Could not organize the delivery tree under {delivery_root}: {exc}", err=True)
-
-
-_ORGANIZE_HELP = (
-    "Link each calibrated MS into its member folder of the ALMA delivery tree "
-    "(<project>/science_goal.*/group.*/member.*/calibrated/) and write ous_index.csv "
-    "at the root of the tree."
-)
+        typer.echo(f"Could not index the delivery tree under {delivery_root}: {exc}", err=True)
 
 
 def _cleanup_after_download_postprocess(
     *,
     summary: Any,
     destination: Path,
-    archive_root: Path,
+    archive_root: Path | None,
     calibrated_mss: list[str],
 ) -> None:
     """Apply --clean-intermediate-files once every UID has been calibrated successfully."""
     from ..services.archive import cleanup_intermediate_calibration_data
+    from ..services.archive.delivery import archive_ms_roots
     from ..services.download import _cleanup_download_inputs
 
     calibrated_paths = [Path(path) for path in calibrated_mss]
+    raw_root, calibrated_root = archive_ms_roots(destination, archive_root)
     cleanup_intermediate_calibration_data(
-        archive_root / "raw_ms",
-        archive_root / "calibrated_ms",
-        calibrated_paths,
-        logger_fn=typer.echo,
+        raw_root, calibrated_root, calibrated_paths, logger_fn=typer.echo
     )
     _cleanup_download_inputs(
         destination,
         getattr(summary, "files", []) or [],
         getattr(summary, "extracted_files", []) or [],
-        protected_roots=[archive_root, *calibrated_paths],
+        protected_roots=[*([archive_root] if archive_root else []), *calibrated_paths],
     )
 
 
@@ -528,9 +522,12 @@ def products_download(
         rich_help_panel="Download",
     ),
     destination: Path = typer.Option(
-        default_output_path("downloads"),
+        default_output_path("data"),
         "--destination",
-        help="Directory for downloaded files.",
+        help=(
+            "The data folder: the ALMA delivery tree the files go into, and the MSs made from "
+            "them (default ~/almasim_outputs/data; any folder, such as a shared one, works)."
+        ),
         rich_help_panel="Download",
     ),
     max_parallel: int = typer.Option(
@@ -564,7 +561,11 @@ def products_download(
     archive_output_root: Path | None = typer.Option(
         None,
         "--archive-output-root",
-        help="Root directory for archive_ms raw_ms/calibrated_ms products.",
+        help=(
+            "Write the raw and calibrated MSs to <root>/raw_ms and <root>/calibrated_ms. By "
+            "default each goes into its member folder of the delivery tree under "
+            "--destination (raw/<eb>.ms next to its ASDM, calibrated/<eb>.ms.split.cal)."
+        ),
         rich_help_panel="Post-processing",
     ),
     casa_data_root: Path | None = typer.Option(
@@ -742,10 +743,11 @@ def _select_download_products(o: DownloadOptions) -> list[Any]:
     return filtered
 
 
-def _archive_root(o: DownloadOptions) -> Path:
+def _archive_root(o: DownloadOptions) -> Path | None:
+    """--archive-output-root; None puts the MSs in the delivery tree's member folders."""
     if o.archive_output_root is not None:
         return o.archive_output_root.expanduser().resolve()
-    return o.destination.expanduser().resolve() / "archive_ms"
+    return None
 
 
 def _download_kwargs(o: DownloadOptions, *, postprocess_in_process: bool) -> dict[str, Any]:
@@ -770,6 +772,8 @@ def _download_and_postprocess(o: DownloadOptions, selected: list[Any]) -> None:
 
     A CASA crash on one execution block then never aborts the run.
     """
+    from ..services.archive.delivery import archive_ms_roots
+
     archive_root = _archive_root(o)
     summary = _download_products_with_progress(
         selected, o.destination, **_download_kwargs(o, postprocess_in_process=False)
@@ -805,9 +809,8 @@ def _download_and_postprocess(o: DownloadOptions, selected: list[Any]) -> None:
         )
     _update_manifest_measurement_sets(summary.manifest_path, raw_mss, calibrated_mss)
     # Before the cleanup, which can remove the qa/ reports that place each EB in its member.
-    _organize_delivery(
-        Path(summary.destination), archive_root / "calibrated_ms", archive_root / "raw_ms"
-    )
+    raw_root, calibrated_root = archive_ms_roots(Path(summary.destination), archive_root)
+    _write_ous_index(Path(summary.destination), calibrated_root, raw_root)
     _print_download_summary(summary, raw_mss, calibrated_mss, show_extraction_failures=True)
     _write_uncorrected_images(o, summary)
     if o.clean_intermediate_files and o.generate_calibrated_visibilities:
@@ -861,9 +864,9 @@ def _print_download_summary(
 @products_app.command("extract", hidden=True)
 def products_extract(
     source_root: Path = typer.Option(
-        default_output_path("downloads"),
+        default_output_path("data"),
         "--source-root",
-        help="Directory containing downloaded archive files.",
+        help="The data folder holding the downloaded archive files.",
         rich_help_panel="Inputs",
     ),
     destination: Path | None = typer.Option(
@@ -949,16 +952,20 @@ def products_extract(
 @products_app.command("unpack", hidden=True)
 def products_unpack(
     input_root: Path = typer.Option(
-        default_output_path("downloads"),
+        default_output_path("data"),
         "--input-root",
-        help="Directory containing extracted ASDM directories.",
+        help="The data folder: the delivery tree holding the extracted ASDMs.",
         rich_help_panel="Inputs",
     ),
-    output_root: Path = typer.Option(
-        default_output_path("downloads") / "archive_ms" / "raw_ms",
+    output_root: Path | None = typer.Option(
+        None,
         "--output-dir",
         "--output-root",
-        help="Directory where raw MeasurementSets are written.",
+        help=(
+            "Directory where raw MeasurementSets are written (<dir>/working/<eb>.ms). By "
+            "default each goes next to its ASDM in its member folder of the delivery tree "
+            "under --input-root (raw/<eb>.ms)."
+        ),
         rich_help_panel="Outputs",
     ),
     asdm_uid: list[str] | None = typer.Option(
@@ -1017,7 +1024,7 @@ def products_unpack(
     with _stage_errors():
         raw_outputs = _run_unpack_jobs(
             input_root=input_root.expanduser().resolve(),
-            output_root=output_root.expanduser().resolve(),
+            output_root=(output_root or input_root).expanduser().resolve(),
             asdm_uids=parsed_uids,
             postprocess_backend=backend_normalized,
             postprocess_backend_kwargs=SlurmOptions(
@@ -1046,22 +1053,29 @@ def products_unpack(
 @products_app.command("calibrate", hidden=True)
 def products_calibrate(
     input_root: Path = typer.Option(
-        default_output_path("downloads"),
+        default_output_path("data"),
         "--input-root",
-        help="ALMA delivery root containing calibration products.",
+        help="The data folder: the delivery tree holding the calibration products.",
         rich_help_panel="Inputs",
     ),
-    raw_ms_root: Path = typer.Option(
-        default_output_path("downloads") / "archive_ms" / "raw_ms",
+    raw_ms_root: Path | None = typer.Option(
+        None,
         "--raw-ms-root",
-        help="Directory containing raw MeasurementSets.",
+        help=(
+            "Directory containing raw MeasurementSets (default: the members' raw/ folders "
+            "of the delivery tree under --input-root)."
+        ),
         rich_help_panel="Inputs",
     ),
-    output_root: Path = typer.Option(
-        default_output_path("downloads") / "archive_ms" / "calibrated_ms",
+    output_root: Path | None = typer.Option(
+        None,
         "--output-dir",
         "--output-root",
-        help="Directory where calibrated MeasurementSets are written.",
+        help=(
+            "Directory where calibrated MeasurementSets are written. By default each goes "
+            "into its member folder of the delivery tree under --input-root "
+            "(calibrated/<eb>.ms.split.cal)."
+        ),
         rich_help_panel="Outputs",
     ),
     asdm_uid: list[str] | None = typer.Option(
@@ -1126,23 +1140,30 @@ def products_calibrate(
         ),
         rich_help_panel="Outputs",
     ),
-    organize_delivery: bool = typer.Option(
+    index_delivery: bool = typer.Option(
         True,
-        "--organize-delivery/--no-organize-delivery",
-        help=_ORGANIZE_HELP + " The tree is --input-root.",
-        rich_help_panel="Outputs",
+        "--index-delivery/--no-index-delivery",
+        hidden=True,
+        help="Rewrite the delivery tree's ous_index.csv at the end (the per-UID workers do not).",
     ),
 ) -> None:
-    """Create calibrated MeasurementSets as a standalone step."""
+    """Create calibrated MeasurementSets as a standalone step.
+
+    In an ALMA delivery tree (--input-root) each calibrated MS goes into its
+    member folder, and ous_index.csv at the root of the tree indexes them.
+    """
     backend_normalized = postprocess_backend.lower()
+    tree = input_root.expanduser().resolve()
+    raw_root = (raw_ms_root or tree).expanduser().resolve()
+    calibrated_root = (output_root or tree).expanduser().resolve()
 
     parsed_uids = _parse_uid_options(asdm_uid)
     stage_failures: list[TaskFailure] = []
     with _stage_errors():
         calibrated_outputs = _run_calibrate_jobs(
-            input_root=input_root.expanduser().resolve(),
-            raw_ms_root=raw_ms_root.expanduser().resolve(),
-            output_root=output_root.expanduser().resolve(),
+            input_root=tree,
+            raw_ms_root=raw_root,
+            output_root=calibrated_root,
             asdm_uids=parsed_uids,
             postprocess_backend=backend_normalized,
             postprocess_backend_kwargs=SlurmOptions(
@@ -1167,47 +1188,9 @@ def products_calibrate(
     typer.echo(f"Calibrated MS products: {len(calibrated_outputs)}")
     for calibrated_ms in calibrated_outputs:
         typer.echo(f"  {calibrated_ms}")
-    if organize_delivery:
-        _organize_delivery(
-            input_root.expanduser().resolve(),
-            output_root.expanduser().resolve(),
-            raw_ms_root.expanduser().resolve(),
-        )
+    if index_delivery:
+        _write_ous_index(tree, calibrated_root, raw_root)
     _exit_if_failures("Calibrate", stage_failures)
-
-
-@products_app.command("organize", hidden=True)
-def products_organize(
-    delivery_root: Path = typer.Option(
-        ...,
-        "--delivery-root",
-        help="Root of the ALMA delivery tree (<project>/science_goal.*/group.*/member.*/).",
-    ),
-    calibrated_ms_root: Path = typer.Option(
-        ..., "--calibrated-ms-root", help="Folder of the calibrated MSs (<eb>.ms.split.cal)."
-    ),
-    raw_ms_root: Path | None = typer.Option(
-        None, "--raw-ms-root", help="Folder of the raw MSs (<eb>.ms), recorded in the index."
-    ),
-    index_csv: Path | None = typer.Option(
-        None,
-        "--index-csv",
-        help="Where to write the index (default: <delivery-root>/ous_index.csv).",
-    ),
-) -> None:
-    """Link the calibrated MSs into their member folders and index the delivery tree."""
-    from ..services.archive.delivery import organize_delivery
-
-    root = delivery_root.expanduser().resolve()
-    if not root.is_dir():
-        usage_error(f"--delivery-root {root} is not a folder.")
-    organize_delivery(
-        root,
-        calibrated_ms_root.expanduser().resolve(),
-        raw_ms_root.expanduser().resolve() if raw_ms_root else None,
-        index_path=index_csv.expanduser().resolve() if index_csv else None,
-        echo=typer.echo,
-    )
 
 
 @products_app.command("executions")
