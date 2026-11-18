@@ -3,7 +3,7 @@
 One :class:`WindowNoise` per window, written as ``window.json``: the input it
 was measured on, the observation's exposure, the thermal noise against WEIGHT
 and its channel correlation, ALMA's Tsys across the window, the noise of one
-visibility at unit time and bandwidth, and each antenna's noise shape.
+visibility at unit time and bandwidth, and each antenna's noise shape and level.
 """
 
 from __future__ import annotations
@@ -268,8 +268,13 @@ class AntennaNoise(_Record):
     """Each antenna's own noise level (its SEFD), from its baselines' noise
     without WEIGHT: how much the antennas' Tsys and efficiency differ."""
 
-    antennas_used: int = Field(description="Antennas whose level is measured.")
-    baselines_used: int = Field(description="Baselines between them with enough values.")
+    antennas_used: int = Field(
+        description="Antennas whose level is measured.", json_schema_extra=_unit("antennas")
+    )
+    baselines_used: int = Field(
+        description="Baselines between them with enough values.",
+        json_schema_extra=_unit("baselines"),
+    )
     sefd_log_rms: float = Field(
         description="Rms of the natural log of an antenna's noise level about the array's: "
         "log of each baseline's noise variance fitted as one term per antenna.",

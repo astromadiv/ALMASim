@@ -49,6 +49,7 @@ SECTIONS: dict[str, str] = {
     "visibility.total_power": "Total-power dishes",
     "tsys": "ALMA's system temperature (SYSCAL)",
     "antenna_shape": "Each antenna's own noise shape",
+    "antenna_noise": "Each antenna's own noise level",
 }
 # Bookkeeping, not measurements: in the table, not in the report's statistics.
 _NOT_MEASURED = {
@@ -75,6 +76,7 @@ SUMMARY_METRICS = (
     "visibility.efficiency",
     "tsys.median_k",
     "antenna_shape.excess_rms",
+    "antenna_noise.sefd_log_rms",
 )
 
 Kind = Literal["number", "flag", "text", "profile"]
