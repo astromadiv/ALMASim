@@ -199,7 +199,7 @@ windows do. Once the windows are measured, *Measured noise* shows what
 `noise extract` found on them, before any model is fitted: each quantity's
 median over the windows and their 16–84% range, its unit and what it means,
 grouped as in `window.json` (exposure, thermal noise against WEIGHT, one
-visibility's noise, Tsys, each antenna's noise shape), with the path of the
+visibility's noise, Tsys, each antenna's noise shape and level), with the path of the
 full report (`extract_report.md`). When the chain ends, the page shows the candidate's values (the
 median over the windows and their 16–84% range, and the values it kept from
 the base model) and the validation's verdict, metric by metric. *Use in

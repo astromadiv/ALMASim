@@ -294,7 +294,8 @@ with that Tsys (over the baselines between two of the array's own dishes when
 it correlates the 12 m total-power dishes; their own SEFD over an own dish's,
 their Tsys over the own dishes' from `SYSCAL` and the efficiency both imply
 go in `visibility.total_power`),
-and each antenna's own noise shape (`antenna.npz`). Rows are
+each antenna's own noise shape (`antenna.npz`) and its own noise
+level against the array's (`antenna_noise`). Rows are
 sampled evenly over the observation, up to `--max-visibilities`, and read in
 chunks. It then writes its report in `--out`: `extract_report.md` gives every
 quantity measured with its unit, meaning and spread across the windows, and

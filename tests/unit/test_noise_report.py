@@ -10,6 +10,7 @@ from typer.testing import CliRunner
 
 from almasim import cli
 from almasim.services.noise.measurements import (
+    AntennaNoise,
     AntennaShape,
     Exposure,
     ThermalNoise,
@@ -69,6 +70,7 @@ def _window(name: str, scale: float, tsys: bool = True) -> WindowNoise:
             half_width_channels=2,
             half_width_mhz=31.2,
         ),
+        antenna_noise=AntennaNoise(antennas_used=40, baselines_used=780, sefd_log_rms=0.1 * scale),
         notes=[] if tsys else ["no SYSCAL table: Tsys not measured"],
     )
 
@@ -129,6 +131,11 @@ def test_the_report_explains_each_metric_and_lists_each_window(tmp_path):
     assert "| K | 90 | 90 - 90 | 1 |" in tsys
     assert "- **w2**: no SYSCAL table: Tsys not measured" in report
     assert "- **w9**: RuntimeError: no rows" in report
+    assert "## Each antenna's own noise level" in report
+    level = next(
+        line for line in report.splitlines() if line.startswith("| `antenna_noise.sefd_log_rms`")
+    )
+    assert "| ln | 0.12 |" in level
     assert "| w2 | 230 | 40 |" in report
 
     with (out / TABLE_FILE).open() as handle:

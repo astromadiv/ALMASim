@@ -360,7 +360,7 @@ def extract(
 ) -> None:
     """Measure real windows' noise: the level against WEIGHT, the channel
     correlation, ALMA's Tsys across the window, one visibility's noise and
-    each antenna's noise shape (window.json). Then report them:
+    each antenna's noise shape and level (window.json). Then report them:
     extract_report.md explains every metric (unit, meaning, spread across the
     windows) and extract_measurements.csv holds every window's values."""
     from functools import partial
