@@ -998,7 +998,38 @@ almasim noise extract --windows windows.csv --out noise/ --backend slurm \
 Each window becomes its own Slurm task. It writes
 `noise/windows/<name>/window.json` and `antenna.npz`. Windows already
 measured are skipped when you run it again; failures are listed in
-`noise/failures.json` and do not stop the others. Six real windows took 53 s
+`noise/failures.json` and do not stop the others.
+
+It then reports what it measured, before any model is fitted, in three files
+in `noise/`:
+
+| file | what it holds |
+|---|---|
+| `extract_report.md` | every quantity of `window.json` with its unit, its meaning and its spread across the windows (median, 16–84% range, how many windows have it); one row of the main quantities per window; what could not be measured on each window and why; the windows that failed |
+| `extract_measurements.csv` | every quantity of every window, one row per window, for a spreadsheet or pandas |
+| `extract_report.json` | the report as data; the console's *Noise models* page shows it |
+
+A profile across the window (`thermal.channel_profile`, `tsys.profile`) is
+given as its rms about 1, the fractional spread of the noise or the Tsys
+across the channels. The meanings and units come from the fields of
+`WindowNoise` (`src/almasim/services/noise/measurements.py`), so the report
+describes each quantity as the code measures it. The terminal shows the main
+quantities across the windows:
+
+```
+Measured on 3 window(s) (median, 16-84% range):
+  exposure.frequency_ghz           267.7  (111.7 - 329.7) GHz
+  thermal.scale                    1.045  (1.042 - 1.216) ratio
+  thermal.rho1                    0.2975  (0.112 - 0.5475) correlation
+  visibility.unit_jy                2538  (1170 - 3048) Jy s^0.5 Hz^0.5
+  visibility.efficiency            0.624  (0.5722 - 0.6729) fraction
+  tsys.median_k                    133.7  (68.48 - 189) K
+  ...
+Report: noise/extract_report.md
+```
+
+`almasim noise report --out noise/` writes the three files again for an
+extraction folder, for example one measured before the report existed. Six real windows took 53 s
 and 1.4 GB in all. Its `exposure` also records `resolution_hz`, the window's
 `RESOLUTION` as its MS gives it, from which `noise validate` simulates the
 window's own channel averaging, and `high_weight_fraction`, the share of its
@@ -1449,5 +1480,5 @@ none another component sets.
 | the simulator's corruptions, thermal noise and Tsys | `src/almasim/services/interferometry/corruptions.py`, `noise.py`, `atmosphere.py` |
 | ALMA's radiometer data, the atmosphere table | `src/almasim/services/interferometry/data/alma_radiometer.json`, `atm_chajnantor.npz` |
 | ALMA's channels (averaging, correlation, noise bandwidth) | `src/almasim/services/instrument/channels.py` |
-| extract, fit, aggregate, validate, compare, promote | `src/almasim/services/noise/` |
+| extract and its report, fit, aggregate, validate, compare, promote | `src/almasim/services/noise/` |
 | the commands | `src/almasim/cli/noise.py` (`almasim noise ...`) |

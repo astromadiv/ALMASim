@@ -5,7 +5,8 @@ candidate file) with the components it applies; ``noise components`` lists
 the components a model can hold and their parameters; ``noise schema``
 writes the JSON Schema model files validate against. ``noise windows`` makes
 the table of an imaging run's windows; ``noise extract`` measures real
-windows' noise, one window or a table of them, on Slurm.
+windows' noise, one window or a table of them, on Slurm, and reports what it
+measured (``noise report`` writes the report again).
 """
 
 from __future__ import annotations
@@ -359,7 +360,9 @@ def extract(
 ) -> None:
     """Measure real windows' noise: the level against WEIGHT, the channel
     correlation, ALMA's Tsys across the window, one visibility's noise and
-    each antenna's noise shape (window.json)."""
+    each antenna's noise shape (window.json). Then report them:
+    extract_report.md explains every metric (unit, meaning, spread across the
+    windows) and extract_measurements.csv holds every window's values."""
     from functools import partial
 
     from ..services.noise.batch import run_in_process, run_on_slurm, run_tasks
@@ -395,8 +398,39 @@ def extract(
     typer.echo(
         f"{measured} of {len(tasks)} window(s) measured; failures in {out / 'failures.json'}"
     )
+    _write_report(out)
     if _failed(failures, tasks, allow_partial):
         raise typer.Exit(code=1)
+
+
+def _write_report(out: Path) -> None:
+    """The extraction's report and table; a report that cannot be written fails nothing."""
+    from ..services.noise.report import write_extract_report
+
+    try:
+        write_extract_report(out, echo=typer.echo)
+    except OSError as exc:
+        typer.echo(f"Could not write the report in {out}: {exc}", err=True)
+
+
+@noise_app.command("report")
+def report(
+    out: Path = typer.Option(
+        ...,
+        "--out",
+        help="An extraction folder (noise extract --out): its windows/*/window.json.",
+    ),
+) -> None:
+    """Write the report of what noise extract measured: extract_report.md, every
+    metric with its unit, meaning and spread across the windows, and
+    extract_measurements.csv, every metric of every window (noise extract writes
+    both itself)."""
+    from ..services.noise.report import write_extract_report
+
+    out = out.expanduser().resolve()
+    if not (out / "windows").is_dir():
+        fail(f"{out} holds no windows/: give the folder noise extract --out wrote")
+    write_extract_report(out, echo=typer.echo)
 
 
 def _extract_tasks(

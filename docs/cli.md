@@ -671,6 +671,7 @@ $ almasim noise [OPTIONS] COMMAND [ARGS]...
 * `schema`: The JSON Schema of a noise model file.
 * `windows`: Write the windows table (windows.csv) and...
 * `extract`: Measure real windows' noise: the level...
+* `report`: Write the report of what noise extract...
 * `fit`: Fit real windows' calibration residuals...
 * `aggregate`: Reduce the windows' measurements into a...
 * `validate`: Simulate the real windows with a noise...
@@ -760,7 +761,9 @@ $ almasim noise windows [OPTIONS] {parameters}
 
 Measure real windows' noise: the level against WEIGHT, the channel
 correlation, ALMA's Tsys across the window, one visibility's noise and
-each antenna's noise shape (window.json).
+each antenna's noise shape (window.json). Then report them:
+extract_report.md explains every metric (unit, meaning, spread across the
+windows) and extract_measurements.csv holds every window's values.
 
 **Usage**:
 
@@ -796,6 +799,24 @@ $ almasim noise extract [OPTIONS] [ms]
 * `--scheduler-host, --slurm-scheduler-host <str>`: Scheduler host advertised to the workers (default: this host).
 * `--scheduler-interface <str>`: Scheduler/worker network interface (e.g. ib0, eth0).
 * `--task-timeout <float range>`: Timeout in seconds for each worker-side command.  [default: 14400.0; x>=1]
+* `--help`: Show this message and exit.
+
+### `almasim noise report`
+
+Write the report of what noise extract measured: extract_report.md, every
+metric with its unit, meaning and spread across the windows, and
+extract_measurements.csv, every metric of every window (noise extract writes
+both itself).
+
+**Usage**:
+
+```console
+$ almasim noise report [OPTIONS]
+```
+
+**Options**:
+
+* `--out <path>`: An extraction folder (noise extract --out): its windows/*/window.json.  [required]
 * `--help`: Show this message and exit.
 
 ### `almasim noise fit`
