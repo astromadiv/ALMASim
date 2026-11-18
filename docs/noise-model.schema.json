@@ -79,6 +79,30 @@
       "title": "AntennaRipple",
       "type": "object"
     },
+    "AntennaSefd": {
+      "additionalProperties": false,
+      "description": "Each antenna's own noise level: Tsys and efficiency differ from antenna\nto antenna, and WEIGHT follows them.",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "description": "Apply this component.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "log_rms": {
+          "description": "Rms of the natural log of an antenna's SEFD about the array's.",
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Log Rms",
+          "type": "number"
+        }
+      },
+      "required": [
+        "log_rms"
+      ],
+      "title": "AntennaSefd",
+      "type": "object"
+    },
     "Aperture": {
       "additionalProperties": false,
       "description": "A dish's aperture efficiency against frequency (Ruze).",
@@ -324,6 +348,17 @@
           "anyOf": [
             {
               "$ref": "#/$defs/AntennaRipple"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "antenna_sefd": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AntennaSefd"
             },
             {
               "type": "null"

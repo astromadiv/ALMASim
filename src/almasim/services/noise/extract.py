@@ -24,6 +24,7 @@ import numpy as np
 from ..imaging.ms_geometry import import_casacore_tables
 from ..instrument.constants import DEFAULT_MAX_WEIGHT
 from .measurements import (
+    AntennaNoise,
     AntennaShape,
     Exposure,
     ThermalNoise,
@@ -38,6 +39,8 @@ K_B = 1.380649e-23
 JY = 1.0e-26
 PARALLEL = {5, 8, 9, 12}  # RR, LL, XX, YY
 CLIP = 20.0  # a channel difference above 20 times its channel's median is not noise
+MIN_BASELINE_VALUES = 100  # lag-3 values a baseline needs for its noise level
+MIN_ANTENNA_BASELINES = 3  # baselines an antenna needs for its noise level
 SHAPE_SMOOTH = 16  # channels an antenna's noise shape is smoothed over
 
 
@@ -60,7 +63,8 @@ class _Sums:
     antenna_rows: np.ndarray = field(init=False)
     # Per baseline (ANTENNA1 * nant + ANTENNA2): rows over the maximum WEIGHT,
     # flagged values and values, each value weighed by its row's integration
-    # time, and the Stokes I sums (stokes_sum, stokes_count).
+    # time, the Stokes I sums (stokes_sum, stokes_count), and the lag-3
+    # variances not scaled by WEIGHT (noise_sum, noise_count).
     baseline: dict[str, np.ndarray] = field(init=False)
     rows: int = 0
 
@@ -73,7 +77,15 @@ class _Sums:
         self.antenna_rows = np.zeros(self.nant, dtype=np.int64)
         self.baseline = {
             key: np.zeros(self.nant * self.nant)
-            for key in ("high", "flagged", "values", "stokes_sum", "stokes_count")
+            for key in (
+                "high",
+                "flagged",
+                "values",
+                "stokes_sum",
+                "stokes_count",
+                "noise_sum",
+                "noise_count",
+            )
         }
 
     def shares(self) -> tuple[float, float]:
@@ -178,7 +190,8 @@ def extract_window(
         tsys = _tsys(table, Path(syscal_ms) if syscal_ms else ms, spw, window["freq"])
     except (ValueError, RuntimeError, OSError) as exc:
         notes.append(f"tsys: {exc}")
-    visibility = _visibility(sums, exposure, tsys, _own_dish_pairs(table, ms, sums, exposure))
+    own = _own_dish_pairs(table, ms, sums, exposure)
+    visibility = _visibility(sums, exposure, tsys, own)
     total_power = _total_power(
         table, ms, Path(syscal_ms) if syscal_ms else ms, sums, exposure, visibility, tsys
     )
@@ -187,6 +200,9 @@ def extract_window(
     shape, arrays = _antenna_shape(sums, lines, exposure.channel_width_hz)
     if shape is None:
         notes.append("antenna_shape: too few antennas or channels with enough data")
+    levels = _antenna_noise(sums, own)
+    if levels is None:
+        notes.append("antenna_noise: too few antennas with enough data")
     record = WindowNoise(
         name=name
         or f"{ms.name}_spw{spw}"
@@ -205,6 +221,7 @@ def extract_window(
         visibility=visibility,
         tsys=tsys,
         antenna_shape=shape,
+        antenna_noise=levels,
         notes=notes,
     )
     return record, arrays
@@ -303,6 +320,13 @@ def _accumulate(
         sums.lag_count[lag] += keep.sum(axis=(0, 2))
         if lag == 3:
             _antenna_sums(sums, v[..., hands], keep[..., hands], ant1, ant2)
+            # Each baseline's own noise, WEIGHT left out: v over the row's WEIGHT.
+            raw = np.where(keep, v / np.where(weight > 0, weight, 1.0)[:, None, :], 0.0)
+            size = sums.nant * sums.nant
+            sums.baseline["noise_sum"] += np.bincount(pair, raw[..., hands].sum(axis=(1, 2)), size)
+            sums.baseline["noise_count"] += np.bincount(
+                pair, keep[..., hands].sum(axis=(1, 2)).astype(np.float64), size
+            )
     p, q = hands[0], hands[-1]
     stokes = 0.5 * (data[..., p] + data[..., q])
     bad = flag[..., p] | flag[..., q]
@@ -734,6 +758,46 @@ def _antenna_shape(
         "antenna_g": np.pad(g, pad, mode="edge").astype(np.float32),
         "antenna_h": np.pad(h, pad[1:], mode="edge").astype(np.float32),
     }
+
+
+def _antenna_noise(sums: _Sums, own: np.ndarray | None = None) -> AntennaNoise | None:
+    """Each antenna's own noise level, from its baselines' lag-3 variances
+    without WEIGHT (``noise_sum``): the log of each baseline's mean variance
+    fitted as a_i + a_j + c by least squares, and the rms of the a_i. A
+    baseline's mean holds thousands of values, so its sampling (a log rms of
+    1 / sqrt(values)) adds little. Only baselines between the array's own
+    dishes (``own``, when it also correlates others) and with
+    ``MIN_BASELINE_VALUES`` values count, between antennas with
+    ``MIN_ANTENNA_BASELINES`` of them; None for fewer than 3 antennas."""
+    count = sums.baseline["noise_count"]
+    ok = count >= MIN_BASELINE_VALUES
+    if own is not None:
+        ok &= own
+    pair = np.flatnonzero(ok)
+    i, j = pair // sums.nant, pair % sums.nant
+    # Each antenna in the fit has at least MIN_ANTENNA_BASELINES baselines.
+    per = np.bincount(np.r_[i, j], minlength=sums.nant)
+    ok_pair = (i != j) & (per[i] >= MIN_ANTENNA_BASELINES) & (per[j] >= MIN_ANTENNA_BASELINES)
+    i, j, pair = i[ok_pair], j[ok_pair], pair[ok_pair]
+    antennas = np.unique(np.r_[i, j])
+    if antennas.size < 3:
+        return None
+    index = np.full(sums.nant, -1)
+    index[antennas] = np.arange(antennas.size)
+    design = np.zeros((pair.size, antennas.size + 1))
+    rows = np.arange(pair.size)
+    design[rows, index[i]] += 1.0
+    design[rows, index[j]] += 1.0
+    design[:, -1] = 1.0
+    log_v = np.log(sums.baseline["noise_sum"][pair] / count[pair])
+    # The a_i are fixed up to a constant the intercept takes: their mean is 0.
+    constraint = np.r_[np.ones(antennas.size), 0.0][None, :]
+    coef, *_ = np.linalg.lstsq(np.vstack([design, constraint]), np.r_[log_v, 0.0], rcond=None)
+    return AntennaNoise(
+        antennas_used=int(antennas.size),
+        baselines_used=int(pair.size),
+        sefd_log_rms=float(np.std(coef[:-1])),
+    )
 
 
 def window_channels(ms: str | Path, spw: int) -> int:

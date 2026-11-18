@@ -35,6 +35,7 @@ def _fake_ms(
     dish: float = 12.0,
     larger_dishes: tuple[int, ...] = (),
     short_dumps: int = 0,
+    sefd_levels: np.ndarray | None = None,
 ) -> dict[str, FakeTable]:
     rng = np.random.default_rng(seed)
     a1, a2 = np.triu_indices(NANT, 1)
@@ -61,6 +62,9 @@ def _fake_ms(
         # 12 m dishes among ``dish`` ones: their baselines are less noisy.
         larger = np.isin(np.arange(NANT), larger_dishes)
         noise *= np.where(larger[ant1] | larger[ant2], 0.4, 1.0)[:, None, None]
+    level = np.ones(NANT) if sefd_levels is None else np.asarray(sefd_levels, float)
+    # Each antenna's own noise level: a baseline's variance is l_i l_j times the array's.
+    noise *= np.sqrt(level[ant1] * level[ant2])[:, None, None]
     sky = 3.0 + 0.01 * np.arange(NCHAN)[None, :, None] + 0j
     data = (sky + noise).astype(np.complex64)
     flag = np.zeros(data.shape, dtype=bool)
@@ -68,7 +72,10 @@ def _fake_ms(
     if flagged_antenna is not None:
         # An antenna the MS lists whose data are all flagged.
         flag[(ant1 == flagged_antenna) | (ant2 == flagged_antenna)] = True
-    weight = np.full((nrow, 2), 1.0 / SIGMA**2, dtype=np.float32)
+    # WEIGHT follows each baseline's level, as statwt's does.
+    weight = np.repeat(1.0 / (SIGMA**2 * level[ant1] * level[ant2])[:, None], 2, axis=1).astype(
+        np.float32
+    )
     if high_weight_every:
         # Rows the archive pipeline flagged and calibration left unflagged, or
         # left flagged.
@@ -206,7 +213,24 @@ def test_the_noise_level_correlation_and_tsys_are_measured(fake_ms):
     assert record.antenna_shape is not None and record.antenna_shape.excess_rms > 0.08
     assert arrays["antenna_g"].shape == (NANT, NCHAN, 2)
     assert np.ptp(arrays["antenna_g"][0, :, 0]) > np.ptp(arrays["antenna_g"][3, :, 0])
+    # Every antenna has the array's level: no spread beyond what sampling and
+    # the ripple's mean over the window leave.
+    assert record.antenna_noise is not None
+    assert (record.antenna_noise.antennas_used, record.antenna_noise.baselines_used) == (NANT, 15)
+    assert record.antenna_noise.sefd_log_rms < 0.03
     assert record.notes == []
+
+
+@pytest.mark.unit
+def test_each_antennas_own_noise_level_is_measured_past_its_weight(fake_ms):
+    """WEIGHT follows each antenna's level, so the thermal scale stays 1; the
+    baselines' noise without WEIGHT gives the levels' spread."""
+    levels = np.exp(np.array([0.3, -0.2, 0.1, -0.25, 0.0, 0.05]))
+    ms = fake_ms("w.ms", sefd_levels=levels)
+    record, _ = extract.extract_window(ms, SPW, "target", max_visibilities=10**9)
+    assert record.thermal.scale == pytest.approx(1.0, rel=0.05)
+    assert record.antenna_noise is not None
+    assert record.antenna_noise.sefd_log_rms == pytest.approx(np.std(np.log(levels)), abs=0.03)
 
 
 @pytest.mark.unit
@@ -278,6 +302,9 @@ def test_a_mixed_arrays_noise_is_its_own_dishes(fake_ms):
     assert record.visibility.efficiency is not None and tp.efficiency is not None
     expected = record.visibility.efficiency * (7 / 12) ** 2 * 1.25 / tp.sefd_ratio
     assert tp.efficiency == pytest.approx(expected)
+    # The antennas' levels: the 7 m dishes' own baselines, not the total-power ones'.
+    assert record.antenna_noise is not None and record.antenna_noise.antennas_used == NANT - 2
+    assert record.antenna_noise.sefd_log_rms < 0.03
 
 
 @pytest.mark.unit

@@ -217,6 +217,18 @@ class AntennaRipple(NoiseComponent):
         return {"antenna_ripple_rms": self.rms, "antenna_ripple_mhz": self.scale_mhz}
 
 
+class AntennaSefd(NoiseComponent):
+    """Each antenna's own noise level: Tsys and efficiency differ from antenna
+    to antenna, and WEIGHT follows them."""
+
+    log_rms: float = Field(
+        ge=0, le=1, description="Rms of the natural log of an antenna's SEFD about the array's."
+    )
+
+    def engine_fields(self) -> dict[str, Any]:
+        return {"antenna_sefd_log_rms": self.log_rms}
+
+
 class BandpassRipple(BaseModel):
     """What bandpass calibration leaves on one dish size's antennas, up to a frequency."""
 
@@ -429,10 +441,21 @@ class Components(BaseModel):
     receiver_ripple: ReceiverRipple | None = None
     channel_correlation: ChannelCorrelation | None = None
     antenna_ripple: AntennaRipple | None = None
+    antenna_sefd: AntennaSefd | None = None
     antenna_gains: AntennaGains | None = None
     slow_phase: SlowPhase | None = None
     fast_phase: FastPhase | None = None
     baseline_errors: BaselineErrors | None = None
+
+    @model_serializer(mode="wrap")
+    def _without_absent_newer(self, handler: Any) -> dict[str, Any]:
+        # A model without a component added after models were released keeps
+        # the identity (sha256) it has without it.
+        data = handler(self)
+        for name in ("antenna_sefd",):
+            if getattr(self, name) is None:
+                data.pop(name, None)
+        return data
 
     def items(self) -> list[tuple[str, NoiseComponent]]:
         """The components present, in declaration order."""

@@ -11,6 +11,7 @@ from typer.testing import CliRunner
 from almasim.services.interferometry.atmosphere import system_temperature
 from almasim.services.noise.aggregate import Measured, aggregate
 from almasim.services.noise.measurements import (
+    AntennaNoise,
     AntennaShape,
     Exposure,
     FitBin,
@@ -100,6 +101,9 @@ def _window(
             half_width_channels=10,
             half_width_mhz=100.0 + k,
         ),  # fmt: skip
+        antenna_noise=AntennaNoise(
+            antennas_used=40, baselines_used=780, sefd_log_rms=0.1 + 0.001 * k
+        ),
     )
 
 
@@ -145,6 +149,10 @@ def test_the_candidate_takes_the_windows_medians():
             + [0.03 + 0.001 * k for k in list(range(10, 16)) + list(range(20, 26))]
         )
     )
+    # antenna_sefd: alma@1 has none, so the candidate adds it with the median.
+    assert base.components.antenna_sefd is None
+    ks = list(range(8)) + list(range(10, 16)) + list(range(20, 26))
+    assert c.antenna_sefd.log_rms == pytest.approx(np.median([0.1 + 0.001 * k for k in ks]))
     assert c.slow_phase.path_um_1km == pytest.approx(115.0)
     assert c.antenna_gains.amp_rms == pytest.approx(0.065)
     assert c.baseline_errors.phase_rms_deg == pytest.approx(3.0)

@@ -23,6 +23,7 @@ from .antenna import read_array_layout
 from .corruptions import (
     CorruptionModel,
     antenna_ripple,
+    antenna_sefd_levels,
     draw_antenna_corruptions,
     spectral_kernel,
 )
@@ -413,6 +414,16 @@ class Interferometer:
                 self.spectral_window.frequencies_hz(),
                 model.antenna_ripple_rms,
                 model.antenna_ripple_mhz,
+            )
+        if model.antenna_sefd_log_rms > 0:
+            # Each antenna's own noise level, constant across the window: a
+            # factor on its noise shape (antenna_ripple's, or flat).
+            level = antenna_sefd_levels(
+                np.random.default_rng((*entropy, 5)), self.Nant, model.antenna_sefd_log_rms
+            )[:, None]
+            shape = fields.get("antenna_noise")
+            fields["antenna_noise"] = (
+                np.repeat(level, self.Nchan, axis=1) if shape is None else shape * level
             )
         return fields
 

@@ -85,6 +85,7 @@ candidate model can therefore be used for a run before it is released.
 | `receiver_ripple` | the receiver's smooth ripple of Tsys | `rms` |
 | `channel_correlation` | correlated noise of neighbouring channels | `rho1`, `rho2`, `average` |
 | `antenna_ripple` | each antenna's own ripple of its noise | `rms`, `scale_mhz` |
+| `antenna_sefd` | each antenna's own noise level | `log_rms` |
 | `antenna_gains` | antenna gain errors per scan, and the residual bandpass | `amp_rms`, `phase_rms_deg`, `bandpass` |
 | `slow_phase` | the per-scan atmospheric phase | `path_um_1km`, `slope` |
 | `fast_phase` | the in-scan atmospheric phase | `path_um_1km`, `slope`, `coherence_s`, `dishes`, `log_spread`, `wind_mps` |
@@ -216,6 +217,12 @@ Two more terms, also in `--noise-model alma`, come from the same 100 windows:
   per-row weights do, so it shows as antennas whose noise differs from their
   weights from channel to channel and as heavier tails in the visibility
   noise (the `antenna_ripple` component).
+- Each antenna also has its own noise level across the whole window: its
+  Tsys and efficiency differ from the other antennas' by 8% to 27% (the rms
+  of the log of its SEFD on five band 9 windows of the 12 m array). WEIGHT
+  follows each baseline's level, so natural weighting gives the quiet
+  baselines more weight and the image 1% to 8% less noise than equal
+  weights would (the `antenna_sefd` component).
 - On bright sources, each baseline keeps an amplitude and phase error per
   scan that does not factor into its antennas' gains, so self-calibration
   cannot remove it, and it limits the continuum's dynamic range: about 6%
@@ -311,6 +318,7 @@ windows each comes from and their 16-84% spread in `provenance.values`:
 | `channel_correlation` rho1, rho2 | windows with Hanning-correlated native channels (rho1 above 0.5) |
 | `receiver_ripple` rms | the smooth part (Legendre modes 1-4) of the noise profile over SYSCAL's Tsys², halved |
 | `antenna_ripple` rms, scale_mhz | each antenna's noise shape, windows wider than 1 GHz |
+| `antenna_sefd` log_rms | the spread of the antennas' own noise levels, every window; the component is added when the base has none |
 | `radiometer` receiver temperatures | per band, the Trx that gives SYSCAL's median Tsys under the simulator's Tsys model, the base model's equation (12 m windows, their PWV and elevation) |
 | `radiometer` aperture | per dish size, Ruze's law fitted to the efficiency the noise and Tsys imply |
 | `radiometer` tdm_efficiency | TDM windows' efficiency over FDM windows' of the same dish size and band, over the bands with both |

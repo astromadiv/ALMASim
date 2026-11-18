@@ -80,6 +80,10 @@ class CorruptionModel:
     # noise variance, and the frequency scale (MHz) over which it holds.
     antenna_ripple_rms: float = 0.0
     antenna_ripple_mhz: float = 100.0
+    # Each antenna's own noise level (its SEFD: Tsys and efficiency differ from
+    # antenna to antenna): the rms of its natural log about the array's. Each
+    # observation draws its antennas' levels, and WEIGHT follows them.
+    antenna_sefd_log_rms: float = 0.0
     # Errors of a baseline that do not factor into its antennas' (closure
     # errors; self-calibration cannot take them out), per scan: fractional
     # amplitude and phase (degrees).
@@ -656,6 +660,20 @@ def antenna_ripple(
     smooth = np.stack([np.convolve(row, kernel, mode="valid") for row in white])
     smooth /= np.sqrt(np.sum(kernel**2))  # unit variance, whatever the width
     return np.clip(1.0 + rms * smooth, 0.05, None)
+
+
+def antenna_sefd_levels(rng: np.random.Generator, nant: int, log_rms: float) -> np.ndarray:
+    """Each antenna's noise level (nant,): exp(N(0, ``log_rms``)), the factor of
+    its SEFD over the array's. A baseline's noise variance is then g_i g_j times
+    the array's, so log_rms is the rms of an antenna's term in the log of its
+    baselines' variances. The levels are scaled so that the baselines' mean
+    variance stays the array's: the spread moves noise between baselines, and
+    WEIGHT, which follows each baseline's noise, gives the quiet ones more."""
+    if log_rms <= 0 or nant < 2:
+        return np.ones(nant)
+    level = np.exp(log_rms * rng.standard_normal(nant))
+    pairs = baseline_antennas(nant)
+    return level / np.sqrt(np.mean(level[pairs[:, 0]] * level[pairs[:, 1]]))
 
 
 def baseline_antennas(nant: int) -> np.ndarray:

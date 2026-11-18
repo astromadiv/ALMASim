@@ -50,6 +50,7 @@ not sky. ALMASim calls each such thing a **component** of the noise model:
 | `receiver_ripple` | The receiver adds a smooth, slow ripple of the noise across the window. |
 | `channel_correlation` | The noise of neighbouring channels is not independent: the correlator smooths it. |
 | `antenna_ripple` | Each antenna's noise has its own smooth ripple across the window. |
+| `antenna_sefd` | Each antenna's noise has its own level: the antennas' Tsys and efficiency differ. |
 | `antenna_gains` | Calibration leaves each antenna's amplitude and phase slightly wrong, scan by scan. |
 | `slow_phase` | The atmosphere's water vapour delays the signal differently above each antenna; calibration removes most of it, not all. What is left changes from scan to scan. |
 | `fast_phase` | The same delay also changes faster than calibration can follow, within a scan. |
@@ -616,6 +617,47 @@ nothing left over beyond the sampling, as on the real windows.
 | `rms` | fractional rms of an antenna's noise variance across the window | 0.02 | 0.030 | 0.030 | 0.030 | 0.033 | 0.036 |
 | `scale_mhz` | frequency scale of the ripple (half-width of its autocorrelation) | 120 | 107 | 107 | 107 | 94 | 94 |
 
+### `antenna_sefd`: each antenna's own noise level
+
+**What it is.** Each antenna's system temperature and efficiency differ
+from the other antennas', so its noise level (its SEFD) is its own across
+the whole window. A baseline's noise variance is the product of its two
+antennas' levels.
+
+**How it shows in real data.** In WEIGHT, which ALMA's pipeline sets per row
+from the data (`statwt`): the rows of a noisy antenna weigh less. With
+natural weighting the image then has less noise than the mean visibility
+noise gives, by `F = sqrt(N sum(w^2 v) / (sum w)^2 / mean v)`, w a row's
+WEIGHT and v its noise variance. On five band 9 windows of the 12 m array
+the antennas' levels differ by 8% to 27% and F is 0.92 to 0.99; F is lowest
+where the levels differ most. A simulation without the spread has equal
+weights and F = 1, so its image noise over the real one exceeds its
+visibility noise over the real one by 1 / F.
+
+**How it is measured** (`noise extract`): each baseline's mean lag-3
+variance with WEIGHT left out (`|V(k + 3) - V(k)|^2 / 4`, both hands, the
+channels and values the thermal noise keeps), the baselines between the
+array's own dishes with at least 100 values, between antennas with at least
+3 such baselines. The log of each baseline's
+variance is fitted as `a_i + a_j + c` by least squares, the `a_i` averaging
+to 0, and `antenna_noise.sefd_log_rms` is the rms of the `a_i`. A
+baseline's mean holds thousands of values, so sampling adds little (0.01 on
+a simulated window without the spread).
+
+**How it becomes the model's value.** The median of `sefd_log_rms` over the
+windows. `noise aggregate` adds the component when the base model has none.
+
+**How the simulator applies it.** Each observation draws its antennas'
+levels, `g(a) = exp(log_rms x N(0, 1))`, scaled so that the baselines' mean
+`g(i) g(j)` is 1: the spread moves noise between baselines and keeps the
+array's mean. Each baseline's noise sigma is multiplied by `sqrt(g(i) g(j))`,
+on top of `antenna_ripple`'s shape when the model has both, and the rows'
+sigma carries the same factor, so WEIGHT follows it.
+
+| Parameter | Meaning | alma@1 to alma@6 |
+| --- | --- | --- |
+| `log_rms` | rms of the natural log of an antenna's SEFD about the array's | not in the model |
+
 ### `antenna_gains`: what calibration leaves on each antenna
 
 **What it is.** Calibration measures each antenna's gain (amplitude and
@@ -1049,7 +1091,8 @@ This is window 81 (band 6, 12 m), shortened:
     "efficiency": 0.628    // aperture x correlator efficiency implied with Tsys
   },
   "tsys": {"median_k": 133.7, "profile": [0.8452, 0.8481, ...], "spectral_window": 23},
-  "antenna_shape": {"excess_rms": 0.038, "half_width_mhz": 93.75, "antennas_used": 43}
+  "antenna_shape": {"excess_rms": 0.038, "half_width_mhz": 93.75, "antennas_used": 43},
+  "antenna_noise": {"sefd_log_rms": 0.12, "antennas_used": 43, "baselines_used": 903}
 }
 ```
 
