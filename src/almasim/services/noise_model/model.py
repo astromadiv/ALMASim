@@ -20,6 +20,7 @@ from .components import (
     COMPONENT_NAMES,
     AntennaGains,
     AntennaRipple,
+    AntennaSefd,
     AtmosphericTsys,
     BandpassRipple,
     BaselineErrors,
@@ -183,16 +184,7 @@ class NoiseModel(BaseModel):
             parts["radiometer"] = Radiometer()
         if c["atmospheric_tsys"]:
             parts["atmospheric_tsys"] = AtmosphericTsys()
-        if c["receiver_ripple_rms"] > 0:
-            parts["receiver_ripple"] = ReceiverRipple(rms=c["receiver_ripple_rms"])
-        if c["spectral_rho1"] or c["spectral_rho2"] or c["spectral_average"]:
-            parts["channel_correlation"] = ChannelCorrelation(
-                rho1=c["spectral_rho1"], rho2=c["spectral_rho2"], average=c["spectral_average"]
-            )
-        if c["antenna_ripple_rms"] > 0:
-            parts["antenna_ripple"] = AntennaRipple(
-                rms=c["antenna_ripple_rms"], scale_mhz=c["antenna_ripple_mhz"]
-            )
+        parts.update(_noise_shape_parts(c))
         if c["gain_amp_rms"] > 0 or c["gain_phase_rms_deg"] > 0 or c["bandpass_ripple"]:
             parts["antenna_gains"] = AntennaGains(
                 amp_rms=c["gain_amp_rms"],
@@ -237,6 +229,25 @@ class NoiseModel(BaseModel):
             settings=Settings(scan_length_s=c["scan_length_s"], outer_scale_km=c["outer_scale_km"]),
             components=Components(**parts),
         )
+
+
+def _noise_shape_parts(c: Mapping[str, Any]) -> dict[str, Any]:
+    """The components of CorruptionModel fields ``c`` that shape the noise
+    across channels and antennas: each one its fields switch on."""
+    parts: dict[str, Any] = {}
+    if c["receiver_ripple_rms"] > 0:
+        parts["receiver_ripple"] = ReceiverRipple(rms=c["receiver_ripple_rms"])
+    if c["spectral_rho1"] or c["spectral_rho2"] or c["spectral_average"]:
+        parts["channel_correlation"] = ChannelCorrelation(
+            rho1=c["spectral_rho1"], rho2=c["spectral_rho2"], average=c["spectral_average"]
+        )
+    if c["antenna_ripple_rms"] > 0:
+        parts["antenna_ripple"] = AntennaRipple(
+            rms=c["antenna_ripple_rms"], scale_mhz=c["antenna_ripple_mhz"]
+        )
+    if c["antenna_sefd_log_rms"] > 0:
+        parts["antenna_sefd"] = AntennaSefd(log_rms=c["antenna_sefd_log_rms"])
+    return parts
 
 
 def _names(values: Iterable[str]) -> list[str]:

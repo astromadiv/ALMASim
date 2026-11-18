@@ -10,6 +10,7 @@ from almasim.services.interferometry.corruptions import (
     AntennaCorruptions,
     CorruptionModel,
     antenna_ripple,
+    antenna_sefd_levels,
     baseline_antennas,
     correlated_noise,
     draw_antenna_corruptions,
@@ -664,3 +665,47 @@ def test_the_bandpass_ripple_reaches_the_baselines_from_a_stream_of_its_own():
         rippled, xy, times, np.random.default_rng(2), diameters_m=np.full(6, 7.0)
     )
     assert np.all(sevens.bandpass.period_hz == 40e6)
+
+
+@pytest.mark.unit
+def test_antenna_sefd_levels_spread_by_their_log_rms_and_keep_the_mean():
+    """Each antenna's level is exp(N(0, log_rms)), scaled so the baselines' mean
+    variance (g_i g_j) stays the array's."""
+    g = antenna_sefd_levels(np.random.default_rng(3), 400, 0.2)
+    assert np.std(np.log(g)) == pytest.approx(0.2, rel=0.1)
+    pairs = baseline_antennas(400)
+    assert np.mean(g[pairs[:, 0]] * g[pairs[:, 1]]) == pytest.approx(1.0)
+    assert np.all(antenna_sefd_levels(np.random.default_rng(3), 5, 0.0) == 1)
+
+
+@pytest.mark.unit
+def test_each_antennas_level_reaches_its_noise_shape_from_a_stream_of_its_own():
+    """antenna_sefd alone: one level per antenna, flat across the channels; with
+    antenna_ripple, the ripple times the level, the ripple's draws unchanged."""
+    from types import SimpleNamespace
+
+    from almasim.services.interferometry.core import Interferometer
+
+    freqs = 230e9 + np.arange(8) * 1e6
+    sim = SimpleNamespace(
+        corruptions=CorruptionModel(antenna_sefd_log_rms=0.2),
+        noise_entropy=(7, 1),
+        continuum_fraction=None,
+        Nchan=8,
+        nH=4,
+        scan_time=30.0,
+        sample_offsets_s=None,
+        antPos=[[0.0, 0.0, 0.0], [0.1, 0.0, 0.0], [0.0, 0.1, 0.0], [0.1, 0.1, 0.0]],
+        Nant=4,
+        antenna_diameter_m=12.0,
+        antenna_diameters_m=np.full(4, 12.0),
+        spectral_window=SimpleNamespace(frequencies_hz=lambda: freqs),
+    )
+    level = Interferometer._corruption_fields(sim)["antenna_noise"]
+    assert level.shape == (4, 8) and np.allclose(level, level[:, :1])
+    assert np.ptp(level[:, 0]) > 0
+    sim.corruptions = CorruptionModel(antenna_ripple_rms=0.02)
+    ripple = Interferometer._corruption_fields(sim)["antenna_noise"]
+    sim.corruptions = CorruptionModel(antenna_ripple_rms=0.02, antenna_sefd_log_rms=0.2)
+    both = Interferometer._corruption_fields(sim)["antenna_noise"]
+    np.testing.assert_allclose(both, ripple * level[:, :1])

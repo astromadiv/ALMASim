@@ -32,7 +32,8 @@ def test_alma_is_released_and_named_by_version():
     assert resolve_noise_model("none") is None and resolve_noise_model(None) is None
     with pytest.raises(ValueError, match="no version 99"):
         resolve_noise_model("alma@99")
-    assert set(alma.enabled()) == set(COMPONENT_NAMES)
+    # Every component but antenna_sefd, which no released model has yet.
+    assert set(alma.enabled()) == set(COMPONENT_NAMES) - {"antenna_sefd"}
     assert alma.provenance is not None and alma.provenance.windows == 148
 
 
@@ -155,7 +156,8 @@ def test_products_record_the_model_that_made_them(tmp_path):
     assert line == f"alma@6 (sha256 {released_model('alma').sha256()})"  # the newest
     assert _noise_model_line(_params(tmp_path)) is None
     identity = released_model("alma").identity()
-    assert identity["label"] == "alma@6" and identity["components"] == list(COMPONENT_NAMES)
+    assert identity["label"] == "alma@6"
+    assert identity["components"] == [n for n in COMPONENT_NAMES if n != "antenna_sefd"]
     spec = history_table("p", np.array([0.0, 1.0]), (f"noise_model={json.dumps(identity)}",))
     assert list(spec.values["APP_PARAMS"])[1].startswith("noise_model=")
     assert list(history_table("p", np.array([0.0, 1.0])).values["APP_PARAMS"]) == ["p"]
@@ -382,4 +384,26 @@ def test_antenna_gains_can_carry_a_residual_bandpass_ripple():
     assert back.bandpass == model.components.antenna_gains.bandpass
     data["components"]["antenna_gains"]["bandpass"] = [rows[0], rows[0]]
     with pytest.raises(ValueError, match="one row per dish"):
+        NoiseModel.model_validate(data)
+
+
+@pytest.mark.unit
+def test_each_antenna_can_have_its_own_noise_level():
+    """antenna_sefd reaches the engine; absent, every released model keeps its identity."""
+    from almasim.services.noise_model import NoiseModel
+
+    alma = released_model("alma")
+    data = json.loads(alma.model_dump_json())
+    assert "antenna_sefd" not in data["components"]
+    assert "antenna_sefd_log_rms" not in alma.engine_fields()
+    data["components"]["antenna_sefd"] = {"log_rms": 0.15}
+    model = NoiseModel.model_validate(data)
+    assert model.sha256() != alma.sha256()
+    fields = model.engine_fields()
+    assert fields["antenna_sefd_log_rms"] == 0.15
+    assert CorruptionModel.from_mapping(fields).antenna_sefd_log_rms == 0.15
+    assert NoiseModel.from_corruption_fields(fields).components.antenna_sefd.log_rms == 0.15
+    assert "antenna_sefd_log_rms" not in model.select(without=["antenna_sefd"]).engine_fields()
+    data["components"]["antenna_sefd"] = {"log_rms": -0.1}
+    with pytest.raises(ValidationError):
         NoiseModel.model_validate(data)

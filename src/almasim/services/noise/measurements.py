@@ -264,6 +264,19 @@ class AntennaShape(_Record):
     )
 
 
+class AntennaNoise(_Record):
+    """Each antenna's own noise level (its SEFD), from its baselines' noise
+    without WEIGHT: how much the antennas' Tsys and efficiency differ."""
+
+    antennas_used: int = Field(description="Antennas whose level is measured.")
+    baselines_used: int = Field(description="Baselines between them with enough values.")
+    sefd_log_rms: float = Field(
+        description="Rms of the natural log of an antenna's noise level about the array's: "
+        "log of each baseline's noise variance fitted as one term per antenna.",
+        json_schema_extra={"unit": "ln"},
+    )
+
+
 class WindowNoise(_Record):
     """Everything ``noise extract`` measures on one window."""
 
@@ -276,6 +289,7 @@ class WindowNoise(_Record):
     visibility: VisibilityNoise
     tsys: Tsys | None = None
     antenna_shape: AntennaShape | None = None
+    antenna_noise: AntennaNoise | None = None
     notes: list[str] = Field(
         default_factory=list, description="What could not be measured, and why."
     )

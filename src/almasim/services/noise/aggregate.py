@@ -13,6 +13,8 @@ how:
   noise profile over SYSCAL's Tsys^2, halved (variance to Tsys);
 - antenna_ripple: each antenna's noise shape, over the windows wider than
   1 GHz (narrow ones show finer structure);
+- antenna_sefd: the spread of the antennas' own noise levels (log rms),
+  added when the base has no such component (every array has the spread);
 - radiometer: the receiver temperature per band edge that ALMA's Tsys
   implies under the simulator's Tsys model (12 m windows, PWV and the
   target's elevation), and each dish size's Ruze aperture efficiency fitted
@@ -120,6 +122,11 @@ def aggregate(
         "antenna_ripple.scale_mhz",
         [s.half_width_mhz for s in wide],
         setter("antenna_ripple", "scale_mhz"),
+    )
+    reduce(
+        "antenna_sefd.log_rms",
+        [w.antenna_noise.sefd_log_rms for w in windows if w.antenna_noise is not None],
+        lambda value: components.setdefault("antenna_sefd", {}).update(log_rms=value),
     )
     fits = [m.fit for m in measured if m.fit is not None]
     slow = [f.slow_phase for f in fits if f.slow_phase is not None]

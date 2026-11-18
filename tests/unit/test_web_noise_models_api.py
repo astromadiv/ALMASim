@@ -57,7 +57,10 @@ def test_package_and_site_models_with_their_components(tmp_path, monkeypatch):
     assert specs[-2:] == [("team@2", "site", True), ("team@1", "site", False)]
     first = got["models"][0]
     assert first["sha256"] == released_model("alma").sha256()
-    assert [c["name"] for c in first["components"]] == list(COMPONENT_NAMES)
+    # Every component but antenna_sefd, which no released model has yet.
+    assert [c["name"] for c in first["components"]] == [
+        n for n in COMPONENT_NAMES if n != "antenna_sefd"
+    ]
     assert all(c["enabled"] and c["description"] for c in first["components"])
     assert first["provenance"]["windows"] == 148
     assert first["provenance"]["validated"] == "608d1aa94a81"  # its validation's model
