@@ -41,7 +41,7 @@ def _header() -> fits.Header:
         'phasecenter = "ICRS 10:00:00.0 20:00:00.0"',
         "specmode    = cube",
         "nchan       = 16",
-        "weighting   = \"briggs\"",
+        'weighting   = "briggs"',
         "robust      = 0.5",
         "stokes      = I",
         "deconvolver = hogbom",

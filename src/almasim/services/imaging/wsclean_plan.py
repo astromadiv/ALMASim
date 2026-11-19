@@ -116,9 +116,11 @@ def imaging_parameter_to_command_arg(
     n_pixels = image_pixels(imaging_parameters, fov_fraction, beam_sampling, min_beams_across)
     # An image-derived cell (image parse-headers) replaces the MS-derived one.
     cell = image_override(imaging_parameters, "image_cell_arcsec")
-    cell_arcsec = float(cell) if cell is not None else float(
-        imaging_parameters["synthetized_beam_size"]
-    ) / beam_sampling
+    cell_arcsec = (
+        float(cell)
+        if cell is not None
+        else float(imaging_parameters["synthetized_beam_size"]) / beam_sampling
+    )
     weighting_raw = image_override(imaging_parameters, "image_weighting") or "briggs"
     weighting = str(weighting_raw).lower()
     if weighting.startswith("briggs"):
@@ -183,12 +185,14 @@ def _abs_threshold_arg(threshold_jy: object) -> list[str]:
     except TypeError:
         return []
     try:
-        value = float(threshold_jy)
+        value = float(threshold_jy)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return []
     if value > 0:
         return ["-abs-threshold", f"{value:g}Jy"]
     return []
+
+
 def _phasecenter_arguments(row: pd.Series) -> tuple[str, str] | None:
     """``-shift`` arguments when the image's phase centre differs from the MS's.
 

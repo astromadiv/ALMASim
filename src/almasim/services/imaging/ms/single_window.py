@@ -114,9 +114,7 @@ def _extract_single_window_ms_once(
     try:
         with open_table(out, readonly=False) as main:
             columns = (
-                main.colnames()
-                if hasattr(main, "colnames")
-                else list(getattr(main, "columns", {}))
+                main.colnames() if hasattr(main, "colnames") else list(getattr(main, "columns", {}))
             )
             if "MODEL_DATA" not in columns:
                 if hasattr(main, "getcoldesc") and hasattr(main, "addcols"):
