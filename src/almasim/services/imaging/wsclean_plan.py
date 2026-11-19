@@ -16,7 +16,11 @@ import numpy as np
 import pandas as pd
 
 from almasim.services.imaging.member_plan import is_member_row, member_task_name, member_windows
-from almasim.services.imaging.ms_geometry import SPECTRAL_COLUMNS, image_pixels
+from almasim.services.imaging.ms_geometry import (
+    SPECTRAL_COLUMNS,
+    image_override,
+    image_pixels,
+)
 from almasim.services.imaging.provenance import Provenance, find_ous_index
 from almasim.services.instrument.constants import SPEED_OF_LIGHT_M_S
 
@@ -109,11 +113,24 @@ def imaging_parameter_to_command_arg(
     channel, so emission too faint to clean in one channel is still cleaned.
     """
     spw = imaging_parameters["spectral_window_id"]
-    synthetized_beam_size = imaging_parameters["synthetized_beam_size"] / beam_sampling
     n_pixels = image_pixels(imaging_parameters, fov_fraction, beam_sampling, min_beams_across)
+    # An image-derived cell (image parse-headers) replaces the MS-derived one.
+    cell = image_override(imaging_parameters, "image_cell_arcsec")
+    cell_arcsec = float(cell) if cell is not None else float(
+        imaging_parameters["synthetized_beam_size"]
+    ) / beam_sampling
+    weighting_raw = image_override(imaging_parameters, "image_weighting") or "briggs"
+    weighting = str(weighting_raw).lower()
+    if weighting.startswith("briggs"):
+        weighting = "briggs"
+    robust = image_override(imaging_parameters, "image_robust")
+    stokes = "I"
+    niter = image_override(imaging_parameters, "image_niter")
+    niter = int(niter) if niter is not None else 100000
+    threshold_jy = image_override(imaging_parameters, "image_threshold_jy")
     cmd_args = [
         "-scale",
-        f"{synthetized_beam_size}asec",
+        f"{cell_arcsec}asec",
         "-size",
         str(n_pixels),
         str(n_pixels),
@@ -122,14 +139,18 @@ def imaging_parameter_to_command_arg(
         "-mgain",
         "0.85",
         "-niter",
-        "100000",
+        str(niter),
         "-pol",
-        "I",
+        str(stokes),
         "-make-psf",
         "-weight",
-        "briggs",
-        "0.5",
+        str(weighting),
+        str(float(robust) if robust is not None else 0.5),
     ]
+    cmd_args += _abs_threshold_arg(threshold_jy)
+    phasecenter = _phasecenter_arguments(imaging_parameters)
+    if phasecenter is not None:
+        cmd_args += ["-shift", *phasecenter]
     if auto_mask is not None and auto_mask > 0:
         cmd_args += ["-auto-mask", str(auto_mask)]
     if auto_threshold is not None and auto_threshold > 0:
@@ -138,11 +159,76 @@ def imaging_parameter_to_command_arg(
         cmd_args.append("-multiscale")
     if cube is not None:
         channels = cube_channels(imaging_parameters, n_pixels, cube)
+        image_channels = image_override(imaging_parameters, "image_n_channels")
+        if (
+            image_channels is not None
+            and str(image_override(imaging_parameters, "image_specmode") or "").lower() == "cube"
+        ):
+            # The cube header's NAXIS3 is the channel count tclean imaged with.
+            channels = int(image_channels)
         if channels > 1:
             cmd_args += ["-channels-out", str(channels)]
             if join_channels:
                 cmd_args.append("-join-channels")
     return cmd_args
+
+
+def _abs_threshold_arg(threshold_jy: object) -> list[str]:
+    """``-abs-threshold`` flag from an image-derived threshold, or ``[]``."""
+    if threshold_jy is None:
+        return []
+    try:
+        if isinstance(threshold_jy, float) and math.isnan(threshold_jy):
+            return []
+    except TypeError:
+        return []
+    try:
+        value = float(threshold_jy)
+    except (TypeError, ValueError):
+        return []
+    if value > 0:
+        return ["-abs-threshold", f"{value:g}Jy"]
+    return []
+def _phasecenter_arguments(row: pd.Series) -> tuple[str, str] | None:
+    """``-shift`` arguments when the image's phase centre differs from the MS's.
+
+    WSClean images at the MeasurementSet's phase centre; the pipeline's image
+    header records the one tclean used. When they differ (a mosaic, say), the
+    shift aligns the two. Both are read as degrees and formatted as WSClean's
+    ``-shift`` expects.
+    """
+    image_ra = image_override(row, "phasecenter_ra_deg")
+    image_dec = image_override(row, "phasecenter_dec_deg")
+    ms_ra = image_override(row, "ms_phasecenter_ra_deg")
+    ms_dec = image_override(row, "ms_phasecenter_dec_deg")
+    if image_ra is None or image_dec is None or ms_ra is None or ms_dec is None:
+        return None
+    separation = math.sqrt(
+        ((float(image_ra) - float(ms_ra)) * math.cos(math.radians(float(image_dec)))) ** 2
+        + (float(image_dec) - float(ms_dec)) ** 2
+    )
+    if separation * 3600.0 < 1.0:  # below an arcsecond: the MS centre is the same
+        return None
+    return _format_ra(float(image_ra)), _format_dec(float(image_dec))
+
+
+def _format_ra(ra_deg: float) -> str:
+    """``213.2914`` as ``14:13:09.947`` (WSClean's ``-shift`` RA format)."""
+    hours = (ra_deg % 360.0) / 15.0
+    whole = int(hours)
+    minutes = int((hours - whole) * 60.0)
+    seconds = ((hours - whole) * 60.0 - minutes) * 60.0
+    return f"{whole:02d}:{minutes:02d}:{seconds:06.3f}"
+
+
+def _format_dec(dec_deg: float) -> str:
+    """``-65.3392`` as ``-65.20.21.024`` (WSClean's ``-shift`` Dec format)."""
+    sign = "-" if dec_deg < 0 else "+"
+    absolute = abs(dec_deg)
+    degrees = int(absolute)
+    minutes = int((absolute - degrees) * 60.0)
+    seconds = ((absolute - degrees) * 60.0 - minutes) * 60.0
+    return f"{sign}{degrees:02d}.{minutes:02d}.{seconds:05.2f}"
 
 
 @dataclass(frozen=True)
