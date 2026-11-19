@@ -316,8 +316,7 @@ def _run_fetch_headers(
             existing = pd.read_csv(manifest_path)
             existing_rows = existing.to_dict("records")
             done_ms = {
-                str(value)
-                for value in existing.get("filename", pd.Series()).dropna().unique()
+                str(value) for value in existing.get("filename", pd.Series()).dropna().unique()
             }
             typer.echo(f"Resuming: {len(done_ms)} MS(s) already in {manifest_path}")
         except Exception:  # noqa: BLE001 - a corrupt manifest is rebuilt

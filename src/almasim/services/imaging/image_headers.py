@@ -647,9 +647,7 @@ def parse_manifest(
             "member_ous_uid": base.get("member_ous_uid", ""),
             "member_folder": base.get("member_folder", ""),
         }
-        record["ms_n_pixels"] = image_pixels(
-            base, fov_fraction, beam_sampling, min_beams_across
-        )
+        record["ms_n_pixels"] = image_pixels(base, fov_fraction, beam_sampling, min_beams_across)
         record["ms_cell_arcsec"] = float(base["synthetized_beam_size"]) / beam_sampling
         record["image_check"] = _geometry_check(record)
         records.append(record)
