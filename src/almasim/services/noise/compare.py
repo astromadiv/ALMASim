@@ -5,18 +5,19 @@ statistics (:mod:`.image_stats`) and the visibility ones (``noise extract``'s
 window.json). Per metric, across the windows: the median of the per-window
 ratio (sim over real; for a scale) or difference (for a shape), its 16-84%
 range, a paired Wilcoxon signed-rank p, and how many windows fall within
-10%. The criteria then say whether the model passes: the median image and
-visibility noise within ``noise_tolerance`` of the real, the simulated
+10%. The criteria then say whether the model passes: the median continuum,
+cube and visibility noise within ``noise_tolerance`` of the real, the simulated
 visibilities' variance within ``weight_tolerance`` of what their WEIGHT
 claims, no listed metric differing at p below ``min_p``, and no band or
 array group's median noise off by more than ``group_tolerance``.
 
-A group is judged on its jackknifed continuum noise (``jk.sigma``,
-:mod:`.jackknife`) when every one of its windows has it on both sides, and
-on its cleaned continuum noise (``cont.sigma``) otherwise. Grouped by band
-and array, a few bright fields can decide a group's median, and their
-cleaned residuals carry what the simulated sky lacks; the jackknife carries
-the noise alone.
+The continuum noise, over all the windows and in each group, is judged on
+the jackknifed continuum noise (``jk.sigma``, :mod:`.jackknife`) when every
+window has it on both sides, and on the cleaned continuum noise
+(``cont.sigma``) otherwise. A real field's cleaned residual carries what
+cleaning leaves of its sky (calibration residue, emission outside the clean
+mask), which the simulated point source lacks; the jackknife carries the
+noise alone.
 
 A cleaned continuum that diverged (``image clean-quality``'s
 ``continuum.diverged``) holds the diverged model, not the noise: the window's
@@ -51,7 +52,8 @@ METRICS: dict[str, Literal["ratio", "difference"]] = {
     "thermal.rho1": "difference",
     "antenna_shape.excess_rms": "difference",
 }
-NOISE_LEVELS = ("cont.sigma", "cube.sigma_median", "visibility.unit_jy")
+# The continuum's is jk.sigma, or cont.sigma when a window lacks it (judged_metric).
+NOISE_LEVELS = ("jk.sigma", "cube.sigma_median", "visibility.unit_jy")
 # Continuum noise, measured over the whole band (scaled to the real window's band).
 BAND_METRICS = ("cont.sigma", "jk.sigma")
 # A visibility's noise, over the line-free channels (scaled to the real window's).
@@ -81,7 +83,8 @@ class Criteria(_Record):
         default=0.10, gt=0, description="Each band or array group within 1 +- this."
     )
     checked: tuple[str, ...] = Field(
-        default=NOISE_LEVELS, description="Metrics whose p is checked."
+        default=NOISE_LEVELS,
+        description="Metrics whose p is checked (jk.sigma: cont.sigma unless every window has it).",
     )
 
 
@@ -185,6 +188,12 @@ def group_metric(members: Sequence[Pair]) -> str:
         ):
             return metric
     return GROUP_METRICS[-1]
+
+
+def judged_metric(metric: str, pairs: Sequence[Pair]) -> str:
+    """The metric a check of ``metric`` judges: ``jk.sigma`` falls back to
+    ``cont.sigma`` unless every window has it (:func:`group_metric`)."""
+    return group_metric(pairs) if metric == "jk.sigma" else metric
 
 
 def _values(pairs: Sequence[Pair], metric: str) -> tuple[np.ndarray, np.ndarray]:
@@ -309,7 +318,7 @@ def _checks(
     criteria: Criteria,
 ) -> list[Check]:
     checks = []
-    for metric in NOISE_LEVELS:
+    for metric in dict.fromkeys(judged_metric(m, pairs) for m in NOISE_LEVELS):
         summary = metrics.get(metric)
         if summary is not None:
             off = abs(summary.median - 1)
@@ -330,7 +339,7 @@ def _checks(
                 value=median,
             )
         )
-    for metric in criteria.checked:
+    for metric in dict.fromkeys(judged_metric(m, pairs) for m in criteria.checked):
         summary = metrics.get(metric)
         if summary is not None and summary.p is not None:
             checks.append(
