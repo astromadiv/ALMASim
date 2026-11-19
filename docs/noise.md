@@ -311,7 +311,11 @@ components. It predicts the window's clean model (from `--task-dir`: the
 continuum model where the image is above 5 sigma, the cube model in the line
 channels and line mask) and compares the data with it per (baseline, scan)
 where the model is bright (S/N above 10), and the in-scan phase from how much
-the data change between integrations of a scan. Each value is fitted against a
+the data change between integrations of a scan (as a blended screen and as a
+frozen screen the wind carries past, with its speed). It also measures each
+antenna's residual bandpass ripple across the window, and, where the model
+has a line, what does not close on the line channels alone, which splits the
+non-closing error into its continuum and instrumental parts. Each value is fitted against a
 reference built by the simulator's own engine, so it is what the simulator
 needs to reproduce the data. A window too faint for that is left unfitted,
 with a note in `fit.json`.

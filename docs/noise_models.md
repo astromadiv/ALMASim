@@ -720,7 +720,26 @@ each channel's frequency `f`, with its own `alpha` and `beta` drawn from a
 stream of their own, so the other errors' draws do not depend on it; a
 dish without a row, or a channel above its edge, takes 1. Like the gains,
 it multiplies the sky part of baseline (i, j) by `b(i) conj(b(j))` and
-leaves the noise and WEIGHT alone. In a model file:
+leaves the noise and WEIGHT alone.
+
+`noise fit` measures it (`bandpass` in `fit.json`). Over the whole
+observation, each baseline's data over its clean model is summed per chunk
+of channels (at most 4 MHz wide, at most 512 chunks), each row first turned
+by its own phase across the window so that the atmosphere's phase does not
+decorrelate the sums. Each baseline's chunks over its mean across them
+leave what varies across frequency. A single baseline's chunk rarely has an
+S/N much above 1, so per chunk the ratios are split into antenna terms by
+weighted linear least squares (`Re - 1 = a_i + a_j`, `Im = p_i - p_j`, each
+baseline weighted by the inverse of its noise variance), which pools each
+antenna's baselines and stays unbiased at low S/N; each antenna's mean and
+slope across the window are then removed (a residual delay or smooth
+bandpass, not a ripple). `amp_rms` and `phase_rms_deg` are what remains
+beyond the same solve on thermal noise alone (`thermal_amp_rms`,
+`thermal_phase_rms_deg`, per antenna and chunk), and `period_mhz` is where
+the antennas' summed power spectrum, less the noise's, peaks. A window
+needs at least 16 chunks and four antennas, and its thermal rms per antenna
+and chunk must be under 0.1: only the brightest windows see a ripple of a
+few tenths of a percent. In a model file:
 
 ```json
 "antenna_gains": {"amp_rms": 0.138, "phase_rms_deg": 0.0, "bandpass": [
@@ -882,8 +901,12 @@ loss of averaging a Gaussian phase, and it grows with frequency, wind
 speed and the integration's length. The path is scaled as the blended
 screen's is (each antenna's scan mean removed, the median antenna pair's
 rms path difference on the power law), and the within-integration spread
-with it. `noise fit` measures the blended screen's strength, slope and
-coherence, so a model with `wind_mps` takes its strength from those fits.
+with it. `noise fit` also fits the frozen flow: at the blended screen's slope,
+the engine's moving screen at each of 2, 4, 7, 10 and 15 m/s gives the same
+structure-function cells, and the speed whose least-squares scale has the
+smallest relative error is the window's `wind_mps`, refined once at the
+strength found (`wind_path_um_1km`). `misfit` and `wind_misfit` (each fit's
+strength error over its strength) say which screen follows the data better.
 
 | Parameter | Meaning | alma@1 | alma@2 | alma@3 | alma@4 | alma@5 | alma@6 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -932,9 +955,21 @@ draws a second factor of the same form from a stream spawned from the
 first one's (so the continuum term's draws stay as they are), and it
 multiplies the whole visibility, line and continuum alike: a line-only
 source then shows closure departures too, where the continuum term leaves
-it closed. `noise fit` measures the non-closing residual of bright
-continuum windows as a whole, which the continuum term takes; splitting it
-between the two terms needs bright line windows.
+it closed.
+
+**How the two are told apart** (`noise fit`, `line_nonclosing`). On a window
+whose clean model has a line, the same antenna solve runs on the line
+channels alone, against a reference with everything else found there. With
+`f` the continuum's share of the line channels' model (`continuum_share`,
+sum `w Re(M_c M*)` over sum `w |M|^2`), their non-closing variance is
+`f^2 c^2 + i^2` and the whole window's (mostly continuum) `c^2 + i^2`, so
+
+```
+instrumental^2 = (line^2 - f^2 x window^2) / (1 - f^2)
+```
+
+for amplitude and phase alike. Above a share of 0.7 the two cannot be told
+apart and the instrumental values are left out.
 
 | Parameter | Meaning | alma@1 | alma@2 | alma@3 | alma@4 | alma@5 | alma@6 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -1160,7 +1195,10 @@ This is SPT0441-46 (band 7), shortened:
   "fast_phase": {"path_um_1km": 56.9, "slope": 0.35, "bins": 41, "coherence_s": 10.0},
   "gain_amp_rms": 0.090,
   "baseline_amp_rms": 0.0,
-  "baseline_phase_rms_deg": 6.53
+  "baseline_phase_rms_deg": 6.53,
+  "bandpass": {"chunks": 480, "chunk_mhz": 3.9, "antennas": 43,
+               "amp_rms": 0.004, "phase_rms_deg": 0.6, "period_mhz": 31.2, ...},
+  "line_nonclosing": null            // no line in the clean model
 }
 ```
 
