@@ -7,7 +7,8 @@ columns the cube planning needs.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import math
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -162,6 +163,25 @@ def add_spectral_columns(parameters: pd.DataFrame) -> pd.DataFrame:
     return filled
 
 
+def image_override(row: pd.Series | Mapping[str, Any], key: str) -> Any | None:
+    """The image-derived value of ``key`` when a CSV row carries one.
+
+    ``image parse-headers`` adds columns such as ``image_n_pixels`` and
+    ``image_cell_arcsec``; when they are present and set, they replace the
+    MS-derived geometry. NaN and empty strings count as absent.
+    """
+    if not hasattr(row, "get"):
+        return None
+    value = row.get(key)
+    if value is None:
+        return None
+    if isinstance(value, float) and math.isnan(value):
+        return None
+    if isinstance(value, str) and not value.strip():
+        return None
+    return value
+
+
 def image_pixels(
     imaging_parameters: pd.Series,
     fov_fraction: float,
@@ -171,8 +191,12 @@ def image_pixels(
     """Image side in pixels: the FOV over the cell (beam / ``beam_sampling``).
 
     ``min_beams_across`` widens images narrower than that many synthesized
-    beams: a compact configuration's primary beam spans few of them.
+    beams: a compact configuration's primary beam spans few of them. A row with
+    ``image_n_pixels`` (from ``image parse-headers``) uses that size instead.
     """
+    override = image_override(imaging_parameters, "image_n_pixels")
+    if override is not None:
+        return int(override)
     return image_size(
         imaging_parameters["fov_per_frequency"] * fov_fraction,
         cell_arcsec(imaging_parameters["synthetized_beam_size"], beam_sampling),
