@@ -24,6 +24,12 @@ from almasim.services.imaging.batch_runner import (
     WorkersUnavailableError,
     run_imaging_tasks,
 )
+from almasim.services.imaging.image_headers import (
+    MANIFEST_FILENAME,
+    collect_headers,
+    parse_manifest,
+    write_manifest,
+)
 from almasim.services.imaging.ms_geometry import (  # noqa: F401  (moved; re-exported)
     MIN_IMAGE_PIXELS,
     SPECTRAL_COLUMNS,
@@ -265,6 +271,281 @@ def compute_parameters(
             "".join(f"{ms}\t{error}\n" for ms, error in failures), encoding="utf-8"
         )
         fail(f"{len(failures)} MS(s) could not be read; listed in {failed_path}")
+
+
+def _header_index(
+    mss: Sequence[Path], ous_index: Path | None, delivery_root: Path | None
+) -> tuple[dict[str, dict[str, str]], Path]:
+    """The delivery tree's ``ous_index.csv`` and its root, from the options or above the MSs."""
+    from almasim.services.archive.delivery import INDEX_FILENAME, read_ous_index
+    from almasim.services.imaging.provenance import find_ous_index
+
+    index_path = ous_index
+    if index_path is None and delivery_root is not None:
+        candidate = delivery_root / INDEX_FILENAME
+        if candidate.is_file():
+            index_path = candidate
+    if index_path is None and mss:
+        index_path = find_ous_index(mss[0])
+    if index_path is None:
+        raise typer.BadParameter(
+            "No ous_index.csv found: pass --ous-index, or --delivery-root with one at its root."
+        )
+    root = delivery_root if delivery_root is not None else Path(index_path).parent
+    return read_ous_index(index_path), root
+
+
+def _run_fetch_headers(
+    mss: Sequence[Path],
+    header_folder: Path,
+    index: dict[str, dict[str, str]],
+    root: Path,
+    image_kinds: tuple[str, ...],
+    include: tuple[str, ...],
+    exclude: tuple[str, ...],
+    source: str,
+    fail_fast: bool,
+    overwrite: bool,
+    resume: bool,
+) -> None:
+    manifest_path = header_folder / MANIFEST_FILENAME
+    existing_rows: list[dict[str, object]] = []
+    done_ms: set[str] = set()
+    if resume and manifest_path.is_file():
+        try:
+            existing = pd.read_csv(manifest_path)
+            existing_rows = existing.to_dict("records")
+            done_ms = {
+                str(value) for value in existing.get("filename", pd.Series()).dropna().unique()
+            }
+            typer.echo(f"Resuming: {len(done_ms)} MS(s) already in {manifest_path}")
+        except Exception:  # noqa: BLE001 - a corrupt manifest is rebuilt
+            existing_rows = []
+            done_ms = set()
+
+    pending = [ms for ms in mss if str(ms.resolve()) not in done_ms and str(ms) not in done_ms]
+    if not pending:
+        typer.echo(f"Nothing to do: all {len(mss)} MS(s) are already in {manifest_path}")
+        return
+
+    rows = list(existing_rows)
+    failures: list[tuple[Path, str]] = []
+    checkpoint_every = 50
+    for position, ms in enumerate(tqdm(pending, desc="Image headers"), start=1):
+        try:
+            collected, failed = collect_headers(
+                [ms],
+                header_folder,
+                index=index,
+                delivery_root=root,
+                kinds=image_kinds,
+                include=include,
+                exclude=exclude,
+                source=source,
+                overwrite=overwrite,
+            )
+        except Exception as exc:
+            if fail_fast:
+                raise
+            failures.append((ms, f"{type(exc).__name__}: {exc}"))
+            continue
+        rows.extend(collected)
+        failures.extend(failed)
+        if position % checkpoint_every == 0:
+            write_manifest(rows, manifest_path)
+            typer.echo(f"  checkpoint: {len({r['filename'] for r in rows})} MS(s)")
+
+    manifest = write_manifest(rows, manifest_path)
+    typer.echo(
+        f"Wrote {len(rows)} header row(s) for {len({row['filename'] for row in rows})} MS(s) "
+        f"to {manifest}"
+    )
+    if failures:
+        failed_path = header_folder / (MANIFEST_FILENAME + ".failed.tsv")
+        failed_path.write_text(
+            "".join(f"{ms}\t{error}\n" for ms, error in failures), encoding="utf-8"
+        )
+        fail(f"{len(failures)} MS row(s) had no readable header; listed in {failed_path}")
+
+
+@image_app.command("request-headers", hidden=True)
+@image_app.command("read-headers", hidden=True)
+@image_app.command("fetch-headers")
+def fetch_headers(
+    archive_folder: Path = typer.Argument(
+        default=Path("."),
+        help="Processed MSs folder (default: current directory)",
+    ),
+    header_folder: Path = typer.Argument(
+        default=Path("wsclean"),
+        help="Folder the image FITS headers and their manifest are written to",
+    ),
+    pattern: str = typer.Option(
+        "*.cal",
+        "--pattern",
+        help="Glob for the MeasurementSets inside the folder.",
+    ),
+    delivery_root: Path | None = typer.Option(
+        None,
+        "--delivery-root",
+        help="Root of the ALMA delivery tree holding the member product folders.",
+    ),
+    ous_index: Path | None = typer.Option(
+        None,
+        "--ous-index",
+        help="The delivery tree's ous_index.csv (default: nearest above the MSs).",
+    ),
+    source: str = typer.Option(
+        "auto",
+        "--source",
+        help="Where the tclean images are read: local, archive, or auto (local first).",
+    ),
+    kinds: str = typer.Option(
+        "mfs,cube",
+        "--kinds",
+        help="Image kinds to read, comma-separated (mfs, cube).",
+    ),
+    include: list[str] | None = typer.Option(
+        None,
+        "--include",
+        help="Glob picking image files, e.g. '*_sci.*.pbcor.fits'. Repeatable.",
+    ),
+    exclude: list[str] | None = typer.Option(
+        None,
+        "--exclude",
+        help="Glob dropping image files. Repeatable.",
+    ),
+    require_done_marker: bool = typer.Option(
+        True,
+        "--require-done-marker/--no-require-done-marker",
+        help="Skip an MS whose <ms>.done calibration marker is missing.",
+    ),
+    fail_fast: bool = typer.Option(
+        False,
+        "--fail-fast",
+        help="Abort on the first MS that cannot be read (default: record it and continue).",
+    ),
+    resume: bool = typer.Option(
+        True,
+        "--resume/--no-resume",
+        help="Skip MSs already listed in headers.csv and checkpoint progress (default: on).",
+    ),
+    overwrite: bool = typer.Option(
+        False,
+        "--overwrite/--no-overwrite",
+        help="Re-read every header even when a cached copy exists (default: reuse cached).",
+    ),
+) -> None:
+    """Read the FITS header of every (MS, window, field)'s tclean image.
+
+    The header is read a block at a time and stops at the END card, so a
+    multi-gigabyte cube costs a few tens of kilobytes. Writes one header per
+    image under ``header_folder`` and the manifest ``headers.csv``;
+    ``image parse-headers`` turns it into the imaging parameter CSV.
+    """
+    if source not in {"local", "archive", "auto"}:
+        raise typer.BadParameter("--source must be local, archive or auto")
+    image_kinds = tuple(part.strip() for part in kinds.split(",") if part.strip())
+    if not image_kinds or any(kind not in {"mfs", "cube"} for kind in image_kinds):
+        raise typer.BadParameter("--kinds must be a comma-separated subset of mfs, cube")
+
+    mss = _find_mss(archive_folder, pattern)
+    if len(mss) == 0:
+        typer.echo(f"Cannot find any MS in {archive_folder}")
+        raise typer.Exit(code=1)
+    if require_done_marker:
+        with_marker = [ms for ms in mss if ms.with_name(ms.name + ".done").is_file()]
+        if with_marker and len(with_marker) < len(mss):
+            typer.echo(
+                f"Skipping {len(mss) - len(with_marker)} MS(s) without a .done calibration marker."
+            )
+            mss = with_marker
+
+    try:
+        index, root = _header_index(mss, ous_index, delivery_root)
+    except Exception as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
+    _run_fetch_headers(
+        mss,
+        Path(header_folder),
+        index,
+        root,
+        image_kinds,
+        tuple(include or ()),
+        tuple(exclude or ()),
+        source,
+        fail_fast,
+        overwrite,
+        resume,
+    )
+
+
+@image_app.command("check-parameters", hidden=True)
+@image_app.command("parse-parameters", hidden=True)
+@image_app.command("parse-headers")
+def parse_headers(
+    header_folder: Path = typer.Argument(
+        default=Path("wsclean"),
+        help="Folder image fetch-headers wrote the headers and headers.csv to",
+    ),
+    output_metadata_file: Path = typer.Argument(
+        default=Path("imaging_parameters.csv"),
+        help="Parameters CSV file (default: imaging_parameters.csv)",
+    ),
+    fov_fraction: float = typer.Option(
+        1.5,
+        "--fov-fraction",
+        min=1e-6,
+        help="MS-derived size check: fraction of the FOV to image.",
+    ),
+    beam_sampling: float = typer.Option(
+        8.0,
+        "--beam-sampling",
+        min=1e-6,
+        help="MS-derived size check: pixels per synthesized beam.",
+    ),
+    min_beams_across: float = typer.Option(
+        32.0,
+        "--min-beams-across",
+        min=0.0,
+        help="MS-derived size check: minimum beams across.",
+    ),
+) -> None:
+    """Parse the saved tclean headers into the imaging parameter CSV.
+
+    One row per (MS, window, field), carrying the image's grid (size, cell,
+    phase centre, channels) and a check against the MS-derived geometry. The
+    CSV is read by ``image image-from-ms``, which prefers the image's
+    parameters when they are present.
+    """
+    manifest = Path(header_folder) / MANIFEST_FILENAME
+    if not manifest.is_file():
+        fail(f"No header manifest: {manifest}. Run `image fetch-headers` first.")
+    result = parse_manifest(
+        manifest,
+        output_metadata_file,
+        fov_fraction=fov_fraction,
+        beam_sampling=beam_sampling,
+        min_beams_across=min_beams_across,
+    )
+    columns = [
+        "filename",
+        "spectral_window_id",
+        "field_name",
+        "image_kind",
+        "image_n_pixels",
+        "image_cell_arcsec",
+        "ms_n_pixels",
+        "ms_cell_arcsec",
+        "image_n_channels",
+        "phasecenter_ra_deg",
+        "phasecenter_dec_deg",
+        "image_check",
+    ]
+    columns = [column for column in columns if column in result.columns]
+    typer.echo(result[columns].to_string(index=False))
+    typer.echo(f"Wrote {len(result)} (MS, window, field) row(s) to {output_metadata_file}")
 
 
 def _echo_cube_plan(
