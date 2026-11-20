@@ -12,10 +12,12 @@ S/N much above 1, so per chunk the ratio is split into antenna terms by
 weighted linear least squares, which pools each antenna's baselines and
 stays unbiased at low S/N: Re(ratio) - 1 = a_i + a_j (fractional amplitude),
 Im(ratio) = p_i - p_j (phase, its mean held at zero), each baseline weighted
-by its sum w |M|^2 times |mean|^2. Each antenna's mean and slope across the
-window are removed (a residual delay or a smooth bandpass, which the ripple
-is not), and the rms of what remains is the ripple's, less the rms the
-thermal noise alone gives (the same solve on noise of the baselines' own
+by its sum w |M|^2 times |mean|^2. The amplitude all antennas share in a
+chunk is the source's own spectrum, which the clean model lacks, so it is
+removed, and so are each antenna's mean and slope across the window (a
+residual delay or a smooth bandpass, which the ripple is not), and the
+rms of what remains is the ripple's, less the rms the thermal noise alone
+gives (the same solve on noise of the baselines' own
 variance, kappa / sum w |M|^2 per component, over the baseline's mean). The
 ripple's period is where the antennas' summed power spectrum, less the
 noise's, peaks.
@@ -77,8 +79,8 @@ def _ripple(
     ratio: np.ndarray, weight: np.ndarray, a1: np.ndarray, a2: np.ndarray, nant: int
 ) -> tuple[np.ndarray, np.ndarray]:
     """Each antenna's fractional amplitude and phase per chunk (nant, nchunk),
-    by weighted linear least squares per chunk, less each antenna's mean and
-    slope across the chunks."""
+    by weighted linear least squares per chunk, less the antennas' mean per
+    chunk and each antenna's mean and slope across the chunks."""
     rows = np.arange(a1.size)
     design = np.zeros((a1.size, nant))
     dphase = np.zeros((a1.size + 1, nant))
@@ -95,6 +97,9 @@ def _ripple(
         rp = np.append(root, root.mean())
         lp = np.append(ratio[:, k].imag, 0.0)
         phase[:, k] = np.linalg.lstsq(dphase * rp[:, None], lp * rp, rcond=None)[0]
+    # What every antenna shares in a chunk is the source's own spectrum, which
+    # the clean model lacks, not a bandpass (each antenna's differs): removed.
+    amp -= amp.mean(axis=0, keepdims=True)
     x = np.linspace(-1.0, 1.0, nchunk)
     basis = np.vstack([np.ones_like(x), x]).T
     detrend = np.eye(x.size) - basis @ np.linalg.pinv(basis)

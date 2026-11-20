@@ -731,9 +731,10 @@ leave what varies across frequency. A single baseline's chunk rarely has an
 S/N much above 1, so per chunk the ratios are split into antenna terms by
 weighted linear least squares (`Re - 1 = a_i + a_j`, `Im = p_i - p_j`, each
 baseline weighted by the inverse of its noise variance), which pools each
-antenna's baselines and stays unbiased at low S/N; each antenna's mean and
-slope across the window are then removed (a residual delay or smooth
-bandpass, not a ripple). `amp_rms` and `phase_rms_deg` are what remains
+antenna's baselines and stays unbiased at low S/N. The amplitude every
+antenna shares in a chunk is the source's own spectrum, which the clean
+model lacks, so it is removed, and so are each antenna's mean and slope
+across the window (a residual delay or smooth bandpass, not a ripple). `amp_rms` and `phase_rms_deg` are what remains
 beyond the same solve on thermal noise alone (`thermal_amp_rms`,
 `thermal_phase_rms_deg`, per antenna and chunk), and `period_mhz` is where
 the antennas' summed power spectrum, less the noise's, peaks. A window

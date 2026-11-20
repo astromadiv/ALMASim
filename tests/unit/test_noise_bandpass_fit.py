@@ -12,8 +12,12 @@ NANT, NCHAN = 12, 256
 FREQ = 40e9 + 1e6 * np.arange(NCHAN)  # band 1, 1 MHz channels
 
 
-def _sums(amp: float, phase_deg: float, sigma: float, seed: int = 0) -> BandpassSums:
-    """A bright point source on every baseline, its antennas' ripple of 25 MHz."""
+def _sums(
+    amp: float, phase_deg: float, sigma: float, seed: int = 0, spectrum: float = 0.0
+) -> BandpassSums:
+    """A bright point source on every baseline, its antennas' ripple of 25 MHz
+    (and a wave of ``spectrum`` in its own flux across the window, which its
+    flat clean model lacks)."""
     rng = np.random.default_rng(seed)
     ripple = draw_bandpass_ripple(
         ((12.0, 50.0, 25.0, amp, phase_deg),), np.full(NANT, 12.0), rng
@@ -25,6 +29,7 @@ def _sums(amp: float, phase_deg: float, sigma: float, seed: int = 0) -> Bandpass
     for _ in range(20):  # integrations, each with its own gain phase
         gain = np.exp(1j * rng.uniform(-1, 1, NANT))
         signal = (gain[a1] * np.conj(gain[a2]))[:, None] * ripple[a1] * np.conj(ripple[a2])
+        signal = signal * (1.0 + spectrum * np.sin(2 * np.pi * (FREQ - FREQ[0]) / 60e6))
         noise = sigma * (
             rng.standard_normal((a1.size, NCHAN, 2)) + 1j * rng.standard_normal((a1.size, NCHAN, 2))
         )
@@ -70,3 +75,12 @@ def test_a_ripple_is_found_where_no_single_baseline_s_chunk_is_bright():
 def test_a_window_too_faint_for_a_ripple_says_so():
     found, why = fit_bandpass(_sums(0.01, 1.0, sigma=30.0), 1.0, np.random.default_rng(1))
     assert found is None and "too faint" in why
+
+
+@pytest.mark.unit
+def test_the_source_s_own_spectrum_is_not_taken_for_a_bandpass():
+    found, why = fit_bandpass(
+        _sums(0.0, 0.0, sigma=0.05, spectrum=0.1), 1.0, np.random.default_rng(2)
+    )
+    assert why is None and found is not None
+    assert found.amp_rms < 0.005 and found.phase_rms_deg < 0.3
