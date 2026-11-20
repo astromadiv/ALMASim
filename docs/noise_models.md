@@ -740,7 +740,12 @@ beyond the same solve on thermal noise alone (`thermal_amp_rms`,
 the antennas' summed power spectrum, less the noise's, peaks. A window
 needs at least 16 chunks and four antennas, and its thermal rms per antenna
 and chunk must be under 0.1: only the brightest windows see a ripple of a
-few tenths of a percent. In a model file:
+few tenths of a percent. `noise aggregate` sets a dish size's row when at
+least three of its windows see a ripple, a period under 50 MHz (a longer
+one is a smooth shape across the window, not a ripple): their median
+period, their median rms as a sine's peak (`amp = sqrt(2) amp_rms`, and the
+same for the phase), and their highest frequency as `upper_ghz`. In a model
+file:
 
 ```json
 "antenna_gains": {"amp_rms": 0.138, "phase_rms_deg": 0.0, "bandpass": [
@@ -908,6 +913,7 @@ structure-function cells, and the speed whose least-squares scale has the
 smallest relative error is the window's `wind_mps`, refined once at the
 strength found (`wind_path_um_1km`). `misfit` and `wind_misfit` (each fit's
 strength error over its strength) say which screen follows the data better.
+`noise aggregate` takes the fitted windows' median `wind_mps`.
 
 | Parameter | Meaning | alma@1 | alma@2 | alma@3 | alma@4 | alma@5 | alma@6 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -970,7 +976,12 @@ instrumental^2 = (line^2 - f^2 x window^2) / (1 - f^2)
 ```
 
 for amplitude and phase alike. Above a share of 0.7 the two cannot be told
-apart and the instrumental values are left out.
+apart and the instrumental values are left out. `noise aggregate` takes the
+median share `s` of each window's error that is the instrument's
+(instrumental over the window's, at most 1) over the windows that tell it
+apart: `instrumental_amp_rms` is `s` times the windows' median `amp_rms`, and
+`amp_rms` keeps `sqrt(1 - s^2)` of it, so the continuum sees the windows'
+median in quadrature (the same for the phase).
 
 | Parameter | Meaning | alma@1 | alma@2 | alma@3 | alma@4 | alma@5 | alma@6 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
