@@ -58,6 +58,10 @@ FAST_REFERENCE_S = 18.144
 # A bandpass shape with a longer period than this is smooth across the
 # window (a residual delay or bandpass slope), not a ripple.
 RIPPLE_MAX_MHZ = 50.0
+# A window's line channels need this share of continuum for its non-closing
+# error to be told into the instrument's and the continuum's: below it, the
+# window's signal may be the line itself, and the two errors are one.
+MIN_CONTINUUM_SHARE = 0.05
 C_M_S = 299_792_458.0
 
 
@@ -284,7 +288,8 @@ def _instrumental(
     window's; the median share ``s`` of the windows' non-closing error
     (``amp_rms``, already their median) is the instrument's, on all the
     signal, and the continuum term keeps ``sqrt(1 - s^2)`` of it, so the
-    continuum still sees the windows' median in quadrature."""
+    continuum still sees the windows' median in quadrature. Only windows
+    whose line channels hold ``MIN_CONTINUUM_SHARE`` of continuum count."""
     parts = (
         ("amp_rms", "instrumental_amp_rms", "baseline_amp_rms"),
         ("phase_rms_deg", "instrumental_phase_rms_deg", "baseline_phase_rms_deg"),
@@ -293,7 +298,11 @@ def _instrumental(
         shares = []
         for fit in fits:
             line, window = fit.line_nonclosing, getattr(fit, window_key)
-            own = None if line is None else getattr(line, own_key)
+            # Line channels with hardly any continuum say nothing: the window's
+            # error may then be the line's own as well.
+            if line is None or line.continuum_share < MIN_CONTINUUM_SHARE:
+                continue
+            own = getattr(line, own_key)
             if own is not None and window is not None and window > 0:
                 # A share above 1 is noise in the split: the instrument has it all.
                 shares.append(min(own / window, 1.0))

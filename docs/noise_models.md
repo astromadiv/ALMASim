@@ -980,7 +980,8 @@ for amplitude and phase alike. Above a share of 0.7 the two cannot be told
 apart and the instrumental values are left out. `noise aggregate` takes the
 median share `s` of each window's error that is the instrument's
 (instrumental over the window's, at most 1) over the windows that tell it
-apart: `instrumental_amp_rms` is `s` times the windows' median `amp_rms`, and
+apart and whose line channels hold at least 5% continuum (with less, the
+window's signal may be the line itself, and the two errors are one): `instrumental_amp_rms` is `s` times the windows' median `amp_rms`, and
 `amp_rms` keeps `sqrt(1 - s^2)` of it, so the continuum sees the windows'
 median in quadrature (the same for the phase).
 

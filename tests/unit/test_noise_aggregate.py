@@ -196,6 +196,7 @@ def test_the_fits_set_the_wind_the_instrument_s_share_and_a_seen_ripple():
     base = released_model("alma", 1)
     winds = [2.0, 7.0, 7.0, 10.0, 15.0]
     shares = [0.8, 0.9, 1.3, 0.95, None]  # 1.3: noise in the split, counts as 1
+    continuum = [0.1, 0.3, 0.5, 0.2, 0.0]
     measured = []
     for k, (wind, share) in enumerate(zip(winds, shares, strict=True)):
         fit = _fit(k).model_copy(
@@ -205,7 +206,7 @@ def test_the_fits_set_the_wind_the_instrument_s_share_and_a_seen_ripple():
                 ),
                 "line_nonclosing": LineNonClosing(
                     groups=100,
-                    continuum_share=0.1,
+                    continuum_share=continuum[k],
                     amp_rms=0.04,
                     phase_rms_deg=3.0,
                     instrumental_amp_rms=None if share is None else 0.04 * share,
@@ -223,6 +224,24 @@ def test_the_fits_set_the_wind_the_instrument_s_share_and_a_seen_ripple():
             _fit(8).model_copy(update={"bandpass": _bandpass(10.0, 0.005, 0.3)}),
         )
     )
+    # Line channels without continuum: their window's error may be the line's.
+    measured.append(
+        Measured(
+            _window(7),
+            _fit(7).model_copy(
+                update={
+                    "line_nonclosing": LineNonClosing(
+                        groups=100,
+                        continuum_share=0.01,
+                        amp_rms=0.04,
+                        phase_rms_deg=3.0,
+                        instrumental_amp_rms=0.04,
+                        instrumental_phase_rms_deg=3.0,
+                    )
+                }
+            ),
+        )
+    )
     # 7 m: one window with a ripple is too few.
     measured.append(
         Measured(
@@ -235,7 +254,8 @@ def test_the_fits_set_the_wind_the_instrument_s_share_and_a_seen_ripple():
     assert c.fast_phase.wind_mps == 7.0
     errors, values = c.baseline_errors, candidate.provenance.values
     # Shares 0.8, 0.9, 1.0, 0.95: median 0.925 of the windows' amplitude error.
-    assert values["baseline_errors.instrumental_amp_rms_share"].median == pytest.approx(0.925)
+    share = values["baseline_errors.instrumental_amp_rms_share"]
+    assert (share.n, share.median) == (4, pytest.approx(0.925))
     assert errors.instrumental_amp_rms == pytest.approx(0.925 * 0.04)
     assert errors.amp_rms == pytest.approx(0.04 * np.sqrt(1 - 0.925**2))
     # The continuum still sees the windows' median in quadrature.
