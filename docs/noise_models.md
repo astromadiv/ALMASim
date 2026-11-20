@@ -1180,26 +1180,31 @@ in the line channels, inside the line mask (`--continuum-model`,
 `--line-model` to change). Five bright windows took 47 minutes and up to
 24 GB (most of it Sgr A, an 83 GB MS).
 
-This is SPT0441-46 (band 7), shortened:
+This is a band 7 window at 356 GHz with a line, shortened:
 
 ```
 {
-  "bright_groups": 3678,             // (baseline, scan) groups with S/N above 10
-  "kappa": 2.67,                     // Hanning-correlated channels: 1 + 2 x 2/3 + 2 x 1/6
+  "bright_groups": 7349,             // (baseline, scan) groups with S/N above 10
+  "kappa": 2.66,                     // Hanning-correlated channels: 1 + 2 x 2/3 + 2 x 1/6
   "bins": [
-    {"baseline_m": 80.2, "groups": 754,
-     "phase_rms_deg": 15.9, "thermal_phase_rms_deg": 8.0,   // scatter beyond the noise's
-     "lnamp_mean": -0.018, "thermal_lnamp_mean": -0.001},   // a little decorrelation
+    {"baseline_m": 13.9, "groups": 95,
+     "phase_rms_deg": 10.7, "thermal_phase_rms_deg": 0.6,   // scatter beyond the noise's
+     "lnamp_mean": 0.204, "thermal_lnamp_mean": -0.001},
     ...
   ],
-  "slow_phase": {"path_um_1km": 93.8, "slope": 0.5, "bins": 9},
-  "fast_phase": {"path_um_1km": 56.9, "slope": 0.35, "bins": 41, "coherence_s": 10.0},
-  "gain_amp_rms": 0.090,
-  "baseline_amp_rms": 0.0,
-  "baseline_phase_rms_deg": 6.53,
-  "bandpass": {"chunks": 480, "chunk_mhz": 3.9, "antennas": 43,
-               "amp_rms": 0.004, "phase_rms_deg": 0.6, "period_mhz": 31.2, ...},
-  "line_nonclosing": null            // no line in the clean model
+  "slow_phase": {"path_um_1km": 136.8, "slope": 0.65, "bins": 10},
+  "fast_phase": {"path_um_1km": 68.4, "slope": 0.5, "bins": 60, "coherence_s": 80.0,
+                 "wind_mps": 2.0, "wind_path_um_1km": 83.8, "wind_misfit": 0.069},
+  "gain_amp_rms": 0.060,
+  "baseline_amp_rms": 0.101,
+  "baseline_phase_rms_deg": 1.33,
+  "bandpass": {"chunks": 480, "chunk_mhz": 3.9, "antennas": 38, "baselines": 703,
+               "amp_rms": 0.031, "phase_rms_deg": 0.0,
+               "thermal_amp_rms": 0.084, "thermal_phase_rms_deg": 4.7,
+               "period_mhz": 144.2},  // a slow shape, not a 25 MHz ripple
+  "line_nonclosing": {"groups": 7182, "continuum_share": 0.154,
+                      "amp_rms": 0.110, "phase_rms_deg": 0.54,
+                      "instrumental_amp_rms": 0.110, "instrumental_phase_rms_deg": 0.51}
 }
 ```
 
