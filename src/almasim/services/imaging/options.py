@@ -45,6 +45,10 @@ class ImagingOptions:
     contsub: bool = False
     uv_contsub: bool = False
     contsub_order: int = 1
+    # Also leave the ALMA pipeline's cont.dat line channels out of the
+    # line-free channels; its member from ``ous_index`` (None: the nearest).
+    pipeline_line_free: bool = False
+    ous_index: str | None = None
     join_channels: bool = False
     continuum_restart: bool = False
     cube_line_mask: bool = False
@@ -68,6 +72,8 @@ class ImagingOptions:
         if self.uv_contsub and self.contsub:
             raise ValueError("--uv-contsub already removes the continuum: drop --contsub")
         self.selfcal.validate(continuum=self.continuum, single_window=self.single_window)
+        if self.pipeline_line_free and not (self.uv_contsub or self.selfcal.solints):
+            raise ValueError("--pipeline-line-free needs --uv-contsub or --selfcal")
         if self.uv_contsub and not self.single_window:
             raise ValueError("--uv-contsub needs --single-window-ms: it edits the copy")
         if not self.continuum and self.cube is None:
@@ -81,6 +87,8 @@ class ImagingOptions:
             "cube_products": self.cube_products,
             "contsub_order": self.contsub_order if self.contsub else None,
             "uv_contsub_order": self.contsub_order if self.uv_contsub else None,
+            "pipeline_line_free": self.pipeline_line_free,
+            "ous_index": self.ous_index,
             "selfcal_solints": list(self.selfcal.solints) or None,
             "selfcal_min_snr": self.selfcal.min_snr,
             "casa_data": casa_data,

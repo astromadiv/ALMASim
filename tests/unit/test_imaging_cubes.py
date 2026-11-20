@@ -587,6 +587,42 @@ def test_run_wsclean_task_images_continuum_and_lines_from_their_columns(tmp_path
 
 
 @pytest.mark.unit
+def test_run_wsclean_task_fits_without_the_pipeline_line_channels(tmp_path, monkeypatch):
+    fit = {
+        "source_column": "DATA",
+        "order": 1,
+        "seconds": 1.0,
+        "channels": 8,
+        "usable_channels": 8,
+        "line_free_channels": 4,
+        "line_ranges": "1~1;3~5",
+        "cont_dat": "a.tgz: field F, pipeline window 23 (2 continuum ranges)",
+        "cont_dat_line_channels": 2,
+    }
+    _, calls, log = _uv_task(
+        tmp_path, monkeypatch, fit, pipeline_line_free=True, ous_index="/tree/ous_index.csv"
+    )
+
+    ((_, kwargs),) = calls
+    assert Path(kwargs["pipeline_ms"]).name == "x.ms.split.cal", "the source MS, not the copy"
+    assert kwargs["ous_index"] == "/tree/ous_index.csv"
+    assert (
+        "# continuum fit: cont.dat (a.tgz: field F, pipeline window 23 (2 continuum ranges)) "
+        "adds 2 line channels" in log
+    )
+    assert "lines in channels 1~1;3~5" in log
+
+    fit["cont_dat"], fit["cont_dat_line_channels"] = "not used: no ous_index.csv for x.ms", 0
+    (tmp_path / "again").mkdir()
+    (tmp_path / "off").mkdir()
+    _, calls, log = _uv_task(tmp_path / "again", monkeypatch, fit, pipeline_line_free=True)
+    assert "# continuum fit: cont.dat not used: no ous_index.csv for x.ms" in log
+
+    _, calls, _ = _uv_task(tmp_path / "off", monkeypatch, fit)
+    assert calls[0][1]["pipeline_ms"] is None, "off by default"
+
+
+@pytest.mark.unit
 def test_run_wsclean_task_keeps_the_data_when_too_few_channels_are_line_free(tmp_path, monkeypatch):
     fake, _, log = _uv_task(
         tmp_path, monkeypatch, {"skipped": "only 1 of 8 usable channels are line-free"}
@@ -654,6 +690,34 @@ def test_image_from_ms_passes_uv_contsub_order(tmp_path, monkeypatch):
     )
     assert result.exit_code == 0, result.output
     assert seen["uv_contsub_order"] == 0 and seen["contsub_order"] is None
+    assert seen["pipeline_line_free"] is False and seen["ous_index"] is None
+
+
+@pytest.mark.unit
+def test_image_from_ms_passes_pipeline_line_free(tmp_path, monkeypatch):
+    csv = tmp_path / "params.csv"
+    pd.DataFrame([_row()]).to_csv(csv, index=False)
+    index = tmp_path / "ous_index.csv"
+    index.write_text("eb_uid,member_folder\n")
+    seen = {}
+    monkeypatch.setattr(
+        cli_image,
+        "run_imaging_tasks",
+        lambda tasks, imaging, execution, **k: seen.update(
+            flat_run_kwargs(imaging, execution, **k)
+        ),
+    )
+    args = ["image", "image-from-ms", str(csv), str(tmp_path / "out"), "--cube"]
+    result = runner.invoke(
+        cli.app,
+        [*args, "--uv-contsub", "--pipeline-line-free", "--ous-index", str(index)],
+    )
+    assert result.exit_code == 0, result.output
+    assert seen["pipeline_line_free"] is True and seen["ous_index"] == str(index)
+
+    refused = runner.invoke(cli.app, [*args, "--pipeline-line-free"])
+    assert refused.exit_code != 0
+    assert "--pipeline-line-free needs --uv-contsub or --selfcal" in click.unstyle(refused.output)
 
 
 def _run_selfcal(
@@ -682,6 +746,15 @@ def _run_selfcal(
             calls.append(("apply", ()))
         else:
             calls.append((function,))
+        if "pipeline_ms" in kwargs:  # what selfcal_prepare says it did with cont.dat
+            note = f"{kwargs['pipeline_ms']} via {kwargs['ous_index']}"
+            return {
+                "spw": "0:0~9",
+                "refant": "DA41",
+                "line_free_channels": 8,
+                "cont_dat": note,
+                "cont_dat_line_channels": 2,
+            }
         return {"spw": "0:0~9", "refant": "DA41", "line_free_channels": 10}
 
     patch_everywhere(monkeypatch, imaging_selfcal_loop, "_call_in_child", fake_call)
@@ -731,6 +804,23 @@ def test_self_calibrate_keeps_rounds_while_the_snr_rises(tmp_path, monkeypatch):
     )
     assert not list(tmp_path.glob("selfcal-*")), "temporary images and caltables removed"
     assert "CASA gaincal: refant DA41" in log and "S/N 45.0 -> 60.0" in log
+
+
+@pytest.mark.unit
+def test_self_calibrate_passes_the_pipeline_line_channels_on(tmp_path, monkeypatch):
+    _, _, _, plain = _run_selfcal(tmp_path, monkeypatch, [30.0, 45.0, 60.0])
+    assert "cont.dat" not in plain
+
+    (tmp_path / "p").mkdir()
+    _, _, _, log = _run_selfcal(
+        tmp_path / "p",
+        monkeypatch,
+        [30.0, 45.0, 60.0],
+        pipeline_ms="uid.ms",
+        ous_index="ous_index.csv",
+    )
+    assert "refant DA41, 8 line-free channels" in log
+    assert "# self-calibration cont.dat (uid.ms via ous_index.csv) adds 2 line channels" in log
 
 
 @pytest.mark.unit

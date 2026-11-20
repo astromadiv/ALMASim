@@ -67,6 +67,23 @@ def test_task_kwargs_apply_the_switches():
     assert kwargs["continuum_restart"] and kwargs["cube_line_mask"] and kwargs["noise_products"]
     plain = ImagingOptions(single_window=False, continuum_restart=True).task_kwargs()
     assert plain["selfcal_solints"] is None and plain["continuum_restart"] is False
+    assert plain["pipeline_line_free"] is False and plain["ous_index"] is None
+
+
+def test_pipeline_line_free_needs_a_line_free_selection():
+    with pytest.raises(ValueError, match="--pipeline-line-free needs --uv-contsub or --selfcal"):
+        ImagingOptions(pipeline_line_free=True).validate()
+    options = ImagingOptions(
+        cube=CubeOptions(),
+        cube_products=("image",),
+        uv_contsub=True,
+        pipeline_line_free=True,
+        ous_index="/tree/ous_index.csv",
+    )
+    options.validate()
+    kwargs = options.task_kwargs()
+    assert kwargs["pipeline_line_free"] and kwargs["ous_index"] == "/tree/ous_index.csv"
+    ImagingOptions(pipeline_line_free=True, selfcal=SelfcalOptions(("inf",))).validate()
 
 
 def test_exec_options_validate():

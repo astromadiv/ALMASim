@@ -10,6 +10,7 @@ import time
 from collections.abc import Sequence
 from pathlib import Path
 
+from almasim.services.imaging import cont_dat
 from almasim.services.imaging.continuum import _channel_ranges, line_free_channels
 from almasim.services.imaging.ms.chunks import (
     _default_rows_per_chunk,
@@ -37,15 +38,30 @@ def _configure_casa(casa_data: str, log_file: str) -> Path:
     return workspace
 
 
-def selfcal_prepare(ms_path: str, rows_per_chunk: int | None = None) -> dict[str, object]:
+def selfcal_prepare(
+    ms_path: str,
+    rows_per_chunk: int | None = None,
+    pipeline_ms: str | None = None,
+    ous_index: str | None = None,
+) -> dict[str, object]:
     """CASA selections for self-calibrating ``ms_path``: the line-free channels of
     DATA's source spectrum (``spw``) and the antenna with the most
     cross-correlation rows holding an unflagged line-free parallel-hand sample
     (``refant``); a row unflagged as a whole can still have every such sample
-    flagged."""
+    flagged.
+
+    With ``pipeline_ms`` the line channels of the ALMA pipeline's ``cont.dat``
+    are left out too, as ``subtract_uv_continuum`` leaves them out, and the
+    result carries its ``cont_dat`` and ``cont_dat_line_channels``."""
     import numpy as np
     from casacore.tables import table
 
+    pipeline_line, pipeline_note = (
+        cont_dat.pipeline_line_channels(ms_path, pipeline_ms, ous_index)
+        if pipeline_ms is not None
+        else (None, "")
+    )
+    pipeline: dict[str, object] = {}
     ms = table(str(ms_path), ack=False)
     try:
         if rows_per_chunk is None:
@@ -55,6 +71,10 @@ def selfcal_prepare(ms_path: str, rows_per_chunk: int | None = None) -> dict[str
             raise RuntimeError("the MS has no rows")
         spectrum, usable = measured
         line_free = line_free_channels(spectrum, usable)
+        if pipeline_ms is not None:
+            line_free, pipeline = cont_dat.without_pipeline_lines(
+                line_free, pipeline_line, pipeline_note
+            )
         if not line_free.any():
             line_free = usable
         ant1, ant2 = ms.getcol("ANTENNA1"), ms.getcol("ANTENNA2")
@@ -77,6 +97,7 @@ def selfcal_prepare(ms_path: str, rows_per_chunk: int | None = None) -> dict[str
         "spw": "0:" + _channel_ranges(line_free),
         "refant": str(names[int(np.argmax(counts))]),
         "line_free_channels": int(line_free.sum()),
+        **pipeline,
     }
 
 
