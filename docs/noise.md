@@ -338,7 +338,7 @@ windows each comes from and their 16-84% spread in `provenance.values`:
 | `fast_phase` log_spread | the rms of the fitted windows' log strength about their dish's median, with a bootstrap 16-84% interval |
 | `fast_phase` wind_mps | the frozen-flow screen's speed the fitted windows find |
 | `baseline_errors` instrumental_* | the median share `s` of a window's non-closing error that is the instrument's (windows whose line channels tell it apart), times the windows' median; the continuum term keeps `sqrt(1 - s^2)` of it |
-| `antenna_gains` bandpass | per dish size, when at least three windows see a ripple (period under 50 MHz): their median period and rms as a sine's peak, up to their highest frequency |
+| `antenna_gains` bandpass | per dish size, when at least three windows see a ripple (period under 50 MHz, larger than the noise's own rms): their median period and rms as a sine's peak, up to their highest frequency |
 | `slow_phase`, `fast_phase`, `antenna_gains`, `baseline_errors` | `noise fit` |
 
 A value fewer than `--min-windows` (3) windows measure keeps the base

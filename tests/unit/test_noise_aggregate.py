@@ -177,14 +177,14 @@ def test_the_candidate_takes_the_windows_medians():
     ] == pytest.approx(0.065)
 
 
-def _bandpass(period_mhz: float, amp_rms: float) -> BandpassFit:
+def _bandpass(period_mhz: float, amp_rms: float, phase_rms_deg: float = 2.0) -> BandpassFit:
     return BandpassFit(
         chunks=240,
         chunk_mhz=3.9,
         antennas=40,
         baselines=780,
         amp_rms=amp_rms,
-        phase_rms_deg=2.0,
+        phase_rms_deg=phase_rms_deg,
         thermal_amp_rms=0.01,
         thermal_phase_rms_deg=0.5,
         period_mhz=period_mhz,
@@ -216,6 +216,13 @@ def test_the_fits_set_the_wind_the_instrument_s_share_and_a_seen_ripple():
             }
         )
         measured.append(Measured(_window(k, ghz=100.0 + 50 * k), fit))
+    # A 12 m window whose ripple is below the noise's own rms does not see one.
+    measured.append(
+        Measured(
+            _window(8, ghz=400.0),
+            _fit(8).model_copy(update={"bandpass": _bandpass(10.0, 0.005, 0.3)}),
+        )
+    )
     # 7 m: one window with a ripple is too few.
     measured.append(
         Measured(

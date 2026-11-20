@@ -322,15 +322,16 @@ def _bandpass(
     """Each dish size's residual bandpass ripple, when at least ``min_windows``
     of its windows see one: a ripple period under ``RIPPLE_MAX_MHZ`` (a longer
     one is a smooth shape across the window, not a ripple) and an amplitude or
-    phase beyond the noise's. The row takes those windows' median period and
-    their median rms as a sine's peak (x sqrt 2), up to the highest of their
-    frequencies."""
+    phase larger than the noise's own rms per antenna and chunk. The row takes
+    those windows' median period and their median rms as a sine's peak
+    (x sqrt 2), up to the highest of their frequencies."""
     seen: dict[float, list[tuple[float, float, float, float]]] = {}
     for m in measured:
         bp = None if m.fit is None else m.fit.bandpass
         if bp is None or bp.period_mhz is None or bp.period_mhz >= RIPPLE_MAX_MHZ:
             continue
-        if bp.amp_rms <= 0 and bp.phase_rms_deg <= 0:
+        # Seen: larger than the noise's own rms per antenna and chunk.
+        if bp.amp_rms <= bp.thermal_amp_rms and bp.phase_rms_deg <= bp.thermal_phase_rms_deg:
             continue
         diameter = round(float(m.window.exposure.dish_diameter_m), 1)
         seen.setdefault(diameter, []).append(

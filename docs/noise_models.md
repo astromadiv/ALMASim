@@ -741,11 +741,12 @@ the antennas' summed power spectrum, less the noise's, peaks. A window
 needs at least 16 chunks and four antennas, and its thermal rms per antenna
 and chunk must be under 0.1: only the brightest windows see a ripple of a
 few tenths of a percent. `noise aggregate` sets a dish size's row when at
-least three of its windows see a ripple, a period under 50 MHz (a longer
-one is a smooth shape across the window, not a ripple): their median
-period, their median rms as a sine's peak (`amp = sqrt(2) amp_rms`, and the
-same for the phase), and their highest frequency as `upper_ghz`. In a model
-file:
+least three of its windows see a ripple: a period under 50 MHz (a longer
+one is a smooth shape across the window, not a ripple) and an amplitude or
+phase larger than the noise's own rms per antenna and chunk. The row takes
+their median period, their median rms as a sine's peak
+(`amp = sqrt(2) amp_rms`, and the same for the phase), and their highest
+frequency as `upper_ghz`. In a model file:
 
 ```json
 "antenna_gains": {"amp_rms": 0.138, "phase_rms_deg": 0.0, "bandpass": [
