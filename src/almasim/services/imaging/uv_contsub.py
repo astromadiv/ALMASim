@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import time
 
+from almasim.services.imaging import cont_dat
 from almasim.services.imaging.continuum import _channel_ranges, fit_uv_continuum, line_free_channels
 from almasim.services.imaging.ms.chunks import (
     _default_rows_per_chunk,
@@ -27,6 +28,8 @@ def subtract_uv_continuum(
     clip_sigma: float = 3.0,
     rows_per_chunk: int | None = None,
     min_line_free_fraction: float = 0.2,
+    pipeline_ms: str | os.PathLike[str] | None = None,
+    ous_index: str | os.PathLike[str] | None = None,
 ) -> dict[str, object]:
     """Split a single-window MS into continuum and line visibilities.
 
@@ -44,6 +47,13 @@ def subtract_uv_continuum(
     left); imaged from the fitted continuum, all line-free channels are
     cleaned together, and the cube holds only the lines.
 
+    With ``pipeline_ms`` (the MS this one was extracted from) the channels
+    the ALMA pipeline's ``cont.dat`` calls line are left out of the fit too
+    (``cont_dat.pipeline_line_channels``; its member from ``ous_index``): a
+    channel is line-free only when both call it continuum. The result's
+    ``cont_dat`` says which cont.dat window was used, or why none was, and
+    ``cont_dat_line_channels`` how many line channels it added.
+
     Nothing is written when fewer than ``min_line_free_fraction`` of the
     usable channels are line-free (a line forest or a window filled by one
     line); the result then carries ``skipped`` with the reason.
@@ -55,6 +65,11 @@ def subtract_uv_continuum(
     from casacore.tables import makecoldesc, table
 
     started = time.time()
+    pipeline_line, pipeline_note = (
+        cont_dat.pipeline_line_channels(ms_path, pipeline_ms, ous_index)
+        if pipeline_ms is not None
+        else (None, "")
+    )
     ms = table(str(ms_path), readonly=False, ack=False)
     try:
         source = "CORRECTED_DATA" if "CORRECTED_DATA" in ms.colnames() else "DATA"
@@ -67,6 +82,11 @@ def subtract_uv_continuum(
             return {"skipped": "the MS has no rows", "source_column": source}
         spectrum, usable = measured
         line_free = line_free_channels(spectrum, usable, order=order, clip_sigma=clip_sigma)
+        pipeline: dict[str, object] = {}
+        if pipeline_ms is not None:
+            line_free, pipeline = cont_dat.without_pipeline_lines(
+                line_free, pipeline_line, pipeline_note
+            )
         result: dict[str, object] = {
             "source_column": source,
             "channels": int(usable.size),
@@ -75,6 +95,7 @@ def subtract_uv_continuum(
             "line_channels": int((usable & ~line_free).sum()),
             "line_ranges": _channel_ranges(usable & ~line_free),
             "order": int(order),
+            **pipeline,
         }
         if line_free.sum() < max(order + 2, min_line_free_fraction * usable.sum()):
             result["skipped"] = (
@@ -103,12 +124,18 @@ def subtract_uv_continuum_subprocess(
     order: int = 1,
     timeout: float | None = None,
     log_path: str | os.PathLike[str] | None = None,
+    pipeline_ms: str | os.PathLike[str] | None = None,
+    ous_index: str | os.PathLike[str] | None = None,
 ) -> dict[str, object]:
     """Run ``subtract_uv_continuum`` in a child process, for the reason
     ``extract_single_window_ms_subprocess`` gives: casacore holds the GIL."""
+    kwargs: dict[str, object] = {"ms_path": str(ms_path), "order": int(order)}
+    if pipeline_ms is not None:
+        kwargs["pipeline_ms"] = str(pipeline_ms)
+        kwargs["ous_index"] = str(ous_index) if ous_index else None
     return call_in_child(
         "almasim.services.imaging.uv_contsub:subtract_uv_continuum",
-        {"ms_path": str(ms_path), "order": int(order)},
+        kwargs,
         what="continuum subtraction",
         env=wsclean_environment(1),
         timeout=timeout,
