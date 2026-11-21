@@ -1294,7 +1294,8 @@ and `jk.sigma` is the robust noise of the image's inner part, where
 what cleaning leaves of the sky: calibration residue around a bright source
 and emission the simulated point source does not have. On a bright field the
 two residuals then differ by more than their noise, while their jackknifes
-compare the noise alone. All of it goes
+compare the noise alone, so the criteria judge the continuum on the
+jackknife and report the cleaned residual's ratio beside it. All of it goes
 under `noise/validation/<the model's sha256, 12 characters>/`, so validations
 of different models never mix. At the end, `noise compare` writes
 `comparison.json` and prints a table: per metric, the median of the
@@ -1313,9 +1314,9 @@ The default criteria:
 
 | Check | Passes when |
 | --- | --- |
-| continuum, cube and visibility noise | each median ratio is within 5% of 1 |
+| continuum, cube and visibility noise | each median ratio is within 5% of 1; the continuum's is the jackknifed noise (`jk.sigma`) when every window has it, the cleaned continuum's (`cont.sigma`) otherwise |
 | simulated visibilities against their WEIGHT | the median `scale` is within 1% of 1 |
-| those three noise levels | none differs at p below 0.01 (p needs six or more windows) |
+| those three noise levels | none differs at p below 0.01 (p needs six or more windows; the continuum's as above) |
 | each band and array group | its median continuum noise ratio is within 10% of 1 (groups of 3 or more windows): the jackknifed noise (`jk.sigma`) when every window of the group has it, the cleaned continuum's (`cont.sigma`) otherwise; `group_metrics` in `comparison.json` names the one judged |
 
 This is `alma@1` validated on four real windows (band 3 and band 6 12 m, a
@@ -1463,7 +1464,8 @@ Eleven choices keep the comparison fair, and one limit remains:
 Write other criteria to a JSON file and pass `--criteria file.json`. Its
 keys are `noise_tolerance` (0.05), `weight_tolerance` (0.01), `min_p`
 (0.01), `group_tolerance` (0.10) and `checked` (the metrics whose p is
-checked: the three noise levels), for example
+checked: the three noise levels, `jk.sigma` standing for the continuum's
+as in the table above), for example
 `{"noise_tolerance": 0.1, "checked": []}`. `noise compare` alone re-judges
 what `noise validate` produced.
 

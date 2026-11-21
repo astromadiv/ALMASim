@@ -151,6 +151,28 @@ def test_a_matching_model_passes_and_a_quiet_one_does_not():
 
 
 @pytest.mark.unit
+def test_the_continuum_is_judged_on_its_jackknife_when_every_window_has_one():
+    """Real cleaned residuals carry sky the simulation lacks: a continuum 20%
+    quieter than the real one passes on a jackknife that matches."""
+    pairs = []
+    for k, pair in enumerate(_pairs(1.0)):
+        real = pair.real_image["cont.sigma"]
+        jk = real * (1 + 0.01 * (k % 3 - 1))
+        sim = {**pair.sim_image, "cont.sigma": 0.8 * real, "jk.sigma": jk}
+        pairs.append(replace(pair, sim_image=sim, real_image={**pair.real_image, "jk.sigma": real}))
+    found = compare(pairs, {"label": "jk"})
+    names = {c.name for c in found.checks}
+    assert found.passed, [c for c in found.checks if not c.passed]
+    assert "jk.sigma median within 5%" in names and "jk.sigma does not differ (p >= 0.01)" in names
+    assert not any(name.startswith("cont.sigma") for name in names)
+    assert found.metrics["cont.sigma"].median == pytest.approx(0.8, abs=0.02)  # still reported
+
+    one_without = [replace(pairs[0], sim_image=_pairs(1.0)[0].sim_image), *pairs[1:]]
+    names = {c.name for c in compare(one_without, {"label": "jk"}).checks}
+    assert "cont.sigma median within 5%" in names and "jk.sigma median within 5%" not in names
+
+
+@pytest.mark.unit
 def test_a_group_is_judged_on_its_jackknifed_noise_when_every_window_has_it():
     pairs = []
     for p in _pairs(1.0):

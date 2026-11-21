@@ -366,9 +366,10 @@ within 10%, and the criteria's verdict. By default a model passes when the
 median continuum, cube and visibility noise are within 5% of the real, the
 simulated visibilities' variance is within 1% of what their WEIGHT claims,
 none of those noise levels differs at p below 0.01, and no band and array
-group's median continuum noise is off by more than 10% (the jackknifed noise,
-`jk.sigma`, when every window of the group has it, as the cleaned residual of
-a bright field also carries sky the simulated source lacks); `--criteria` takes a
+group's median continuum noise is off by more than 10%. The continuum noise
+judged, overall and per group, is the jackknifed noise (`jk.sigma`) when
+every window has it, as the cleaned residual of a real field also carries
+sky the simulated source lacks; `--criteria` takes a
 JSON file of other values. A window whose cleaned continuum diverged, simulated
 or real (`image clean-quality`'s `continuum.diverged`), is listed in
 `diverged` and left out of the cleaned continuum's metrics (`cont.*`); its
