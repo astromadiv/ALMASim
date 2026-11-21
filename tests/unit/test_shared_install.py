@@ -138,26 +138,36 @@ def test_the_install_script_installs_every_extra_jobs_need():
     assert '"$wheel[web,casa,ms-casacore,dashboard]"' in script
 
 
-def test_the_install_makes_the_teams_noise_models_folder(tmp_path):
-    """The site profile points at <prefix>/noise-models, made group-writable and
-    setgid; run with a stand-in uv, whose environment's Python only says its version."""
+def _standin_uv(tmp_path, python_home: str = "$UV_PYTHON_INSTALL_DIR") -> dict[str, str]:
+    """An environment whose uv only makes a Python that says its version, in
+    ``python_home`` (uv's own: UV_PYTHON_INSTALL_DIR), and links env/bin/python to it."""
     import os
-    import stat
-    from pathlib import Path
 
-    repo = Path(__file__).parents[2]
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     uv = bin_dir / "uv"
     uv.write_text(
         "#!/bin/bash\n"
-        'if [ "$1" = venv ]; then mkdir -p "${@: -1}/bin"; '
-        "printf '#!/bin/bash\\necho 0.0\\n' > \"${@: -1}/bin/python\"; "
-        'chmod +x "${@: -1}/bin/python"; fi\n'
+        'if [ "$1" = venv ]; then\n'
+        f'  py="{python_home}/cpython-3.12/bin/python3.12"\n'
+        '  mkdir -p "$(dirname "$py")" "${@: -1}/bin"\n'
+        '  printf \'#!/bin/bash\\necho 0.0\\n\' > "$py"; chmod +x "$py"\n'
+        '  ln -sfn "$py" "${@: -1}/bin/python"\n'
+        "fi\n"
     )
     uv.chmod(0o755)
+    return {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"}
+
+
+def test_the_install_makes_the_teams_noise_models_folder(tmp_path):
+    """The site profile points at <prefix>/noise-models, made group-writable and
+    setgid; run with a stand-in uv, whose environment's Python only says its version."""
+    import stat
+    from pathlib import Path
+
+    repo = Path(__file__).parents[2]
     prefix = tmp_path / "almasim"
-    env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"}
+    env = _standin_uv(tmp_path)
     template = repo / "examples" / "site-profiles" / "zwicky.toml"
     for _ in range(2):  # an update leaves the folder as it is
         subprocess.run(
@@ -178,3 +188,35 @@ def test_the_install_makes_the_teams_noise_models_folder(tmp_path):
     site = (prefix / "site.toml").read_text()
     assert f'noise_models = "{folder}"' in site
     assert f'executable = "{prefix}/env/bin/python"' in site
+
+
+def test_the_environment_runs_the_python_under_the_prefix(tmp_path):
+    """uv keeps its Pythons in the installer's home unless told otherwise, and
+    others cannot enter it: the install puts Python in <prefix>/python, and
+    stops when the environment's python links anywhere else."""
+    from pathlib import Path
+
+    repo = Path(__file__).parents[2]
+    template = repo / "examples" / "site-profiles" / "zwicky.toml"
+    script = str(repo / "scripts" / "install_shared.sh")
+    prefix = tmp_path / "almasim"
+    subprocess.run(
+        ["bash", script, str(prefix), str(template), "w.whl"],
+        env=_standin_uv(tmp_path),
+        check=True,
+        capture_output=True,
+    )
+    linked = (prefix / "env" / "bin" / "python").resolve()
+    assert linked.is_relative_to((prefix / "python").resolve())
+
+    elsewhere = tmp_path / "other"
+    elsewhere.mkdir()
+    home = tmp_path / "home"
+    done = subprocess.run(
+        ["bash", script, str(elsewhere / "almasim"), str(template), "w.whl"],
+        env=_standin_uv(elsewhere, python_home=str(home)),
+        capture_output=True,
+        text=True,
+    )
+    assert done.returncode != 0
+    assert "is not the Python in" in done.stderr

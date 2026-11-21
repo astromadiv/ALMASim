@@ -295,10 +295,14 @@ cd frontend && npm ci && npm run build && cd ..
 scripts/install_shared.sh /SKAO_data/cycle11/almasim examples/site-profiles/zwicky.toml
 ```
 
-It makes `env/` (the environment), `site.toml` (the template with that
-environment's Python filled in), `almasim.sh` and `install.env` (the repo,
-commit and template it was built from) under the prefix, all
-group-writable. WSClean and the CASA data are not part of it: the site
+It makes `python/` (the Python 3.12 the environment runs, uv's own build),
+`env/` (the environment), `site.toml` (the template with that environment's
+Python filled in), `almasim.sh` and `install.env` (the repo, commit and
+template it was built from) under the prefix, all group-writable. The
+Python lives under the prefix because uv otherwise keeps it in the
+installer's home, which other users usually cannot enter: the environment's
+`python` is a link to it, and the script stops if that link points anywhere
+else. WSClean and the CASA data are not part of it: the site
 profile names the shared ones (`[tools]`). When the template has a
 `[tools] noise_models` line (zwicky's does), it also makes `noise-models/`,
 setgid and group-writable, and points that line at it: the team's own

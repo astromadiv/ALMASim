@@ -4,6 +4,8 @@
 #   scripts/install_shared.sh <prefix> <site profile template> [wheel]
 #
 # makes, under <prefix> (e.g. /SKAO_data/cycle11/almasim):
+#   python/       the Python 3.12 the environment runs (uv's own build), here
+#                 and not in the installer's home, which others cannot enter
 #   env/          a Python 3.12 environment with almasim, its web console,
 #                 casatools/casatasks, python-casacore and bokeh (for the
 #                 Dask dashboard): the Python every job runs
@@ -39,7 +41,17 @@ if [ -z "$wheel" ]; then
   wheel=$(ls "$prefix"/dist/almasim-*.whl)
 fi
 
-uv venv --allow-existing --python 3.12 "$prefix/env"
+# Python itself under the prefix: uv otherwise keeps its Pythons in the
+# installer's home, and env/bin/python would link there, out of the group's
+# reach ("bad interpreter: Permission denied" for everyone else).
+export UV_PYTHON_INSTALL_DIR="$prefix/python"
+uv python install --no-bin 3.12  # not into the installer's own ~/.local/bin
+uv venv --allow-existing --managed-python --python 3.12 "$prefix/env"
+real_prefix=$(readlink -f "$prefix")
+case $(readlink -f "$prefix/env/bin/python") in
+  "$real_prefix"/python/*) ;;
+  *) echo "$prefix/env/bin/python is not the Python in $prefix/python" >&2; exit 1 ;;
+esac
 # The versions tested (uv.lock), not the newest: a newer casatools, say,
 # can change what calibration gives.
 uv export --project "$repo" --frozen --no-hashes --no-emit-project --extra web --extra casa \
