@@ -26,7 +26,13 @@ how:
   screen's strengths at the windows' median coherence time, each keeping
   its phase change over one simulated sample, with a median per dish size
   (fast_phase.dishes) and the windows' log scatter about it
-  (fast_phase.log_spread), which each simulated observation draws from.
+  (fast_phase.log_spread), which each simulated observation draws from;
+  the frozen-flow screen's speed (fast_phase.wind_mps);
+- baseline_errors.instrumental_*: the instrument's own share of the
+  non-closing error, from the windows whose line channels tell it apart,
+  with the continuum term keeping the rest;
+- antenna_gains.bandpass: a dish size's residual ripple, set only when
+  enough of its windows see one.
 
 The research that set alma@1 did the same by hand (research/noise_realism).
 """
@@ -49,6 +55,13 @@ WIDE_WINDOW_HZ = 1e9
 # their strengths are brought to one coherence time: the simulator's usual
 # sample (observing.SCAN_TIMES_S).
 FAST_REFERENCE_S = 18.144
+# A bandpass shape with a longer period than this is smooth across the
+# window (a residual delay or bandpass slope), not a ripple.
+RIPPLE_MAX_MHZ = 50.0
+# A window's line channels need this share of continuum for its non-closing
+# error to be told into the instrument's and the continuum's: below it, the
+# window's signal may be the line itself, and the two errors are one.
+MIN_CONTINUUM_SHARE = 0.05
 C_M_S = 299_792_458.0
 
 
@@ -156,6 +169,7 @@ def aggregate(
         setter("fast_phase", "path_um_1km"),
     )
     reduce("fast_phase.slope", [s.slope for s in fast], setter("fast_phase", "slope"))
+    reduce("fast_phase.wind_mps", [s.wind_mps for s in fast], setter("fast_phase", "wind_mps"))
     if "fast_phase" in components and "fast_phase.path_um_1km" in stats:
         _fast_dishes(
             fast_dish,
@@ -178,6 +192,10 @@ def aggregate(
         [f.baseline_phase_rms_deg for f in fits],
         setter("baseline_errors", "phase_rms_deg"),
     )
+    if "baseline_errors" in components:
+        _instrumental(fits, components["baseline_errors"], stats, notes, min_windows)
+    if "antenna_gains" in components:
+        _bandpass(measured, components["antenna_gains"], stats, notes, min_windows)
     if "radiometer" in components:
         _radiometer(
             windows,
@@ -255,6 +273,107 @@ def _fast_dishes(
         n=r.size, median=spread, q16=float(q16), q84=float(q84)
     )
     component["log_spread"] = spread
+
+
+def _instrumental(
+    fits: Sequence[WindowFit],
+    component: dict[str, Any],
+    stats: dict[str, ValueStats],
+    notes: list[str],
+    min_windows: int,
+) -> None:
+    """The instrument's own share of the non-closing error, and the
+    continuum's what remains. Each window whose line channels tell the two
+    apart (``line_nonclosing``) gives its instrumental error over its whole
+    window's; the median share ``s`` of the windows' non-closing error
+    (``amp_rms``, already their median) is the instrument's, on all the
+    signal, and the continuum term keeps ``sqrt(1 - s^2)`` of it, so the
+    continuum still sees the windows' median in quadrature. Only windows
+    whose line channels hold ``MIN_CONTINUUM_SHARE`` of continuum count."""
+    parts = (
+        ("amp_rms", "instrumental_amp_rms", "baseline_amp_rms"),
+        ("phase_rms_deg", "instrumental_phase_rms_deg", "baseline_phase_rms_deg"),
+    )
+    for total_key, own_key, window_key in parts:
+        shares = []
+        for fit in fits:
+            line, window = fit.line_nonclosing, getattr(fit, window_key)
+            # Line channels with hardly any continuum say nothing: the window's
+            # error may then be the line's own as well.
+            if line is None or line.continuum_share < MIN_CONTINUUM_SHARE:
+                continue
+            own = getattr(line, own_key)
+            if own is not None and window is not None and window > 0:
+                # A share above 1 is noise in the split: the instrument has it all.
+                shares.append(min(own / window, 1.0))
+        key = f"baseline_errors.{own_key}"
+        if len(shares) < min_windows:
+            notes.append(f"{key}: {len(shares)} window(s) tell it apart, kept the base's")
+            continue
+        share = _stats(shares)
+        stats[f"{key}_share"] = share
+        total = float(component.get(total_key) or 0.0)
+        component[own_key] = share.median * total
+        component[total_key] = total * float(np.sqrt(1.0 - share.median**2))
+        notes.append(
+            f"baseline_errors.{total_key}: the continuum's part, "
+            f"{np.sqrt(1.0 - share.median**2):.3g} of the windows' median"
+        )
+
+
+def _bandpass(
+    measured: Sequence[Measured],
+    component: dict[str, Any],
+    stats: dict[str, ValueStats],
+    notes: list[str],
+    min_windows: int,
+) -> None:
+    """Each dish size's residual bandpass ripple, when at least ``min_windows``
+    of its windows see one: a ripple period under ``RIPPLE_MAX_MHZ`` (a longer
+    one is a smooth shape across the window, not a ripple) and an amplitude or
+    phase larger than the noise's own rms per antenna and chunk. The row takes
+    those windows' median period and their median rms as a sine's peak
+    (x sqrt 2), up to the highest of their frequencies."""
+    seen: dict[float, list[tuple[float, float, float, float]]] = {}
+    for m in measured:
+        bp = None if m.fit is None else m.fit.bandpass
+        if bp is None or bp.period_mhz is None or bp.period_mhz >= RIPPLE_MAX_MHZ:
+            continue
+        # Seen: larger than the noise's own rms per antenna and chunk.
+        if bp.amp_rms <= bp.thermal_amp_rms and bp.phase_rms_deg <= bp.thermal_phase_rms_deg:
+            continue
+        diameter = round(float(m.window.exposure.dish_diameter_m), 1)
+        seen.setdefault(diameter, []).append(
+            (bp.period_mhz, bp.amp_rms, bp.phase_rms_deg, m.window.exposure.frequency_ghz)
+        )
+    rows = []
+    # The dish sizes with a bandpass fit at all: a run without one says nothing.
+    dishes = {
+        round(float(m.window.exposure.dish_diameter_m), 1)
+        for m in measured
+        if m.fit is not None and m.fit.bandpass is not None
+    }
+    for diameter in sorted(dishes, reverse=True):
+        ripples = seen.get(diameter, [])
+        key = f"antenna_gains.bandpass.{diameter:g}m"
+        if len(ripples) < min_windows:
+            notes.append(f"{key}: {len(ripples)} window(s) see a ripple, none set")
+            continue
+        period, amp, phase, freq = (np.asarray(v) for v in zip(*ripples, strict=True))
+        stats[f"{key}.amp"] = _stats(list(np.sqrt(2.0) * amp))
+        stats[f"{key}.phase_deg"] = _stats(list(np.sqrt(2.0) * phase))
+        stats[f"{key}.period_mhz"] = _stats(list(period))
+        rows.append(
+            {
+                "diameter_m": diameter,
+                "upper_ghz": float(freq.max()),
+                "period_mhz": stats[f"{key}.period_mhz"].median,
+                "amp": stats[f"{key}.amp"].median,
+                "phase_deg": stats[f"{key}.phase_deg"].median,
+            }
+        )
+    if rows:
+        component["bandpass"] = rows
 
 
 def _path_at_coherence(fit: PhaseFit, coherence_s: float) -> float:

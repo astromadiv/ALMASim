@@ -30,7 +30,7 @@ fit_screen), which set the alma model's values.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -38,8 +38,9 @@ import numpy as np
 
 from ..imaging.ms_geometry import import_casacore_tables
 from ..interferometry.corruptions import CorruptionModel
+from .bandpass_fit import BandpassSums, fit_bandpass
 from .extract import PARALLEL, _correlations, _data_descriptions, _fields, _window
-from .measurements import FitBin, PhaseFit, WindowFit, WindowNoise
+from .measurements import FitBin, LineNonClosing, PhaseFit, WindowFit, WindowNoise
 
 C_M_S = 299_792_458.0
 NBINS = 10
@@ -53,8 +54,12 @@ MAX_LAG = 20
 LAG_BINS = ((1, 1), (2, 2), (3, 4), (5, 8), (9, 14), (15, 20))
 MIN_PAIRS = 50
 COHERENCES_S = (5.0, 10.0, 20.0, 40.0, 80.0)
+# The frozen-flow screen's speeds tried (m/s): the same cells, the screen moving past.
+WINDS_MPS = (2.0, 4.0, 7.0, 10.0, 15.0)
 FAST_SLOPES = (0.25, 0.5, 0.75)
 FAST_START_UM = 100.0
+# Above this continuum share of the line channels' model, the two terms cannot be told apart.
+MAX_LINE_CONTINUUM_SHARE = 0.7
 MODEL_SCANS = 8  # scans the engine draws the in-scan screen on, at most
 OUTER_SCALE_KM = CorruptionModel().outer_scale_km  # the engine's, as the fast screen draws it
 
@@ -70,12 +75,16 @@ class _Rows:
     a2: list[np.ndarray] = field(default_factory=list)
     den: list[np.ndarray] = field(default_factory=list)
     num: list[np.ndarray] = field(default_factory=list)
+    # The same over the line channels alone, and sum w M_c M* there (M_c the
+    # continuum's model): how much of their model is continuum.
+    den_line: list[np.ndarray] = field(default_factory=list)
+    num_line: list[np.ndarray] = field(default_factory=list)
+    cross_line: list[np.ndarray] = field(default_factory=list)
 
     def arrays(self) -> dict[str, np.ndarray]:
-        return {
-            k: np.concatenate(getattr(self, k))
-            for k in ("group", "time", "scan", "a1", "a2", "den", "num")
-        }
+        keys = ("group", "time", "scan", "a1", "a2", "den", "num")
+        lines = ("den_line", "num_line", "cross_line")
+        return {k: np.concatenate(getattr(self, k)) for k in keys + lines if getattr(self, k)}
 
 
 def fit_window(
@@ -109,37 +118,9 @@ def fit_window(
     if fields is not None:
         query += f" AND FIELD_ID IN [{','.join(map(str, fields))}]"
 
-    rows = _Rows()
-    with table(str(ms), ack=False) as main, main.query(query) as sel:
-        nrow = sel.nrows()
-        if nrow == 0:
-            raise ValueError(f"{ms}: no cross-correlation rows in spw {spw}")
-        uvw = sel.getcol("UVW")
-        uvdist = np.hypot(uvw[:, 0], uvw[:, 1]) * float(np.mean(freq)) / C_M_S
-        lo, hi = np.percentile(uvdist[uvdist > 0], [0.5, 99.5])
-        edges = np.geomspace(lo, hi, NBINS + 1)
-        step = 1 if not max_rows else max(1, int(np.ceil(nrow / max_rows)))
-        chunk = max(16, 20_000_000 // max(1, freq.size * len(hands)))
-        sampled = np.arange(0, nrow, step)
-        for start in range(0, sampled.size, chunk):
-            first, count = int(sampled[start]), int(min(chunk, sampled.size - start))
-            take = slice(first, first + count * step, step)
-            model = _predict(uvw[take], freq, planes, plane_of, px, py)
-            _accumulate(
-                rows,
-                data=sel.getcol("DATA", first, count, step)[..., hands],
-                flag=sel.getcol("FLAG", first, count, step)[..., hands],
-                weight=_weights(sel.getcol("WEIGHT", first, count, step), hands),
-                model=model,
-                scale=scale,
-                time=sel.getcol("TIME", first, count, step),
-                scan=sel.getcol("SCAN_NUMBER", first, count, step),
-                a1=sel.getcol("ANTENNA1", first, count, step),
-                a2=sel.getcol("ANTENNA2", first, count, step),
-            )
-        with table(str(ms / "ANTENNA"), ack=False) as ant:
-            xy = _enu(np.asarray(ant.getcol("POSITION"), dtype=np.float64))
-        group_bin = np.clip(np.searchsorted(edges, uvdist) - 1, 0, NBINS - 1)
+    rows, bandpass, xy, group_bin, sampled, edges = _read_rows(
+        table, ms, query, freq, (planes, plane_of, px, py), hands, scale, max_rows
+    )
     r = rows.arrays()
     groups, inverse = np.unique(r["group"], return_inverse=True)
     den = np.bincount(inverse, r["den"], groups.size)
@@ -204,6 +185,15 @@ def fit_window(
             )
         }
     gains = gain_amp
+    instrumental = None
+    if baselines is not None and "num_line" in r:
+        instrumental = _instrumental(
+            ref, r, inverse, keys_of=(group_scan, group_a1, group_a2),
+            model=_screens(slow, fast, gain_amp), baselines=baselines, notes=notes,
+        )  # fmt: skip
+    ripple, why = fit_bandpass(bandpass, kappa, np.random.default_rng(seed + 1), realizations)
+    if why:
+        notes.append(why)
     return WindowFit(
         name=window.name,
         bright_groups=int(bright.sum()),
@@ -234,8 +224,68 @@ def fit_window(
         baseline_amp_rms=None if baselines is None else baselines["amp_rms"],
         baseline_phase_rms_deg=None if baselines is None else baselines["phase_rms_deg"],
         antenna_solve=real_solve or None,
+        bandpass=ripple,
+        line_nonclosing=instrumental,
         notes=notes,
     )
+
+
+def _read_rows(
+    table: Any,
+    ms: Path,
+    query: str,
+    freq: np.ndarray,
+    sky: tuple[np.ndarray, np.ndarray, float, float],
+    hands: list[int],
+    scale: float,
+    max_rows: int | None,
+) -> tuple[_Rows, BandpassSums, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """The one pass over the data: each row's sums (and over the line channels
+    alone), each baseline's per chunk of channels, the antennas' positions,
+    each row's baseline-length bin, the rows read and the bins' edges."""
+    planes, plane_of, px, py = sky
+    rows = _Rows()
+    line_chans = plane_of > 0  # channels whose model holds a line plane
+    with table(str(ms / "ANTENNA"), ack=False) as ant:
+        bandpass = BandpassSums(ant.nrows(), freq)
+        xy = _enu(np.asarray(ant.getcol("POSITION"), dtype=np.float64))
+    with table(str(ms), ack=False) as main, main.query(query) as sel:
+        nrow = sel.nrows()
+        if nrow == 0:
+            raise ValueError(f"{ms}: no cross-correlation rows in the window")
+        uvw = sel.getcol("UVW")
+        uvdist = np.hypot(uvw[:, 0], uvw[:, 1]) * float(np.mean(freq)) / C_M_S
+        lo, hi = np.percentile(uvdist[uvdist > 0], [0.5, 99.5])
+        edges = np.geomspace(lo, hi, NBINS + 1)
+        step = 1 if not max_rows else max(1, int(np.ceil(nrow / max_rows)))
+        chunk = max(16, 20_000_000 // max(1, freq.size * len(hands)))
+        sampled = np.arange(0, nrow, step)
+        for start in range(0, sampled.size, chunk):
+            first, count = int(sampled[start]), int(min(chunk, sampled.size - start))
+            take = slice(first, first + count * step, step)
+            model = _predict(uvw[take], freq, planes, plane_of, px, py)
+            continuum_model = None
+            if line_chans.any():
+                continuum_model = _predict(
+                    uvw[take], freq[line_chans], planes[:1], plane_of[line_chans] * 0, px, py
+                )
+            _accumulate(
+                rows,
+                data=sel.getcol("DATA", first, count, step)[..., hands],
+                flag=sel.getcol("FLAG", first, count, step)[..., hands],
+                weight=_weights(sel.getcol("WEIGHT", first, count, step), hands),
+                model=model,
+                scale=scale,
+                time=sel.getcol("TIME", first, count, step),
+                scan=sel.getcol("SCAN_NUMBER", first, count, step),
+                a1=sel.getcol("ANTENNA1", first, count, step),
+                a2=sel.getcol("ANTENNA2", first, count, step),
+                bandpass=bandpass,
+                line_chans=line_chans if continuum_model is not None else None,
+                continuum=continuum_model,
+            )
+        group_bin = np.clip(np.searchsorted(edges, uvdist) - 1, 0, NBINS - 1)
+    return rows, bandpass, xy, group_bin, sampled, edges
 
 
 # -- the model ----------------------------------------------------------------
@@ -369,9 +419,33 @@ def _enu(positions_itrf: np.ndarray) -> np.ndarray:
     return np.stack([east, north], axis=1)
 
 
-def _accumulate(rows: _Rows, *, data, flag, weight, model, scale, time, scan, a1, a2) -> None:
-    """One chunk's rows: sum over channels and hands of w V M* and w |M|^2."""
+def _accumulate(
+    rows: _Rows,
+    *,
+    data,
+    flag,
+    weight,
+    model,
+    scale,
+    time,
+    scan,
+    a1,
+    a2,
+    bandpass=None,
+    line_chans=None,
+    continuum=None,
+) -> None:
+    """One chunk's rows: sum over channels and hands of w V M* and w |M|^2
+    (each baseline's per chunk of channels into ``bandpass``; over the
+    ``line_chans`` alone too, with the ``continuum``'s model there)."""
     w = np.where(~flag & (weight[:, None, :] > 0), weight[:, None, :] / scale, 0.0)
+    if bandpass is not None:
+        bandpass.add(w, data, model, a1, a2)
+    if line_chans is not None:
+        wl, ml = w[:, line_chans], model[:, line_chans, None]
+        rows.num_line.append((wl * data[:, line_chans] * np.conj(ml)).sum(axis=(1, 2)))
+        rows.den_line.append((wl * np.abs(ml) ** 2).sum(axis=(1, 2)))
+        rows.cross_line.append((wl * continuum[:, :, None] * np.conj(ml)).sum(axis=(1, 2)).real)
     m = model[:, :, None]
     rows.num.append((w * data * np.conj(m)).sum(axis=(1, 2)))
     rows.den.append((w * np.abs(m) ** 2).sum(axis=(1, 2)))
@@ -545,6 +619,76 @@ def _antenna_solve(ratio: np.ndarray, scan, a1, a2) -> dict[str, float]:
         "nonclosing_lnamp_rms": float(np.std(res_a)),
         "nonclosing_phase_rms_deg": float(np.degrees(np.std(res_p))),
     }
+
+
+def _instrumental(
+    ref: _Reference,
+    r: dict[str, np.ndarray],
+    inverse: np.ndarray,
+    *,
+    keys_of: tuple[np.ndarray, np.ndarray, np.ndarray],
+    model: CorruptionModel,
+    baselines: dict[str, float],
+    notes: list[str],
+) -> LineNonClosing | None:
+    """What does not close on the line channels alone, beyond what the screens,
+    gains and thermal noise give there, and the instrument's own share of the
+    non-closing errors it implies.
+
+    The continuum term (baseline_errors amp_rms, phase_rms_deg) acts on the
+    continuum's share of the signal, the instrumental term on all of it: with
+    f the continuum's share of the line channels' model (sum w Re(M_c M*) over
+    sum w |M|^2), their non-closing variance is f^2 c^2 + i^2, the whole
+    window's (continuum-dominated) c^2 + i^2, so i^2 = (line^2 - f^2 all^2) /
+    (1 - f^2)."""
+    size = ref.den.size
+    den = np.bincount(inverse, r["den_line"], size)
+    num = np.bincount(inverse, r["num_line"].real, size) + 1j * np.bincount(
+        inverse, r["num_line"].imag, size
+    )
+    cross = np.bincount(inverse, r["cross_line"], size)
+    bright = den > MIN_DEN
+    if bright.sum() < MIN_GROUPS:
+        notes.append(f"line channels: {int(bright.sum())} bright groups, too few to split")
+        return None
+    keys = (keys_of[0][bright], keys_of[1][bright], keys_of[2][bright])
+    real = _antenna_solve(num[bright] / den[bright], *keys)
+    if not real:
+        notes.append("line channels: too few bright groups per scan to solve")
+        return None
+    line_ref = replace(
+        ref,
+        rows={**r, "den": r["den_line"], "num": r["num_line"]},
+        den=den,
+        bright=bright,
+        keys=keys,
+        uvbin=np.zeros(int(bright.sum()), dtype=int),
+    )
+    _, expected = line_ref.stats(model)
+    share = float(np.clip(cross[bright].sum() / den[bright].sum(), 0.0, 1.0))
+    line = {
+        name: float(np.sqrt(max(real[key] ** 2 - expected[key] ** 2, 0.0)))
+        for key, name in (
+            ("nonclosing_lnamp_rms", "amp_rms"),
+            ("nonclosing_phase_rms_deg", "phase_rms_deg"),
+        )
+    }
+    own = {
+        name: float(
+            np.sqrt(max(line[name] ** 2 - share**2 * baselines[name] ** 2, 0.0) / (1 - share**2))
+        )
+        if share < MAX_LINE_CONTINUUM_SHARE
+        else None
+        for name in ("amp_rms", "phase_rms_deg")
+    }
+    return LineNonClosing(
+        groups=int(bright.sum()),
+        continuum_share=share,
+        amp_rms=line["amp_rms"],
+        phase_rms_deg=line["phase_rms_deg"],
+        instrumental_amp_rms=own["amp_rms"],
+        instrumental_phase_rms_deg=own["phase_rms_deg"],
+    )
 
 
 def _screens(
@@ -757,6 +901,7 @@ class _FastScreens:
             self.scans.append((on, times - times[0], t_index))
         self.seed = int(ref.rng.integers(2**31))
         self.draws: dict[float, list[np.ndarray]] = {}
+        self.frozen: dict[tuple[float, float], list[np.ndarray]] = {}
 
     def cells(self, path: float, slope: float, coherence: float) -> np.ndarray:
         from ..interferometry.corruptions import fast_screen_draws, in_scan_path
@@ -777,6 +922,50 @@ class _FastScreens:
             )
             g[on] = np.exp(1j * (phase[r["a1"][on], t_index] - phase[r["a2"][on], t_index]))
         return _structure(self.pairs, ref, g, _group_power(ref, g, noisy=False))
+
+    def frozen_cells(self, path: float, slope: float, wind: float) -> np.ndarray:
+        """The cells of the engine's frozen-flow screen moving at ``wind`` m/s
+        (corruptions.frozen_flow_path): each scan's screen drawn once per slope
+        and speed, its path the integration's mean."""
+        from ..interferometry.corruptions import frozen_flow_path, frozen_flow_samples
+
+        ref, r = self.ref, self.ref.rows
+        model = CorruptionModel(fast_path_um_1km=path, fast_slope=slope, fast_wind_mps=wind)
+        if (slope, wind) not in self.frozen:
+            rng = np.random.default_rng(self.seed)
+            self.frozen[(slope, wind)] = [
+                frozen_flow_samples(model, ref.xy, times, np.zeros(times.size, dtype=int), rng)
+                for _, times, _ in self.scans
+            ]
+        g = np.ones(ref.inverse.size, dtype=np.complex128)
+        for (on, times, t_index), samples in zip(
+            self.scans, self.frozen[(slope, wind)], strict=True
+        ):
+            one_scan = np.zeros(times.size, dtype=int)
+            fast, _ = frozen_flow_path(model, ref.xy, samples, one_scan)
+            phase = 2 * np.pi * fast / ref.wavelength_m
+            g[on] = np.exp(1j * (phase[r["a1"][on], t_index] - phase[r["a2"][on], t_index]))
+        return _structure(self.pairs, ref, g, _group_power(ref, g, noisy=False))
+
+
+def _frozen_fit(
+    screens: _FastScreens, real: np.ndarray, slope: float
+) -> tuple[float, float, float] | None:
+    """The frozen-flow screen of ``slope`` that fits ``real`` best: its speed,
+    strength and misfit (strength error over strength), refined once at the
+    strength found; None when none fits."""
+    trials = [
+        (_scale(real, screens.frozen_cells(FAST_START_UM, slope, wind)), wind) for wind in WINDS_MPS
+    ]
+    fitted = [t for t in trials if t[0][0] > 0]
+    if not fitted:
+        return None
+    (a, _, _), wind = min(fitted, key=lambda t: t[0][1] / t[0][0])
+    path = FAST_START_UM * np.sqrt(a)
+    a, error, _ = _scale(real, screens.frozen_cells(path, slope, wind))
+    if a <= 0:
+        return None
+    return wind, float(path * np.sqrt(a)), float(error / a)
 
 
 def _scale(real: np.ndarray, cells: np.ndarray) -> tuple[float, float, int]:
@@ -826,10 +1015,15 @@ def _temporal_fit(ref: _Reference, notes: list[str]) -> PhaseFit | None:
         notes.append("fast_phase: the data show no in-scan phase above their noise")
         return None
     path *= np.sqrt(a)
+    frozen = _frozen_fit(screens, real, slope)
     return PhaseFit(
         bins=n,
         slope=float(slope),
         phase_1km_deg=float(np.degrees(2 * np.pi * path * 1e-6 / ref.wavelength_m)),
         path_um_1km=float(path),
         coherence_s=float(coherence),
+        misfit=float(error / a),
+        wind_mps=None if frozen is None else frozen[0],
+        wind_path_um_1km=None if frozen is None else frozen[1],
+        wind_misfit=None if frozen is None else frozen[2],
     )

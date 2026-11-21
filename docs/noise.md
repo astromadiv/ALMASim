@@ -311,7 +311,11 @@ components. It predicts the window's clean model (from `--task-dir`: the
 continuum model where the image is above 5 sigma, the cube model in the line
 channels and line mask) and compares the data with it per (baseline, scan)
 where the model is bright (S/N above 10), and the in-scan phase from how much
-the data change between integrations of a scan. Each value is fitted against a
+the data change between integrations of a scan (as a blended screen and as a
+frozen screen the wind carries past, with its speed). It also measures each
+antenna's residual bandpass ripple across the window, and, where the model
+has a line, what does not close on the line channels alone, which splits the
+non-closing error into its continuum and instrumental parts. Each value is fitted against a
 reference built by the simulator's own engine, so it is what the simulator
 needs to reproduce the data. A window too faint for that is left unfitted,
 with a note in `fit.json`.
@@ -332,6 +336,9 @@ windows each comes from and their 16-84% spread in `provenance.values`:
 | `radiometer` efficiency_scale | per dish size and band of at least three windows, the median of the windows' efficiency over that curve (a TDM window's divided by `tdm_efficiency`); a dish that keeps the base's aperture keeps the base's rows |
 | `fast_phase` dishes | per dish size of at least three fitted windows, the median of their in-scan strengths (at the median coherence) |
 | `fast_phase` log_spread | the rms of the fitted windows' log strength about their dish's median, with a bootstrap 16-84% interval |
+| `fast_phase` wind_mps | the frozen-flow screen's speed the fitted windows find |
+| `baseline_errors` instrumental_* | the median share `s` of a window's non-closing error that is the instrument's (windows whose line channels tell it apart and hold at least 5% continuum), times the windows' median; the continuum term keeps `sqrt(1 - s^2)` of it |
+| `antenna_gains` bandpass | per dish size, when at least three windows see a ripple (period under 50 MHz, larger than the noise's own rms): their median period and rms as a sine's peak, up to their highest frequency |
 | `slow_phase`, `fast_phase`, `antenna_gains`, `baseline_errors` | `noise fit` |
 
 A value fewer than `--min-windows` (3) windows measure keeps the base

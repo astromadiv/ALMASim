@@ -310,6 +310,21 @@ class PhaseFit(_Record):
     coherence_s: float | None = Field(
         default=None, description="How long it stays coherent (s); in-scan screens only."
     )
+    misfit: float | None = Field(
+        default=None,
+        description="The fit's strength error over its strength (squared-path scale); "
+        "in-scan screens only.",
+    )
+    wind_mps: float | None = Field(
+        default=None,
+        description="The frozen-flow screen's speed that fits best (m/s); in-scan screens only.",
+    )
+    wind_path_um_1km: float | None = Field(
+        default=None, description="The frozen-flow screen's strength at that speed (microns)."
+    )
+    wind_misfit: float | None = Field(
+        default=None, description="The frozen-flow fit's strength error over its strength."
+    )
 
 
 class FitBin(_Record):
@@ -321,6 +336,45 @@ class FitBin(_Record):
     thermal_phase_rms_deg: float | None
     lnamp_mean: float | None
     thermal_lnamp_mean: float | None
+
+
+class BandpassFit(_Record):
+    """The residual bandpass calibration leaves on the antennas: the ripple of
+    each antenna's gain across the window, about its mean and slope."""
+
+    chunks: int = Field(description="Chunks of channels across the window.")
+    chunk_mhz: float = Field(description="A chunk's width (MHz).")
+    antennas: int = Field(description="Antennas solved.")
+    baselines: int = Field(description="Baselines bright in each chunk.")
+    amp_rms: float = Field(description="The ripple's rms in ln amplitude, less the noise's.")
+    phase_rms_deg: float = Field(
+        description="The ripple's rms in phase (degrees), less the noise's."
+    )
+    thermal_amp_rms: float = Field(description="The rms the thermal noise alone gives (ln amp).")
+    thermal_phase_rms_deg: float = Field(description="The same in phase (degrees).")
+    period_mhz: float | None = Field(
+        default=None, description="Where the ripple's power spectrum peaks (MHz); None: no peak."
+    )
+
+
+class LineNonClosing(_Record):
+    """What does not close on the line channels alone, beyond the screens, the
+    gains and the thermal noise there; and the instrument's own non-closing
+    error (on all the signal) it implies with the whole window's."""
+
+    groups: int = Field(description="(baseline, scan) groups bright on the line channels.")
+    continuum_share: float = Field(
+        description="The continuum's share of the line channels' model (sum w Re(M_c M*) "
+        "over sum w |M|^2)."
+    )
+    amp_rms: float = Field(description="Their non-closing ln amplitude rms beyond the rest.")
+    phase_rms_deg: float = Field(description="Their non-closing phase rms (degrees).")
+    instrumental_amp_rms: float | None = Field(
+        default=None,
+        description="The instrument's own share (ln amp); None when the line channels "
+        "are mostly continuum.",
+    )
+    instrumental_phase_rms_deg: float | None = Field(default=None, description="The same, degrees.")
 
 
 class WindowFit(_Record):
@@ -342,4 +396,6 @@ class WindowFit(_Record):
     antenna_solve: dict[str, float] | None = Field(
         default=None, description="The real data's per-scan antenna solve."
     )
+    bandpass: BandpassFit | None = None
+    line_nonclosing: LineNonClosing | None = None
     notes: list[str] = Field(default_factory=list)

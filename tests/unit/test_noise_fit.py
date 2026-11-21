@@ -28,6 +28,7 @@ from ._fakes import FakeTable
 NANT, NSCAN, PER_SCAN, NCHAN = 16, 24, 8, 8
 FLUX, SIGMA = 2.0, 0.6
 FREQ = 230e9 + 15.625e6 * np.arange(NCHAN)
+LINE_CHANS = [5, 6]  # the channels a line at the phase centre adds to, when there is one
 LON, LAT = np.radians(-67.755), np.radians(-23.023)
 
 
@@ -41,7 +42,9 @@ def _itrf(east: np.ndarray, north: np.ndarray) -> np.ndarray:
     return centre + east[:, None] * e + north[:, None] * n
 
 
-def _window_ms(truth: CorruptionModel, seed: int = 0) -> tuple[dict[str, FakeTable], WindowNoise]:
+def _window_ms(
+    truth: CorruptionModel, seed: int = 0, line_flux: float = 0.0
+) -> tuple[dict[str, FakeTable], WindowNoise]:
     rng = np.random.default_rng(seed)
     radius = np.geomspace(30, 3000, NANT)
     angle = rng.uniform(0, 2 * np.pi, NANT)
@@ -49,19 +52,27 @@ def _window_ms(truth: CorruptionModel, seed: int = 0) -> tuple[dict[str, FakeTab
     xy = np.stack([east, north], axis=1)
     a1, a2 = np.triu_indices(NANT, 1)
     wavelength = 299_792_458.0 / FREQ.mean()
+    antnum = np.stack([a1, a2], axis=1)
+    # Each channel's model, and the continuum's share of it: the baseline's own
+    # (continuum) error acts on that share, the instrumental one on all of it.
+    flux = np.full(NCHAN, FLUX)
+    flux[LINE_CHANS] += line_flux
+    lined = flux > FLUX
     rows = {k: [] for k in ("DATA", "TIME", "SCAN_NUMBER", "ANTENNA1", "ANTENNA2", "UVW")}
     errors_rng = np.random.default_rng(seed + 1)
     for s in range(NSCAN):
         times = 1e9 + s * 600.0 + 6.0 * np.arange(PER_SCAN)
         errors = draw_antenna_corruptions(truth, xy, times - times[0], errors_rng)
-        g = errors.amplitude * np.exp(1j * (errors.phase + 2 * np.pi * errors.path_m / wavelength))
+        whole = errors.baseline_gains(antnum, wavelength)
+        share = FLUX / flux.max()  # the continuum's share of the line channels
+        line = errors.baseline_gains(antnum, wavelength, share) if lined.any() else whole
         for t, time in enumerate(times):
-            gain = g[a1, t] * np.conj(g[a2, t])
+            gain = np.where(lined[None, :], line[:, t, None], whole[:, t, None])
             noise = SIGMA * (
                 rng.standard_normal((a1.size, NCHAN, 2))
                 + 1j * rng.standard_normal((a1.size, NCHAN, 2))
             )
-            rows["DATA"].append(FLUX * gain[:, None, None] + noise)
+            rows["DATA"].append((flux * gain)[:, :, None] + noise)
             rows["TIME"].append(np.full(a1.size, time))
             rows["SCAN_NUMBER"].append(np.full(a1.size, s + 1))
             rows["ANTENNA1"].append(a1)
@@ -123,8 +134,9 @@ def _window_ms(truth: CorruptionModel, seed: int = 0) -> tuple[dict[str, FakeTab
     return tables, window
 
 
-def _task_dir(tmp_path):
-    """An imaging task with a point source at the reference pixel of an odd image."""
+def _task_dir(tmp_path, line_flux: float = 0.0):
+    """An imaging task with a point source at the reference pixel of an odd image
+    (and a line there in ``LINE_CHANS``, in its cube model)."""
     task = tmp_path / "task"
     task.mkdir()
     n = 65
@@ -133,6 +145,12 @@ def _task_dir(tmp_path):
     model = np.zeros((1, 1, n, n))
     model[0, 0, n // 2, n // 2] = FLUX
     fits.PrimaryHDU(model, header).writeto(task / "wsclean-model.fits")
+    if line_flux:
+        cube = np.zeros((1, NCHAN, n, n))
+        cube[0, LINE_CHANS, n // 2, n // 2] = line_flux
+        spectral = header.copy()
+        spectral.update(CRVAL3=FREQ[0], CDELT3=15.625e6, CRPIX3=1)
+        fits.PrimaryHDU(cube, spectral).writeto(task / "wsclean-cube-model.fits")
     image = np.zeros((1, 1, n, n))
     image[0, 0, n // 2 - 2 : n // 2 + 3, n // 2 - 2 : n // 2 + 3] = 1.0
     fits.PrimaryHDU(image, header).writeto(task / "wsclean-image.fits")
@@ -144,8 +162,8 @@ def _task_dir(tmp_path):
 
 @pytest.fixture
 def window_ms(monkeypatch):
-    def install(truth: CorruptionModel, seed: int = 0, root: str = "ms"):
-        made, window = _window_ms(truth, seed)
+    def install(truth: CorruptionModel, seed: int = 0, root: str = "ms", line_flux: float = 0.0):
+        made, window = _window_ms(truth, seed, line_flux)
         tables = {root + key[2:]: table for key, table in made.items()}
 
         def open_table(path, ack=False):
@@ -182,6 +200,37 @@ def test_the_in_scan_phase_is_found(window_ms, tmp_path):
     assert result.fast_phase is not None
     assert result.fast_phase.path_um_1km == pytest.approx(80.0, rel=0.5)
     assert result.fast_phase.coherence_s in (5.0, 10.0, 20.0)
+
+
+@pytest.mark.unit
+def test_a_screen_the_wind_carries_past_is_found_with_its_speed(window_ms, tmp_path):
+    truth = CorruptionModel(fast_path_um_1km=80.0, fast_slope=0.5, fast_wind_mps=10.0)
+    window = window_ms(truth, seed=2)
+    result = fit.fit_window("ms", 0, None, _task_dir(tmp_path), window, realizations=2, seed=6)
+    phase = result.fast_phase
+    assert phase is not None and phase.wind_mps is not None
+    assert phase.wind_mps in (7.0, 10.0, 15.0)
+    assert phase.wind_path_um_1km == pytest.approx(80.0, rel=0.5)
+    assert phase.wind_misfit is not None and phase.misfit is not None
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize("instrumental", [0.04, 0.0])
+def test_the_instrument_s_own_non_closing_error_is_told_from_the_continuum_s(
+    window_ms, tmp_path, instrumental
+):
+    truth = CorruptionModel(baseline_amp_rms=0.05, baseline_instrumental_amp_rms=instrumental)
+    window = window_ms(truth, seed=7, line_flux=FLUX)
+    task = _task_dir(tmp_path, line_flux=FLUX)
+    result = fit.fit_window("ms", 0, None, task, window, line="all", realizations=2, seed=8)
+    split = result.line_nonclosing
+    assert split is not None and split.continuum_share == pytest.approx(0.5, abs=0.01)
+    assert split.instrumental_amp_rms is not None
+    if instrumental:
+        assert split.instrumental_amp_rms == pytest.approx(instrumental, rel=0.35)
+    else:
+        assert split.instrumental_amp_rms < 0.02
+    assert result.baseline_amp_rms == pytest.approx(np.hypot(0.05, instrumental), rel=0.35)
 
 
 @pytest.mark.unit

@@ -720,7 +720,33 @@ each channel's frequency `f`, with its own `alpha` and `beta` drawn from a
 stream of their own, so the other errors' draws do not depend on it; a
 dish without a row, or a channel above its edge, takes 1. Like the gains,
 it multiplies the sky part of baseline (i, j) by `b(i) conj(b(j))` and
-leaves the noise and WEIGHT alone. In a model file:
+leaves the noise and WEIGHT alone.
+
+`noise fit` measures it (`bandpass` in `fit.json`). Over the whole
+observation, each baseline's data over its clean model is summed per chunk
+of channels (at most 4 MHz wide, at most 512 chunks), each row first turned
+by its own phase across the window so that the atmosphere's phase does not
+decorrelate the sums. Each baseline's chunks over its mean across them
+leave what varies across frequency. A single baseline's chunk rarely has an
+S/N much above 1, so per chunk the ratios are split into antenna terms by
+weighted linear least squares (`Re - 1 = a_i + a_j`, `Im = p_i - p_j`, each
+baseline weighted by the inverse of its noise variance), which pools each
+antenna's baselines and stays unbiased at low S/N. The amplitude every
+antenna shares in a chunk is the source's own spectrum, which the clean
+model lacks, so it is removed, and so are each antenna's mean and slope
+across the window (a residual delay or smooth bandpass, not a ripple). `amp_rms` and `phase_rms_deg` are what remains
+beyond the same solve on thermal noise alone (`thermal_amp_rms`,
+`thermal_phase_rms_deg`, per antenna and chunk), and `period_mhz` is where
+the antennas' summed power spectrum, less the noise's, peaks. A window
+needs at least 16 chunks and four antennas, and its thermal rms per antenna
+and chunk must be under 0.1: only the brightest windows see a ripple of a
+few tenths of a percent. `noise aggregate` sets a dish size's row when at
+least three of its windows see a ripple: a period under 50 MHz (a longer
+one is a smooth shape across the window, not a ripple) and an amplitude or
+phase larger than the noise's own rms per antenna and chunk. The row takes
+their median period, their median rms as a sine's peak
+(`amp = sqrt(2) amp_rms`, and the same for the phase), and their highest
+frequency as `upper_ghz`. In a model file:
 
 ```json
 "antenna_gains": {"amp_rms": 0.138, "phase_rms_deg": 0.0, "bandpass": [
@@ -882,8 +908,13 @@ loss of averaging a Gaussian phase, and it grows with frequency, wind
 speed and the integration's length. The path is scaled as the blended
 screen's is (each antenna's scan mean removed, the median antenna pair's
 rms path difference on the power law), and the within-integration spread
-with it. `noise fit` measures the blended screen's strength, slope and
-coherence, so a model with `wind_mps` takes its strength from those fits.
+with it. `noise fit` also fits the frozen flow: at the blended screen's slope,
+the engine's moving screen at each of 2, 4, 7, 10 and 15 m/s gives the same
+structure-function cells, and the speed whose least-squares scale has the
+smallest relative error is the window's `wind_mps`, refined once at the
+strength found (`wind_path_um_1km`). `misfit` and `wind_misfit` (each fit's
+strength error over its strength) say which screen follows the data better.
+`noise aggregate` takes the fitted windows' median `wind_mps`.
 
 | Parameter | Meaning | alma@1 | alma@2 | alma@3 | alma@4 | alma@5 | alma@6 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -932,9 +963,27 @@ draws a second factor of the same form from a stream spawned from the
 first one's (so the continuum term's draws stay as they are), and it
 multiplies the whole visibility, line and continuum alike: a line-only
 source then shows closure departures too, where the continuum term leaves
-it closed. `noise fit` measures the non-closing residual of bright
-continuum windows as a whole, which the continuum term takes; splitting it
-between the two terms needs bright line windows.
+it closed.
+
+**How the two are told apart** (`noise fit`, `line_nonclosing`). On a window
+whose clean model has a line, the same antenna solve runs on the line
+channels alone, against a reference with everything else found there. With
+`f` the continuum's share of the line channels' model (`continuum_share`,
+sum `w Re(M_c M*)` over sum `w |M|^2`), their non-closing variance is
+`f^2 c^2 + i^2` and the whole window's (mostly continuum) `c^2 + i^2`, so
+
+```
+instrumental^2 = (line^2 - f^2 x window^2) / (1 - f^2)
+```
+
+for amplitude and phase alike. Above a share of 0.7 the two cannot be told
+apart and the instrumental values are left out. `noise aggregate` takes the
+median share `s` of each window's error that is the instrument's
+(instrumental over the window's, at most 1) over the windows that tell it
+apart and whose line channels hold at least 5% continuum (with less, the
+window's signal may be the line itself, and the two errors are one): `instrumental_amp_rms` is `s` times the windows' median `amp_rms`, and
+`amp_rms` keeps `sqrt(1 - s^2)` of it, so the continuum sees the windows'
+median in quadrature (the same for the phase).
 
 | Parameter | Meaning | alma@1 | alma@2 | alma@3 | alma@4 | alma@5 | alma@6 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -1144,23 +1193,31 @@ in the line channels, inside the line mask (`--continuum-model`,
 `--line-model` to change). Five bright windows took 47 minutes and up to
 24 GB (most of it Sgr A, an 83 GB MS).
 
-This is SPT0441-46 (band 7), shortened:
+This is a band 7 window at 356 GHz with a line, shortened:
 
 ```
 {
-  "bright_groups": 3678,             // (baseline, scan) groups with S/N above 10
-  "kappa": 2.67,                     // Hanning-correlated channels: 1 + 2 x 2/3 + 2 x 1/6
+  "bright_groups": 7349,             // (baseline, scan) groups with S/N above 10
+  "kappa": 2.66,                     // Hanning-correlated channels: 1 + 2 x 2/3 + 2 x 1/6
   "bins": [
-    {"baseline_m": 80.2, "groups": 754,
-     "phase_rms_deg": 15.9, "thermal_phase_rms_deg": 8.0,   // scatter beyond the noise's
-     "lnamp_mean": -0.018, "thermal_lnamp_mean": -0.001},   // a little decorrelation
+    {"baseline_m": 13.9, "groups": 95,
+     "phase_rms_deg": 10.7, "thermal_phase_rms_deg": 0.6,   // scatter beyond the noise's
+     "lnamp_mean": 0.204, "thermal_lnamp_mean": -0.001},
     ...
   ],
-  "slow_phase": {"path_um_1km": 93.8, "slope": 0.5, "bins": 9},
-  "fast_phase": {"path_um_1km": 56.9, "slope": 0.35, "bins": 41, "coherence_s": 10.0},
-  "gain_amp_rms": 0.090,
-  "baseline_amp_rms": 0.0,
-  "baseline_phase_rms_deg": 6.53
+  "slow_phase": {"path_um_1km": 136.8, "slope": 0.65, "bins": 10},
+  "fast_phase": {"path_um_1km": 68.4, "slope": 0.5, "bins": 60, "coherence_s": 80.0,
+                 "wind_mps": 2.0, "wind_path_um_1km": 83.8, "wind_misfit": 0.069},
+  "gain_amp_rms": 0.060,
+  "baseline_amp_rms": 0.101,
+  "baseline_phase_rms_deg": 1.33,
+  "bandpass": {"chunks": 480, "chunk_mhz": 3.9, "antennas": 38, "baselines": 703,
+               "amp_rms": 0.031, "phase_rms_deg": 0.0,
+               "thermal_amp_rms": 0.084, "thermal_phase_rms_deg": 4.7,
+               "period_mhz": 144.2},  // a slow shape, not a 25 MHz ripple
+  "line_nonclosing": {"groups": 7182, "continuum_share": 0.154,
+                      "amp_rms": 0.110, "phase_rms_deg": 0.54,
+                      "instrumental_amp_rms": 0.110, "instrumental_phase_rms_deg": 0.51}
 }
 ```
 

@@ -13,8 +13,10 @@ from almasim.services.noise.aggregate import Measured, aggregate
 from almasim.services.noise.measurements import (
     AntennaNoise,
     AntennaShape,
+    BandpassFit,
     Exposure,
     FitBin,
+    LineNonClosing,
     PhaseFit,
     ThermalNoise,
     Tsys,
@@ -173,6 +175,101 @@ def test_the_candidate_takes_the_windows_medians():
     assert resolve_noise_model(candidate.model_dump_json()).engine_fields()[
         "gain_amp_rms"
     ] == pytest.approx(0.065)
+
+
+def _bandpass(period_mhz: float, amp_rms: float, phase_rms_deg: float = 2.0) -> BandpassFit:
+    return BandpassFit(
+        chunks=240,
+        chunk_mhz=3.9,
+        antennas=40,
+        baselines=780,
+        amp_rms=amp_rms,
+        phase_rms_deg=phase_rms_deg,
+        thermal_amp_rms=0.01,
+        thermal_phase_rms_deg=0.5,
+        period_mhz=period_mhz,
+    )
+
+
+@pytest.mark.unit
+def test_the_fits_set_the_wind_the_instrument_s_share_and_a_seen_ripple():
+    base = released_model("alma", 1)
+    winds = [2.0, 7.0, 7.0, 10.0, 15.0]
+    shares = [0.8, 0.9, 1.3, 0.95, None]  # 1.3: noise in the split, counts as 1
+    continuum = [0.1, 0.3, 0.5, 0.2, 0.0]
+    measured = []
+    for k, (wind, share) in enumerate(zip(winds, shares, strict=True)):
+        fit = _fit(k).model_copy(
+            update={
+                "fast_phase": PhaseFit(
+                    bins=40, slope=0.5, phase_1km_deg=5.0, path_um_1km=50.0, wind_mps=wind
+                ),
+                "line_nonclosing": LineNonClosing(
+                    groups=100,
+                    continuum_share=continuum[k],
+                    amp_rms=0.04,
+                    phase_rms_deg=3.0,
+                    instrumental_amp_rms=None if share is None else 0.04 * share,
+                    instrumental_phase_rms_deg=None if share is None else 1.5,
+                ),
+                # 12 m: three windows see a 10 MHz ripple, two a smooth shape.
+                "bandpass": _bandpass(10.0 if k < 3 else 400.0, 0.01 * (k + 1)),
+            }
+        )
+        measured.append(Measured(_window(k, ghz=100.0 + 50 * k), fit))
+    # A 12 m window whose ripple is below the noise's own rms does not see one.
+    measured.append(
+        Measured(
+            _window(8, ghz=400.0),
+            _fit(8).model_copy(update={"bandpass": _bandpass(10.0, 0.005, 0.3)}),
+        )
+    )
+    # Line channels without continuum: their window's error may be the line's.
+    measured.append(
+        Measured(
+            _window(7),
+            _fit(7).model_copy(
+                update={
+                    "line_nonclosing": LineNonClosing(
+                        groups=100,
+                        continuum_share=0.01,
+                        amp_rms=0.04,
+                        phase_rms_deg=3.0,
+                        instrumental_amp_rms=0.04,
+                        instrumental_phase_rms_deg=3.0,
+                    )
+                }
+            ),
+        )
+    )
+    # 7 m: one window with a ripple is too few.
+    measured.append(
+        Measured(
+            _window(9, dish=7.0),
+            _fit(9).model_copy(update={"bandpass": _bandpass(20.0, 0.05)}),
+        )
+    )
+    candidate = aggregate(measured, base)
+    c = candidate.components
+    assert c.fast_phase.wind_mps == 7.0
+    errors, values = c.baseline_errors, candidate.provenance.values
+    # Shares 0.8, 0.9, 1.0, 0.95: median 0.925 of the windows' amplitude error.
+    share = values["baseline_errors.instrumental_amp_rms_share"]
+    assert (share.n, share.median) == (4, pytest.approx(0.925))
+    assert errors.instrumental_amp_rms == pytest.approx(0.925 * 0.04)
+    assert errors.amp_rms == pytest.approx(0.04 * np.sqrt(1 - 0.925**2))
+    # The continuum still sees the windows' median in quadrature.
+    assert np.hypot(errors.amp_rms, errors.instrumental_amp_rms) == pytest.approx(0.04)
+    assert errors.instrumental_phase_rms_deg == pytest.approx(1.5)
+    assert errors.phase_rms_deg == pytest.approx(np.sqrt(3.0**2 - 1.5**2))
+    (row,) = c.antenna_gains.bandpass
+    assert (row.diameter_m, row.period_mhz, row.upper_ghz) == (12.0, 10.0, 200.0)
+    assert row.amp == pytest.approx(np.sqrt(2) * 0.02)
+    assert row.phase_deg == pytest.approx(np.sqrt(2) * 2.0)
+    assert "antenna_gains.bandpass.7m: 1 window(s) see a ripple" in candidate.provenance.notes
+    assert resolve_noise_model(candidate.model_dump_json()).engine_fields()[
+        "baseline_instrumental_amp_rms"
+    ] == pytest.approx(0.037)
 
 
 @pytest.mark.unit
