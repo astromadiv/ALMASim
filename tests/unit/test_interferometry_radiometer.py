@@ -25,6 +25,17 @@ def test_each_band_has_its_measured_receiver_temperature():
 
 
 @pytest.mark.unit
+def test_a_band_can_have_a_receiver_temperature_that_changes_with_frequency():
+    """A row with a slope follows its line across the row, never under 1 K; the
+    rows without one keep one temperature."""
+    table = ((275.0, 42.0), (373.0, 68.0, 0.4, 330.0), (np.inf, 130.0, -2.0, 400.0))
+    ghz = np.array([230, 300, 330, 360, 400, 900]) * 1e9
+    np.testing.assert_allclose(
+        estimate_receiver_temperature_k(ghz, table=table), [42, 56, 68, 80, 130, 1]
+    )
+
+
+@pytest.mark.unit
 def test_the_dish_loses_efficiency_as_the_wavelength_shrinks():
     assert aperture_efficiency(100e9, 12.0) == pytest.approx(
         0.76 * np.exp(-((4 * np.pi * 27e-6 * 100e9 / 299_792_458.0) ** 2))

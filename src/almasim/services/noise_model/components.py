@@ -41,6 +41,38 @@ class ReceiverTemperature(BaseModel):
     upper_ghz: float | None = Field(gt=0, description="Upper edge (GHz); null: no edge.")
     trx_k: float = Field(gt=0, description="Receiver temperature (K).")
     bands: str = Field(default="", description="The ALMA bands it covers.")
+    slope_k_per_ghz: float | None = Field(
+        default=None,
+        description=(
+            "How the receiver temperature changes with frequency inside the row (K/GHz), "
+            "about center_ghz; unset: one temperature for the row."
+        ),
+    )
+    center_ghz: float | None = Field(
+        default=None, gt=0, description="The frequency (GHz) trx_k is at, with a slope."
+    )
+
+    @model_validator(mode="after")
+    def _slope_has_its_center(self) -> ReceiverTemperature:
+        if (self.slope_k_per_ghz is None) != (self.center_ghz is None):
+            raise ValueError("receiver_temperature_k: slope_k_per_ghz and center_ghz go together")
+        return self
+
+    @model_serializer(mode="wrap")
+    def _without_unset_slope(self, handler: Any) -> dict[str, Any]:
+        # A row without a slope keeps the form, and its model the identity (sha256), it has.
+        data = handler(self)
+        if self.slope_k_per_ghz is None:
+            data.pop("slope_k_per_ghz", None)
+            data.pop("center_ghz", None)
+        return data
+
+    def row(self) -> tuple[float, ...]:
+        """Its row of the thermal noise model's table (interferometry.noise.ReceiverTable)."""
+        edge = float("inf") if self.upper_ghz is None else self.upper_ghz
+        if self.slope_k_per_ghz is None or self.center_ghz is None:
+            return (edge, self.trx_k)
+        return (edge, self.trx_k, self.slope_k_per_ghz, self.center_ghz)
 
 
 class Aperture(BaseModel):
@@ -145,10 +177,7 @@ class Radiometer(NoiseComponent):
 
         values: dict[str, Any] = {}
         if self.receiver_temperature_k is not None:
-            values["receiver_temperatures"] = tuple(
-                (float("inf") if r.upper_ghz is None else r.upper_ghz, r.trx_k)
-                for r in self.receiver_temperature_k
-            )
+            values["receiver_temperatures"] = tuple(r.row() for r in self.receiver_temperature_k)
         if self.aperture is not None:
             values["ruze"] = {a.diameter_m: (a.eta0, a.surface_rms_m) for a in self.aperture}
         if self.efficiency_scale is not None:

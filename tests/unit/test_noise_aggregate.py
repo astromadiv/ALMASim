@@ -309,6 +309,42 @@ def test_the_receiver_temperature_follows_the_bases_tsys_equation():
 
 
 @pytest.mark.unit
+def test_a_band_whose_windows_need_more_at_higher_frequencies_gets_a_slope():
+    """Enough windows across a band whose needed receiver temperature rises with
+    frequency give the band a slope about their median frequency; a band whose
+    windows need one temperature keeps one."""
+    base = released_model("alma", 1)
+    ghz = np.linspace(290.0, 360.0, 10)
+    rising = [Measured(_window(k, ghz=f, trx=68.0 + 0.4 * (f - 325.0))) for k, f in enumerate(ghz)]
+    level = [
+        Measured(_window(20 + k, ghz=f, trx=40.0)) for k, f in enumerate(np.linspace(215, 270, 10))
+    ]
+    candidate = aggregate(rising + level, base)
+    rows = {r.bands: r for r in candidate.components.radiometer.receiver_temperature_k}
+    assert rows["7"].slope_k_per_ghz == pytest.approx(0.4, rel=0.02)
+    assert rows["7"].center_ghz == pytest.approx(325.0)
+    assert rows["7"].trx_k == pytest.approx(68.0, rel=0.01)
+    assert rows["6"].slope_k_per_ghz is None and rows["6"].center_ghz is None
+    assert rows["6"].trx_k == pytest.approx(40.0, rel=0.01)
+    values = candidate.provenance.values
+    slope = values["radiometer.receiver_temperature_k[7].slope_k_per_ghz"]
+    assert slope.n == 10 and slope.q16 <= slope.median <= slope.q84
+    assert "radiometer.receiver_temperature_k[6].slope_k_per_ghz" not in values
+    # Too few windows to tell a slope: one temperature, the windows' median.
+    few = aggregate(rising[:5], base)
+    rows = {r.bands: r for r in few.components.radiometer.receiver_temperature_k}
+    assert rows["7"].slope_k_per_ghz is None
+    # A base's slope is the windows' to set again: a level band drops it.
+    data = json.loads(candidate.model_dump_json())
+    for r in data["components"]["radiometer"]["receiver_temperature_k"]:
+        if r["bands"] == "6":
+            r.update(slope_k_per_ghz=0.3, center_ghz=240.0)
+    again = aggregate(level, resolve_noise_model(data))
+    rows = {r.bands: r for r in again.components.radiometer.receiver_temperature_k}
+    assert rows["6"].slope_k_per_ghz is None and rows["7"].slope_k_per_ghz is not None
+
+
+@pytest.mark.unit
 def test_tdm_windows_get_their_own_efficiency():
     """A band's TDM windows over its FDM windows, apart from the band's own scale."""
     fdm = [Measured(_window(k, efficiency_scale=0.95)) for k in range(6)]

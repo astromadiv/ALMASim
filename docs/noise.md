@@ -331,7 +331,7 @@ windows each comes from and their 16-84% spread in `provenance.values`:
 | `receiver_ripple` rms | the smooth part (Legendre modes 1-4) of the noise profile over SYSCAL's Tsys², halved |
 | `antenna_ripple` rms, scale_mhz | each antenna's noise shape, windows wider than 1 GHz |
 | `antenna_sefd` log_rms | the spread of the antennas' own noise levels, every window; the component is added when the base has none |
-| `radiometer` receiver temperatures | per band, the Trx that gives SYSCAL's median Tsys under the simulator's Tsys model, the base model's equation (12 m windows, their PWV and elevation) |
+| `radiometer` receiver temperatures | per band, the Trx that gives SYSCAL's median Tsys under the simulator's Tsys model, the base model's equation (12 m windows, their PWV and elevation), with its slope across the band where the band's windows show one |
 | `radiometer` aperture | per dish size, Ruze's law fitted to the efficiency the noise and Tsys imply |
 | `radiometer` tdm_efficiency | TDM windows' efficiency over FDM windows' of the same dish size and band, over the bands with both |
 | `radiometer` efficiency_scale | per dish size and band of at least three windows, the median of the windows' efficiency over that curve (a TDM window's divided by `tdm_efficiency`); a dish that keeps the base's aperture keeps the base's rows |
