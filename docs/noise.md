@@ -96,7 +96,7 @@ quantisation and correlator efficiencies are instrument data,
 [`interferometry/data/alma_radiometer.json`](../src/almasim/services/interferometry/data/alma_radiometer.json),
 which every run uses for Tsys. A model's `radiometer` component may set its
 own values (`alma@1` states the instrument's, so the model reproduces on its
-own; `alma@2` to `alma@6` state the values measured on the real windows), and a candidate model can try other values without a code change.
+own; `alma@2` to `alma@7` state the values measured on the real windows), and a candidate model can try other values without a code change.
 
 A model's `settings` hold what several components share: the scan length and
 the turbulent screens' outer scale. A selection (`--noise-only`,
@@ -233,7 +233,7 @@ Two more terms, also in `--noise-model alma`, come from the same 100 windows:
   alone. An external sky model, whose continuum is not known apart, takes it
   on all its emission. The component can add the instrument's own
   non-closing error (`instrumental_amp_rms`, `instrumental_phase_rms_deg`),
-  which acts on line and continuum alike; no released model sets it.
+  which acts on line and continuum alike; `alma@7` sets it.
 
 The antenna gains and the slow and fast atmospheric phase, which calibration
 also leaves on bright sources, are described in the guide's
@@ -257,7 +257,7 @@ almasim simulation ... --noise-model noise/candidate.json               # try it
 almasim noise validate --model noise/candidate.json --windows windows.csv \
     --metadata rows.csv --measured noise/ --out noise/ --backend slurm      # comparison.json
 almasim noise promote noise/candidate.json \
-    --comparison noise/validation/<sha>/comparison.json                     # models/alma-7.json
+    --comparison noise/validation/<sha>/comparison.json                     # models/alma-8.json
 ```
 
 Each command also takes a single MS (`almasim noise extract
