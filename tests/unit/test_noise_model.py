@@ -32,9 +32,8 @@ def test_alma_is_released_and_named_by_version():
     assert resolve_noise_model("none") is None and resolve_noise_model(None) is None
     with pytest.raises(ValueError, match="no version 99"):
         resolve_noise_model("alma@99")
-    # Every component but antenna_sefd, which no released model has yet.
-    assert set(alma.enabled()) == set(COMPONENT_NAMES) - {"antenna_sefd"}
-    assert alma.provenance is not None and alma.provenance.windows == 148
+    assert set(alma.enabled()) == set(COMPONENT_NAMES)
+    assert alma.provenance is not None and alma.provenance.windows == 248
 
 
 @pytest.mark.unit
@@ -153,11 +152,11 @@ def test_products_record_the_model_that_made_them(tmp_path):
 
     params = _params(tmp_path, noise_model="alma")
     line = _noise_model_line(params)
-    assert line == f"alma@6 (sha256 {released_model('alma').sha256()})"  # the newest
+    assert line == f"alma@7 (sha256 {released_model('alma').sha256()})"  # the newest
     assert _noise_model_line(_params(tmp_path)) is None
     identity = released_model("alma").identity()
-    assert identity["label"] == "alma@6"
-    assert identity["components"] == [n for n in COMPONENT_NAMES if n != "antenna_sefd"]
+    assert identity["label"] == "alma@7"
+    assert identity["components"] == list(COMPONENT_NAMES)
     spec = history_table("p", np.array([0.0, 1.0]), (f"noise_model={json.dumps(identity)}",))
     assert list(spec.values["APP_PARAMS"])[1].startswith("noise_model=")
     assert list(history_table("p", np.array([0.0, 1.0])).values["APP_PARAMS"]) == ["p"]
@@ -314,10 +313,10 @@ def test_the_in_scan_phase_has_a_strength_per_dish_and_a_spread():
 
 @pytest.mark.unit
 def test_the_in_scan_phase_can_flow_frozen_past_the_array():
-    """wind_mps set reaches the engine; unset, every released model keeps its identity."""
+    """wind_mps set reaches the engine; unset (alma@6), a model keeps its identity."""
     from almasim.services.noise_model import NoiseModel
 
-    alma = released_model("alma")
+    alma = released_model("alma", 6)
     data = json.loads(alma.model_dump_json())
     assert "wind_mps" not in data["components"]["fast_phase"]
     assert "fast_wind_mps" not in alma.engine_fields()
@@ -335,11 +334,11 @@ def test_the_in_scan_phase_can_flow_frozen_past_the_array():
 
 @pytest.mark.unit
 def test_baseline_errors_can_add_the_instruments_own():
-    """Set, the instrumental terms reach the engine; unset, every released model
+    """Set, the instrumental terms reach the engine; unset (alma@6), a model
     keeps its identity."""
     from almasim.services.noise_model import NoiseModel
 
-    alma = released_model("alma")
+    alma = released_model("alma", 6)
     data = json.loads(alma.model_dump_json())
     assert "instrumental_amp_rms" not in data["components"]["baseline_errors"]
     data["components"]["baseline_errors"].update(
@@ -389,10 +388,10 @@ def test_antenna_gains_can_carry_a_residual_bandpass_ripple():
 
 @pytest.mark.unit
 def test_each_antenna_can_have_its_own_noise_level():
-    """antenna_sefd reaches the engine; absent, every released model keeps its identity."""
+    """antenna_sefd reaches the engine; absent (alma@6), a model keeps its identity."""
     from almasim.services.noise_model import NoiseModel
 
-    alma = released_model("alma")
+    alma = released_model("alma", 6)
     data = json.loads(alma.model_dump_json())
     assert "antenna_sefd" not in data["components"]
     assert "antenna_sefd_log_rms" not in alma.engine_fields()
