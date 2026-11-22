@@ -12,6 +12,7 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+from almasim.services.imaging.cont_dat import cont_dat_log
 from almasim.services.imaging.continuum import (
     subtract_continuum,
 )
@@ -84,6 +85,8 @@ def run_wsclean_task(  # noqa: C901
     cube_products: Sequence[str] | None = None,
     contsub_order: int | None = None,
     uv_contsub_order: int | None = None,
+    pipeline_line_free: bool = False,
+    ous_index: str | None = None,
     selfcal_solints: Sequence[str] | None = None,
     selfcal_min_snr: float = 20.0,
     casa_data: str | None = None,
@@ -122,6 +125,13 @@ def run_wsclean_task(  # noqa: C901
     first (``subtract_uv_continuum``): the continuum image is made from the
     fitted continuum and the cube from what is left, the lines. When too few
     channels are line-free the subtraction is skipped and noted in the log.
+
+    With ``pipeline_line_free`` the line-free channels of the continuum fit
+    and of self-calibration also leave out the channels the ALMA pipeline's
+    ``cont.dat`` calls line: the cont.dat of the member ``ms_path``'s
+    execution block belongs to in ``ous_index`` (default: the
+    ``ous_index.csv`` nearest above the MS). The log says how many line
+    channels it added, or why it was not used.
 
     With ``selfcal_solints`` (needs ``single_window`` and a continuum
     command) the single-window MS is phase self-calibrated first, one round
@@ -310,6 +320,8 @@ def run_wsclean_task(  # noqa: C901
     try:
         selfcal: dict[str, object] = {}
         fit: dict[str, object] | None = None
+        # The MS whose execution block names the member with the cont.dat.
+        pipeline_ms = str(ms_path) if pipeline_line_free else None
         if single_window_ms is not None and (selfcal_solints or uv_contsub_order is not None):
             with log_path.open("a", encoding="utf-8") as log:
                 if selfcal_solints:
@@ -323,6 +335,8 @@ def run_wsclean_task(  # noqa: C901
                         casa_data=str(casa_data),
                         restart=continuum_restart,
                         keep_gains=noise_products,
+                        pipeline_ms=pipeline_ms,
+                        ous_index=ous_index,
                     )
                 if uv_contsub_order is not None:
                     commands, fit = _subtract_uv_continuum_step(
@@ -332,6 +346,8 @@ def run_wsclean_task(  # noqa: C901
                         order=uv_contsub_order,
                         task=task,
                         log=log,
+                        pipeline_ms=pipeline_ms,
+                        ous_index=ous_index,
                     )
         after_images = None
         if noise_products and selfcal.get("applied") and single_window_ms is not None:
@@ -506,17 +522,29 @@ def _subtract_uv_continuum_step(
     order: int,
     task: TaskRun,
     log,
+    pipeline_ms: str | None = None,
+    ous_index: str | None = None,
 ) -> tuple[list[list[str]], dict[str, object] | None]:
     """Run ``subtract_uv_continuum`` and point the commands at its columns.
 
     Returns the commands and the fit's result (None when it was skipped).
+    With ``pipeline_ms`` the fit also leaves out the pipeline's cont.dat line
+    channels; the log says how many that added, or why it was not used.
     """
     try:
         fit = subtract_uv_continuum_subprocess(
-            ms_path, order=order, timeout=task.timeout, log_path=log.name
+            ms_path,
+            order=order,
+            timeout=task.timeout,
+            log_path=log.name,
+            pipeline_ms=pipeline_ms,
+            ous_index=ous_index,
         )
     except Exception as exc:
         raise task.fail(f"Could not subtract the continuum from the visibilities: {exc}") from exc
+    if "cont_dat" in fit:
+        log.write(f"# continuum fit: {cont_dat_log(fit)}\n")
+        task.note(f"continuum fit: {cont_dat_log(fit)}")
     if fit.get("skipped"):
         log.write(
             f"# continuum NOT subtracted from the visibilities: {fit['skipped']}; "

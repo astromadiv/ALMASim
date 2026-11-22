@@ -16,6 +16,7 @@ Imaging code lives in [`src/almasim/services/imaging`](../src/almasim/services/i
 | `batch_runner.py`, `task.py`, `markers.py` | running the tasks on `sync` or `slurm`, their `.done`/`.failed`/`.log` files |
 | `ms/` | the single-window MS each task images, and a member's combined one |
 | `uv_contsub.py`, `selfcal/`, `primary_beam.py` | visibility-plane continuum subtraction, self-calibration, primary-beam correction |
+| `cont_dat.py` | the ALMA pipeline's line channels (`cont.dat`) for `--pipeline-line-free` |
 | `provenance.py` | the OUSs, execution blocks and WSClean commands in every product's FITS header |
 | `quality/` | the cleaning-quality statistics and moment maps of `image clean-quality` |
 
@@ -157,7 +158,28 @@ lists every option.
   limit to the hard one at start-up, and every job it submits inherits that.
 - `--contsub` writes an image-plane continuum-subtracted cube;
   `--uv-contsub` subtracts the continuum from the visibilities (CASA
-  `uvcontsub`) before imaging instead.
+  `uvcontsub`) before imaging instead. It finds the line channels on the
+  source spectrum (every row's visibilities averaged per channel) and fits
+  the continuum over the others; the task log's "lines in channels" lists
+  them.
+- `--pipeline-line-free` (off by default) also leaves out of the line-free
+  channels of `--uv-contsub` and `--selfcal` the channels the ALMA pipeline
+  calls line: a channel is line-free only when both ALMASim and the
+  pipeline's `cont.dat` call it continuum. The `cont.dat` comes from the
+  member folder's `calibration/*auxproducts.tgz`, read without extracting
+  it; the member is the execution block's in the `ous_index.csv`
+  (`--ous-index`, by default the one nearest above the MS). Its spectral
+  window ids are the pipeline MS's, which can differ from a split MS's, so
+  the window is matched by field name and by the largest overlap in
+  frequency, among the blocks with at least half their ranges inside the
+  window (a neighbouring window can touch its edge). The MS's channel
+  frequencies are converted to `cont.dat`'s frame (LSRK) at the field's
+  direction and the median time of its rows. A window marked `ALL` is all
+  continuum and one marked `NONE` all line. The task log says how many line
+  channels `cont.dat` adds, and its "lines in channels" lists both sets
+  together. When `cont.dat` cannot be used (no index, member, tarball,
+  `cont.dat` or matching window) the log says why and the task goes on with
+  ALMASim's own line channels.
 - `--selfcal` self-calibrates each window with CASA `gaincal` before imaging,
   one round per solution interval (e.g. `inf,30s,ap:inf`). A round is kept
   only if the continuum S/N rises. With `--noise-products` (the default) it
@@ -228,7 +250,7 @@ ALMA's own pipeline images where ALMA has one:
 | `NEB`, `EBUID01` ... | the execution blocks imaged (all of a member's with `--by-member`) |
 | `NMS`, `MSNAM01` ... | the MeasurementSets imaged |
 | `ALMASVER` | the ALMASim version |
-| `HISTORY` | after WSClean's own record of its command line, each step of the task in the order it ran (`ALMASim: ...`): the window's extraction (a member's combination of its execution blocks), the continuum subtraction from the visibilities, and every WSClean command (self-calibration rounds included), with the task folder's paths written relative to it |
+| `HISTORY` | after WSClean's own record of its command line, each step of the task in the order it ran (`ALMASim: ...`): the window's extraction (a member's combination of its execution blocks), the continuum subtraction from the visibilities (with `--pipeline-line-free`, what `cont.dat` added to its line channels), and every WSClean command (self-calibration rounds included), with the task folder's paths written relative to it |
 
 The OUS UIDs come from the delivery tree's `ous_index.csv`
 ([The delivery tree](downloads.md#the-delivery-tree)), looked up by the

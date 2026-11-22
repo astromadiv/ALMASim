@@ -364,6 +364,7 @@ class ImageFromMsOptions:
     casa_data_root: Path | None
     uv_contsub: bool
     contsub_order: int
+    pipeline_line_free: bool
     spectral_sampling: float
     velocity_resolution: float
     max_cube_gb: float
@@ -668,6 +669,17 @@ def image_from_ms(
         ),
         rich_help_panel="Continuum subtraction",
     ),
+    pipeline_line_free: bool = typer.Option(
+        False,
+        "--pipeline-line-free/--no-pipeline-line-free",
+        help=(
+            "Also leave out of the line-free channels of --uv-contsub and --selfcal the "
+            "channels the ALMA pipeline's cont.dat calls line (read from the member's "
+            "calibration/*auxproducts.tgz, found through the ous_index.csv): a channel is "
+            "line-free only when both call it continuum. Off by default."
+        ),
+        rich_help_panel="Continuum subtraction",
+    ),
     spectral_sampling: float = typer.Option(
         2.0,
         "--spectral-sampling",
@@ -819,6 +831,8 @@ def _image_from_ms_options(o: ImageFromMsOptions) -> tuple[ImagingOptions, ExecO
         contsub=o.contsub,
         uv_contsub=o.uv_contsub,
         contsub_order=o.contsub_order,
+        pipeline_line_free=o.pipeline_line_free,
+        ous_index=str(o.ous_index) if o.ous_index is not None else None,
         join_channels=o.join_channels,
         continuum_restart=o.continuum_restart,
         cube_line_mask=o.cube_line_mask,
@@ -1166,6 +1180,7 @@ def image_set(
         pbcor=False,
         casa_data_root=None,
         contsub_order=1,
+        pipeline_line_free=False,
         spectral_sampling=2.0,
         velocity_resolution=0.0,
         max_cube_gb=4.0,

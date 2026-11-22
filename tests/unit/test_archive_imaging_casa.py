@@ -20,6 +20,7 @@ from astropy.io import fits
 from almasim.cli import image as cli_image
 from almasim.services.casa import environment as casa_environment
 from almasim.services.casa import runtime_data as casa_runtime_data
+from almasim.services.imaging import cont_dat as imaging_cont_dat
 from almasim.services.imaging import continuum as imaging_continuum
 from almasim.services.imaging import cube as imaging_cube
 from almasim.services.imaging import markers as imaging_markers
@@ -131,6 +132,72 @@ def test_subtract_uv_continuum_skips_without_rows_or_line_free_channels(fake_cas
 
 
 @pytest.mark.unit
+def test_subtract_uv_continuum_leaves_out_the_pipeline_line_channels(fake_casacore, monkeypatch):
+    data = _visibilities()  # a line in channels 30-35
+    fake_casacore["x.ms"] = ms = _ms(data)
+    pipeline = np.zeros(64, bool)
+    pipeline[10:16] = True  # a line only the pipeline's cont.dat names
+    pipeline[31:33] = True  # and one both name
+    seen = []
+    monkeypatch.setattr(
+        imaging_cont_dat,
+        "pipeline_line_channels",
+        lambda ms_path, source, index: (
+            seen.append((ms_path, source, index))
+            or (pipeline, "a.tgz: field F, pipeline window 23 (2 continuum ranges)")
+        ),
+    )
+
+    result = imaging_uv_contsub.subtract_uv_continuum(
+        "x.ms", pipeline_ms="uid___A002_X1_X2.ms", ous_index="ous_index.csv"
+    )
+
+    assert seen == [("x.ms", "uid___A002_X1_X2.ms", "ous_index.csv")]
+    assert result["cont_dat"] == "a.tgz: field F, pipeline window 23 (2 continuum ranges)"
+    assert result["cont_dat_line_channels"] == 6, "only the channels ALMASim called line-free"
+    ranges = [tuple(map(int, r.split("~"))) for r in result["line_ranges"].split(";")]
+    for channel in (10, 15, 30, 35):
+        assert any(a <= channel <= b for a, b in ranges), "lines in channels: both masks"
+    assert result["line_free_channels"] == 64 - result["line_channels"]
+    line = ms.columns[imaging_products.LINE_COLUMN]
+    assert np.abs(line[:, :8]).max() < 0.05, "the continuum is still fitted and removed"
+
+
+@pytest.mark.unit
+def test_subtract_uv_continuum_says_why_cont_dat_is_not_used(fake_casacore, monkeypatch):
+    fake_casacore["x.ms"] = _ms(_visibilities())
+    monkeypatch.setattr(
+        imaging_cont_dat, "pipeline_line_channels", lambda *a: (None, "no ous_index.csv for x.ms")
+    )
+    plain = imaging_uv_contsub.subtract_uv_continuum("x.ms")
+
+    result = imaging_uv_contsub.subtract_uv_continuum("x.ms", pipeline_ms="x.ms")
+
+    assert "cont_dat" not in plain
+    assert result["cont_dat"] == "not used: no ous_index.csv for x.ms"
+    assert result["cont_dat_line_channels"] == 0
+    assert result["line_ranges"] == plain["line_ranges"]
+
+
+@pytest.mark.unit
+def test_subtract_uv_continuum_skips_when_cont_dat_leaves_too_few_channels(
+    fake_casacore, monkeypatch
+):
+    fake_casacore["x.ms"] = ms = _ms(_visibilities())
+    monkeypatch.setattr(
+        imaging_cont_dat,
+        "pipeline_line_channels",
+        lambda *a: (np.arange(64) > 4, "a.tgz: field F, pipeline window 23 (1 continuum ranges)"),
+    )
+
+    result = imaging_uv_contsub.subtract_uv_continuum("x.ms", pipeline_ms="x.ms")
+
+    assert "only 5 of 64 usable channels are line-free" in result["skipped"]
+    assert result["cont_dat_line_channels"] > 0
+    assert imaging_products.LINE_COLUMN not in ms.columns
+
+
+@pytest.mark.unit
 def test_line_free_channels_with_too_few_channels_to_fit():
     line_free = imaging_continuum.line_free_channels(
         np.array([1.0, 2.0]), np.array([True, False]), order=1
@@ -161,6 +228,16 @@ def test_subtract_uv_continuum_subprocess_returns_the_child_result(tmp_path, mon
     }
     assert seen["env"]["OPENBLAS_NUM_THREADS"] == "1"
     assert log.read_text() == "casacore note\n"
+
+    imaging_uv_contsub.subtract_uv_continuum_subprocess(
+        "x.ms", order=1, pipeline_ms="uid.ms", ous_index="ous_index.csv"
+    )
+    assert seen["args"]["kwargs"] == {
+        "ms_path": "x.ms",
+        "order": 1,
+        "pipeline_ms": "uid.ms",
+        "ous_index": "ous_index.csv",
+    }
 
 
 @pytest.mark.unit
@@ -206,6 +283,27 @@ def test_selfcal_prepare_selects_line_free_channels_and_the_busiest_antenna(fake
     with pytest.raises(RuntimeError, match="no rows"):
         fake_casacore["e.ms"] = _ms(_visibilities()[:0])
         imaging_selfcal_casa_ops.selfcal_prepare("e.ms")
+
+
+@pytest.mark.unit
+def test_selfcal_prepare_leaves_out_the_pipeline_line_channels(fake_casacore, monkeypatch):
+    fake_casacore["p.ms"] = _ms(_visibilities())
+    fake_casacore["p.ms/ANTENNA"] = FakeTable(
+        {"NAME": np.array(["DA41", "DA42", "DV01", "DV02", "PM03"])}
+    )
+    pipeline = np.zeros(64, bool)
+    pipeline[:10] = True
+    monkeypatch.setattr(
+        imaging_cont_dat, "pipeline_line_channels", lambda *a: (pipeline, "a.tgz: field F")
+    )
+    plain = imaging_selfcal_casa_ops.selfcal_prepare("p.ms")
+
+    prepared = imaging_selfcal_casa_ops.selfcal_prepare("p.ms", pipeline_ms="uid.ms")
+
+    assert prepared["spw"].startswith("0:10~")
+    assert prepared["line_free_channels"] == plain["line_free_channels"] - 10
+    assert prepared["cont_dat"] == "a.tgz: field F" and prepared["cont_dat_line_channels"] == 10
+    assert "cont_dat" not in plain
 
 
 @pytest.fixture

@@ -12,6 +12,7 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from almasim.services.imaging.cont_dat import cont_dat_log
 from almasim.services.imaging.cube import (
     stack_channel_images,
 )
@@ -137,6 +138,8 @@ def self_calibrate(  # noqa: C901
     casa_data: str,
     restart: bool = False,
     keep_gains: bool = True,
+    pipeline_ms: str | None = None,
+    ous_index: str | None = None,
 ) -> dict[str, object]:
     """Self-calibrate ``ms_path`` against its own continuum, round by round.
 
@@ -158,7 +161,9 @@ def self_calibrate(  # noqa: C901
     With ``restart`` every image is cleaned in two passes, as the continuum
     is (``continuum_restart_commands``), so the model the gains are solved
     against is complete. With ``keep_gains`` the applied tables are kept in
-    ``selfcal_gains/`` (``_keep_gain_tables``).
+    ``selfcal_gains/`` (``_keep_gain_tables``). With ``pipeline_ms`` (the MS
+    ``ms_path`` was extracted from) the gains are solved only on channels the
+    ALMA pipeline's ``cont.dat`` calls continuum too (``selfcal_prepare``).
 
     ALMASim's own StefCal-style solver gave the same S/N within ~1 % on four
     cycle11 cubes and was dropped for CASA (2026-10-17).
@@ -229,11 +234,14 @@ def self_calibrate(  # noqa: C901
             log.write(f"# self-calibration skipped: S/N below {min_snr:g}\n")
             log.flush()
             return {"applied": False, "initial_snr": best_snr, "rounds": rounds}
-        prepared = call("selfcal_prepare", ms_path=str(ms_path))
+        pipeline = {"pipeline_ms": pipeline_ms, "ous_index": ous_index} if pipeline_ms else {}
+        prepared = call("selfcal_prepare", ms_path=str(ms_path), **pipeline)
         log.write(
             f"# self-calibration with CASA gaincal: refant {prepared['refant']}, "
             f"{prepared['line_free_channels']} line-free channels\n"
         )
+        if "cont_dat" in prepared:
+            log.write(f"# self-calibration {cont_dat_log(prepared)}\n")
         # The kept tables: the best phase table, then the best amplitude one.
         best_phase: Path | None = None
         best_amp: Path | None = None

@@ -277,8 +277,9 @@ radiometer).
 **The windows table** (`windows.csv`) has one row per window: the columns
 `ms` and `spw`, and optionally `field`, `name`, `syscal_ms`, `line_channels`
 (`a~b;c`, left out as line emission), `task_log` (an ALMASim imaging task's
-log, whose "lines in channels" gives them), `pwv` (the window's PWV, for the
-receiver temperatures and validate) and `task_dir` (the window's ALMASim imaging task, for
+log, whose "lines in channels" gives them, with `--pipeline-line-free` the
+pipeline's `cont.dat` line channels among them), `pwv` (the window's PWV, for
+the receiver temperatures and validate) and `task_dir` (the window's ALMASim imaging task, for
 `fit` and `validate`). Windows already measured are skipped on a rerun;
 failures go to `failures.json`. With `--backend slurm` each window is its own
 task on a Slurm worker.

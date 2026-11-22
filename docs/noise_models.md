@@ -1049,7 +1049,7 @@ required; the other columns enable more of the chain:
 | `name` | the window's name (default: uid, spw and field) | all |
 | `pwv` | the window's PWV (mm): its execution block's, or the archive's; empty for a 7 m array | aggregate (receiver temperatures), validate |
 | `line_channels` | channels of line emission to leave out, `a~b;c` | extract |
-| `task_log` | the imaging task's log, whose "lines in channels" gives them | extract |
+| `task_log` | the imaging task's log, whose "lines in channels" gives them (with `--pipeline-line-free`, the pipeline's `cont.dat` line channels among them) | extract |
 | `syscal_ms` | another MS to read SYSCAL from (default: `ms`) | extract |
 | `task_dir` | the window's imaging task | fit, validate |
 
