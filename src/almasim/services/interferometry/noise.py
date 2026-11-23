@@ -17,11 +17,12 @@ C_M_S = 299_792_458.0
 
 
 # ALMA's radiometer as ALMASim models it (data/alma_radiometer.json): the
-# receiver temperatures (K) by frequency (GHz, upper edge), each dish's Ruze
+# receiver temperatures (K) by frequency (GHz, upper edge; a row may add a slope
+# in K/GHz about a centre in GHz), each dish's Ruze
 # aperture efficiency, and the quantisation and correlator efficiencies. A
 # noise model's radiometer component may set its own (services.noise_model).
 _INSTRUMENT = json.loads((Path(__file__).parent / "data" / "alma_radiometer.json").read_text())
-ReceiverTable = tuple[tuple[float, float], ...]
+ReceiverTable = tuple[tuple[float, ...], ...]
 RuzeTable = Mapping[float, tuple[float, float]]
 # Per dish diameter, (upper edge in GHz, factor) rows, edges rising.
 EfficiencyTable = Mapping[float, tuple[tuple[float, float], ...]]
@@ -82,12 +83,17 @@ def estimate_receiver_temperature_k(
     freqs_hz: np.ndarray, receiver_model: str = "alma", table: ReceiverTable | None = None
 ) -> np.ndarray:
     """Each frequency's receiver temperature (K), by ALMA band (``table``:
-    (upper edge in GHz, K) pairs, ALMA's when None)."""
+    (upper edge in GHz, K) rows, ALMA's when None). A row may go on with a
+    slope (K/GHz) and the frequency (GHz) its temperature is at: the
+    temperature then follows that line across the row's frequencies, never
+    under 1 K."""
     table = _RECEIVER_TEMPERATURE_K if table is None else table
     freqs_ghz = np.asarray(freqs_hz, dtype=float) / 1e9
-    edges = np.array([edge for edge, _ in table])
-    values = np.array([trx for _, trx in table])
-    trx = values[np.searchsorted(edges, freqs_ghz, side="right").clip(max=len(values) - 1)]
+    rows = np.array([(*row, 0.0, 0.0)[:4] for row in table], dtype=float)
+    row = np.searchsorted(rows[:, 0], freqs_ghz, side="right").clip(max=len(rows) - 1)
+    trx = rows[row, 1]
+    if np.any(rows[:, 2] != 0.0):
+        trx = np.maximum(trx + rows[row, 2] * (freqs_ghz - rows[row, 3]), 1.0)
     if receiver_model.lower() != "alma":
         trx = trx * 1.1
     return trx

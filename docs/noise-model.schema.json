@@ -836,6 +836,33 @@
           "description": "The ALMA bands it covers.",
           "title": "Bands",
           "type": "string"
+        },
+        "slope_k_per_ghz": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "How the receiver temperature changes with frequency inside the row (K/GHz), about center_ghz; unset: one temperature for the row.",
+          "title": "Slope K Per Ghz"
+        },
+        "center_ghz": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The frequency (GHz) trx_k is at, with a slope.",
+          "title": "Center Ghz"
         }
       },
       "required": [

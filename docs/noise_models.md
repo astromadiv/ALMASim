@@ -378,6 +378,14 @@ in images.
   in `Trx`) to find the `Trx` that gives the measured median Tsys. The median over the windows of each row of the table (one
   band, or bands 2-3 and 9-10 together) replaces that row's receiver
   temperature.
+  A row with at least eight such windows also gets a slope across its
+  frequencies when its windows show one: the Theil-Sen slope of the
+  windows' `Trx` against their frequency (`slope_k_per_ghz`), kept when its
+  95% interval leaves zero out, about the windows' median frequency
+  (`center_ghz`). The row's `trx_k` is then the median of the windows'
+  `Trx` brought to that frequency along the slope, and
+  `provenance.values` records the slope with its 16% and 84% bounds. A row
+  whose windows need one temperature has no slope.
 - *Aperture efficiency.* For each dish size (12 m, 7 m), Ruze's law
   `eta_a(nu) = eta0 exp(-(4 pi eps nu / c)^2)`, the surface's rms `eps`
   costing more at higher frequency, is fitted (robustly, in log) to the
@@ -407,7 +415,7 @@ in images.
 **How the simulator applies it.** For each interferometric array
 configuration (total power keeps the S/N-scaled noise) ALMASim computes, per
 channel, the Tsys (receiver temperature from the model's table by
-frequency, plus the sky; see `atmospheric_tsys`), the SEFD with the
+frequency, along the row's slope when it has one and never under 1 K, plus the sky; see `atmospheric_tsys`), the SEFD with the
 dish's Ruze efficiency at the window's mean frequency (times its band's
 `efficiency_scale`), and sigma from the
 radiometer equation with the window's noise bandwidth, the simulator's
@@ -433,7 +441,7 @@ window follows Tsys.
 
 | Parameter | Meaning | alma@1 | alma@2 | alma@3 | alma@4 | alma@5 | alma@6 | alma@7 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `receiver_temperature_k` | Trx by frequency: rows of `upper_ghz` (the row's upper edge, GHz; null for the last), `trx_k` (K) and `bands`, edges rising | 32 (band 1), 39 (2-3), 37 (4), 50 (5), 46 (6), 63 (7), 110 (8), 160 (9-10) | 17 (band 1), 33 (2-3), 34 (4), 47 (5), 42 (6), 65 (7), 122 (8), 105 (9), 230 (10) | 17 (band 1), 33 (2-3), 34 (4), 47 (5), 42 (6), 65 (7), 122 (8), 105 (9), 230 (10) | 17 (band 1), 33 (2-3), 34 (4), 47 (5), 42 (6), 65 (7), 122 (8), 105 (9), 230 (10) | 17 (band 1), 33 (2-3), 34 (4), 47 (5), 42 (6), 65 (7), 129 (8), 113 (9), 204 (10) | 17 (band 1), 33 (2-3), 34 (4), 47 (5), 42 (6), 65 (7), 129 (8), 113 (9), 204 (10) | 17 (band 1), 33 (2-3), 33 (4), 43 (5), 42 (6), 68 (7), 133 (8), 112 (9), 204 (10) |
+| `receiver_temperature_k` | Trx by frequency: rows of `upper_ghz` (the row's upper edge, GHz; null for the last), `trx_k` (K) and `bands`, edges rising; a row may add `slope_k_per_ghz` and `center_ghz`, its temperature then being `trx_k + slope_k_per_ghz (nu - center_ghz)` across the row (no released model sets them) | 32 (band 1), 39 (2-3), 37 (4), 50 (5), 46 (6), 63 (7), 110 (8), 160 (9-10) | 17 (band 1), 33 (2-3), 34 (4), 47 (5), 42 (6), 65 (7), 122 (8), 105 (9), 230 (10) | 17 (band 1), 33 (2-3), 34 (4), 47 (5), 42 (6), 65 (7), 122 (8), 105 (9), 230 (10) | 17 (band 1), 33 (2-3), 34 (4), 47 (5), 42 (6), 65 (7), 122 (8), 105 (9), 230 (10) | 17 (band 1), 33 (2-3), 34 (4), 47 (5), 42 (6), 65 (7), 129 (8), 113 (9), 204 (10) | 17 (band 1), 33 (2-3), 34 (4), 47 (5), 42 (6), 65 (7), 129 (8), 113 (9), 204 (10) | 17 (band 1), 33 (2-3), 33 (4), 43 (5), 42 (6), 68 (7), 133 (8), 112 (9), 204 (10) |
 | `aperture` | Ruze parameters per dish: rows of `diameter_m`, `eta0` and `surface_rms_m` (another diameter takes the 12 m dish's) | 12 m: 0.76, 27 um; 7 m: 0.72, 24 um | 12 m: 0.744, 30 um; 7 m: 0.738, 24 um | 12 m: 0.735, 29 um; 7 m: 0.728, 25 um | 12 m: 0.735, 29 um; 7 m: 0.728, 25 um | 12 m: 0.734, 28 um; 7 m: 0.732, 26 um | 12 m: 0.734, 28 um; 7 m: 0.727, 15 um | 12 m: 0.731, 28 um; 7 m: 0.715, 16 um |
 | `efficiency_scale` | factors on a dish's Ruze efficiency by frequency: rows of `diameter_m`, `upper_ghz` (as in `receiver_temperature_k`), `scale` and `bands`, edges rising per dish; a dish or frequency without a row takes 1 | not set | not set | 12 m: 0.935 (band 1), 0.995 (2-3), 1.024 (4), 0.995 (5), 1.006 (6), 1.007 (7), 1.002 (8), 1 (9-10); 7 m: 0.998 (2-3), 0.991 (6), 1 (others) | 12 m: 0.913 (band 1), 0.995 (2-3), 0.976 (4), 0.995 (5), 0.998 (6), 0.994 (7), 1.002 (8), 1 (9-10); 7 m: 0.998 (2-3), 0.991 (6), 1 (others) | 12 m: 0.914 (band 1), 0.995 (2-3), 0.976 (4), 0.993 (5), 0.995 (6), 0.988 (7), 1.043 (8), 0.955 (9), 0.988 (10); 7 m: 0.994 (2-3), 0.990 (6), 1 (others) | 12 m: 0.913 (band 1), 0.994 (2-3), 0.969 (4), 0.993 (5), 0.994 (6), 0.988 (7), 1.033 (8), 0.936 (9), 0.988 (10); 7 m: 0.992 (2-3), 0.949 (6), 1.026 (9), 0.644 (10), 1 (others) | 12 m: 0.933 (band 1), 0.999 (2-3), 0.977 (4), 0.990 (5), 0.996 (6), 0.988 (7), 1.035 (8), 0.925 (9), 0.988 (10); 7 m: 1 (band 1), 1.002 (2-3), 0.964 (4), 0.931 (5), 0.972 (6), 0.986 (7), 0.892 (8), 1.053 (9), 0.665 (10) |
 | `quantisation_efficiency`, `correlator_efficiency` | eta_c = their product | 0.96 x 0.88 | 0.96 x 0.88 | 0.96 x 0.88 | 0.96 x 0.88 | 0.96 x 0.88 | 0.96 x 0.88 | 0.96 x 0.88 |

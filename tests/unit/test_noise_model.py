@@ -4,6 +4,7 @@ import json
 from dataclasses import fields
 from pathlib import Path
 
+import numpy as np
 import pytest
 from pydantic import ValidationError
 from typer.testing import CliRunner
@@ -406,3 +407,36 @@ def test_each_antenna_can_have_its_own_noise_level():
     data["components"]["antenna_sefd"] = {"log_rms": -0.1}
     with pytest.raises(ValidationError):
         NoiseModel.model_validate(data)
+
+
+@pytest.mark.unit
+def test_a_receiver_temperature_row_can_carry_a_slope():
+    """Set, the slope reaches the thermal noise model; unset, the row keeps its form."""
+    from almasim.services.interferometry.noise import (
+        NoiseModelConfig,
+        estimate_receiver_temperature_k,
+    )
+    from almasim.services.noise_model import NoiseModel
+
+    alma = released_model("alma", 6)
+    data = json.loads(alma.model_dump_json())
+    rows = data["components"]["radiometer"]["receiver_temperature_k"]
+    assert all("slope_k_per_ghz" not in r and "center_ghz" not in r for r in rows)
+    band7 = next(r for r in rows if r["bands"] == "7")
+    band7.update(slope_k_per_ghz=0.4, center_ghz=330.0)
+    model = NoiseModel.model_validate({**data, "name": "alma-slope"})
+    config = NoiseModelConfig(pwv_mm=1.0, **model.noise_config())
+    trx = estimate_receiver_temperature_k(
+        np.array([300e9, 330e9, 360e9, 230e9]), table=config.receiver_temperatures
+    )
+    flat = estimate_receiver_temperature_k(
+        np.array([230e9]),
+        table=NoiseModelConfig(pwv_mm=1.0, **alma.noise_config()).receiver_temperatures,
+    )
+    np.testing.assert_allclose(trx[:3] - band7["trx_k"], [-12.0, 0.0, 12.0])
+    assert trx[3] == flat[0]
+    again = json.loads(model.model_dump_json())["components"]["radiometer"]
+    assert next(r for r in again["receiver_temperature_k"] if r["bands"] == "7") == band7
+    del band7["center_ghz"]
+    with pytest.raises(ValidationError, match="go together"):
+        NoiseModel.model_validate({**data, "name": "alma-slope"})

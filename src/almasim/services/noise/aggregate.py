@@ -17,7 +17,8 @@ how:
   added when the base has no such component (every array has the spread);
 - radiometer: the receiver temperature per band edge that ALMA's Tsys
   implies under the simulator's Tsys model (12 m windows, PWV and the
-  target's elevation), and each dish size's Ruze aperture efficiency fitted
+  target's elevation), with its slope across the band where the band's
+  windows show one, and each dish size's Ruze aperture efficiency fitted
   to the efficiency the noise and Tsys imply, a factor for TDM windows
   where they depart from FDM windows of the same dish and band
   (tdm_efficiency), and a factor per dish and band where the band's windows
@@ -58,6 +59,10 @@ FAST_REFERENCE_S = 18.144
 # A bandpass shape with a longer period than this is smooth across the
 # window (a residual delay or bandpass slope), not a ripple.
 RIPPLE_MAX_MHZ = 50.0
+# A band's receiver temperature takes a slope with frequency from at least
+# this many windows, when the slope's 95% interval leaves zero out.
+TRX_SLOPE_WINDOWS = 8
+TRX_SLOPE_CONFIDENCE = 0.95
 # A window's line channels need this share of continuum for its non-closing
 # error to be told into the instrument's and the continuum's: below it, the
 # window's signal may be the line itself, and the two errors are one.
@@ -426,22 +431,35 @@ def _radiometer(
     config = noise.NoiseModelConfig(pwv_mm=1.0, **base.noise_config())
     table = config.receiver_temperatures or noise._RECEIVER_TEMPERATURE_K
     rows = radiometer.get("receiver_temperature_k") or [
-        {"upper_ghz": None if np.isinf(edge) else edge, "trx_k": trx} for edge, trx in table
+        {"upper_ghz": None if np.isinf(row[0]) else row[0], "trx_k": row[1]} for row in table
     ]
     edges = np.array([np.inf if r["upper_ghz"] is None else r["upper_ghz"] for r in rows])
-    needed: dict[int, list[float]] = {}
+    needed: dict[int, list[tuple[float, float]]] = {}
     for w in windows:
         trx = _trx_needed(w, config.forward_efficiency)
         if trx is not None and round(w.exposure.dish_diameter_m) == 12:
             row = int(np.searchsorted(edges, w.exposure.frequency_ghz, side="right"))
-            needed.setdefault(min(row, len(rows) - 1), []).append(trx)
+            needed.setdefault(min(row, len(rows) - 1), []).append((w.exposure.frequency_ghz, trx))
     for k, row in enumerate(rows):
-        values = needed.get(k, [])
+        points = needed.get(k, [])
         key = f"radiometer.receiver_temperature_k[{row.get('bands') or k}]"
-        if len(values) < min_windows:
-            notes.append(f"{key}: {len(values)} window(s), kept the base's")
+        if len(points) < min_windows:
+            notes.append(f"{key}: {len(points)} window(s), kept the base's")
             continue
-        stats[key] = _stats(values)
+        ghz, values = (np.array(x) for x in zip(*points, strict=True))
+        row.pop("slope_k_per_ghz", None)
+        row.pop("center_ghz", None)
+        line = (
+            _trx_slope(ghz, values) if len(points) >= max(min_windows, TRX_SLOPE_WINDOWS) else None
+        )
+        if line is not None:
+            slope, low, high, center = line
+            values = values - slope * (ghz - center)
+            stats[f"{key}.slope_k_per_ghz"] = ValueStats(
+                n=len(points), median=slope, q16=low, q84=high
+            )
+            row["slope_k_per_ghz"], row["center_ghz"] = slope, center
+        stats[key] = _stats(values.tolist())
         row["trx_k"] = max(stats[key].median, 1.0)
     radiometer["receiver_temperature_k"] = rows
 
@@ -649,6 +667,22 @@ def _trx_needed(window: WindowNoise, forward_efficiency: float | None = None) ->
     if at[1] <= at[0]:
         return None
     return 100.0 * (w.tsys.median_k - at[0]) / (at[1] - at[0])
+
+
+def _trx_slope(ghz: np.ndarray, trx: np.ndarray) -> tuple[float, float, float, float] | None:
+    """How a band's needed receiver temperatures change with frequency: the
+    Theil-Sen slope (K/GHz), its 16% and 84% bounds and the windows' median
+    frequency (GHz), which the band's temperature is then at; None when the
+    slope's 95% interval holds zero (one temperature serves the band)."""
+    from scipy.stats import theilslopes
+
+    if np.ptp(ghz) <= 0:
+        return None
+    slope, _, low95, high95 = theilslopes(trx, ghz, alpha=TRX_SLOPE_CONFIDENCE)
+    if not np.all(np.isfinite([slope, low95, high95])) or low95 <= 0.0 <= high95:
+        return None
+    _, _, low, high = theilslopes(trx, ghz, alpha=0.68)
+    return float(slope), float(low), float(high), float(np.median(ghz))
 
 
 def _ruze_fit(
