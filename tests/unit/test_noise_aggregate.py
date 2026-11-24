@@ -345,6 +345,32 @@ def test_a_band_whose_windows_need_more_at_higher_frequencies_gets_a_slope():
 
 
 @pytest.mark.unit
+def test_the_slope_is_the_one_the_noise_needs():
+    """The slope follows the windows' noise, not their Tsys alone: windows of one
+    Tsys-implied temperature whose efficiency falls with frequency (their noise
+    rises across the band) get a slope, and the band's temperature stays the
+    one their Tsys implies."""
+    base = released_model("alma", 1)
+    ghz = np.linspace(290.0, 360.0, 10)
+    windows = [
+        Measured(_window(k, ghz=f, trx=68.0, efficiency_scale=1.0 - 0.002 * (f - 325.0)))
+        for k, f in enumerate(ghz)
+    ]
+    # Windows of the other bands hold the dish's curve in place.
+    others = [
+        Measured(_window(30 + k, ghz=f))
+        for k, f in enumerate(
+            [100.0, 105.0, 150.0, 155.0, 230.0, 235.0, 410.0, 420.0, 650.0, 660.0]
+        )
+    ]
+    candidate = aggregate(windows + others, base)
+    rows = {r.bands: r for r in candidate.components.radiometer.receiver_temperature_k}
+    assert rows["7"].slope_k_per_ghz is not None and rows["7"].slope_k_per_ghz > 0.1
+    assert rows["7"].center_ghz == pytest.approx(325.0)
+    assert rows["7"].trx_k == pytest.approx(68.0, rel=0.01)
+
+
+@pytest.mark.unit
 def test_tdm_windows_get_their_own_efficiency():
     """A band's TDM windows over its FDM windows, apart from the band's own scale."""
     fdm = [Measured(_window(k, efficiency_scale=0.95)) for k in range(6)]
