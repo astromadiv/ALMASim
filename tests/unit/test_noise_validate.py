@@ -381,7 +381,7 @@ def stubbed(monkeypatch, tmp_path):
         lines[3] = True
         return simulated_band(real.exposure.channels, v.MAX_CHANNELS, lines=lines)
 
-    def image(run, imaging):
+    def image(run, imaging, selfcal=""):
         return _task(run / "cubes" / "sim" / "SPW-0_FIELD-0", 1e-3 * ratio["value"], seed=7)
 
     monkeypatch.setattr(v, "simulate", simulate)
@@ -753,6 +753,25 @@ def test_windows_validated_at_once_write_through_their_own_temporary_files(tmp_p
 
 
 @pytest.mark.unit
+def test_the_real_windows_applied_self_calibration_is_read_from_its_log(tmp_path):
+    log = tmp_path / "wsclean.log"
+    rounds = (
+        "# self-calibration: initial continuum S/N 341.0, peak 4.0 Jy/beam\n"
+        "# self-calibration round 1 (p, solint inf): S/N 500.0\n"
+        "# self-calibration round 2 (p, solint 30s): S/N 700.0\n"
+        "# self-calibration round 3 (ap, solint inf): S/N 950.0\n"
+    )
+    log.write_text(rounds + "# self-calibration applied\n")
+    assert v.real_selfcal(log) == "inf,30s,ap:inf"
+    assert v.real_selfcal(str(log)) == "inf,30s,ap:inf"
+    log.write_text(rounds)
+    assert v.real_selfcal(log) == "", "rounds whose gains were not applied"
+    log.write_text("# imaging\n")
+    assert v.real_selfcal(log) == ""
+    assert v.real_selfcal(tmp_path / "missing.log") == "" and v.real_selfcal(None) == ""
+
+
+@pytest.mark.unit
 def test_a_simulated_window_is_imaged_as_the_real_ones(monkeypatch, tmp_path):
     from types import SimpleNamespace
 
@@ -761,7 +780,7 @@ def test_a_simulated_window_is_imaged_as_the_real_ones(monkeypatch, tmp_path):
     def run(command, capture_output, text):
         calls.append(command)
         if "image-from-ms" in command:
-            (tmp_path / "cubes" / "x" / "SPW-0_FIELD-0").mkdir(parents=True)
+            (tmp_path / "cubes" / "x" / "SPW-0_FIELD-0").mkdir(parents=True, exist_ok=True)
         return SimpleNamespace(returncode=0, stderr="", stdout="")
 
     monkeypatch.setattr(v.subprocess, "run", run)
@@ -773,6 +792,10 @@ def test_a_simulated_window_is_imaged_as_the_real_ones(monkeypatch, tmp_path):
         "clean-quality",
     ]
     assert "--uv-contsub" in calls[1] and "/w" in calls[1]
+    assert "--selfcal" not in calls[1]
+    calls.clear()
+    v.image(tmp_path, v.Imaging(), selfcal="inf,ap:inf")
+    assert calls[1][-2:] == ["--selfcal", "inf,ap:inf"]
 
     def failing(command, capture_output, text):
         return SimpleNamespace(returncode=1, stderr="wsclean: out of memory", stdout="")
