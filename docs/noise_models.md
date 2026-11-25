@@ -379,13 +379,19 @@ in images.
   band, or bands 2-3 and 9-10 together) replaces that row's receiver
   temperature.
   A row with at least eight such windows also gets a slope across its
-  frequencies when its windows show one: the Theil-Sen slope of the
-  windows' `Trx` against their frequency (`slope_k_per_ghz`), kept when its
-  95% interval leaves zero out, about the windows' median frequency
-  (`center_ghz`). The row's `trx_k` is then the median of the windows'
-  `Trx` brought to that frequency along the slope, and
-  `provenance.values` records the slope with its 16% and 84% bounds. A row
-  whose windows need one temperature has no slope.
+  frequencies when the windows' noise shows one. The simulated noise follows
+  the system temperature over the efficiency, and a band has one efficiency
+  about its dish's curve, so the slope is fitted to the temperatures the
+  noise needs: each window's Tsys is divided by its measured efficiency
+  relative to the median of the windows of its dish, band and kind of
+  channels (TDM or FDM; groups of at least three windows), and the `Trx`
+  that gives this Tsys is found as above. The slope is the Theil-Sen slope
+  of these `Trx` against the windows' frequency (`slope_k_per_ghz`), kept
+  when its 95% interval leaves zero out, about the median frequency of the
+  row's windows (`center_ghz`). The row's `trx_k` is then the median of the
+  `Trx` the windows' Tsys gives, brought to that frequency along the slope,
+  and `provenance.values` records the slope with its 16% and 84% bounds. A
+  row whose windows' noise needs one temperature has no slope.
 - *Aperture efficiency.* For each dish size (12 m, 7 m), Ruze's law
   `eta_a(nu) = eta0 exp(-(4 pi eps nu / c)^2)`, the surface's rms `eps`
   costing more at higher frequency, is fitted (robustly, in log) to the

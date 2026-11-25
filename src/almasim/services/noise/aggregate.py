@@ -17,8 +17,9 @@ how:
   added when the base has no such component (every array has the spread);
 - radiometer: the receiver temperature per band edge that ALMA's Tsys
   implies under the simulator's Tsys model (12 m windows, PWV and the
-  target's elevation), with its slope across the band where the band's
-  windows show one, and each dish size's Ruze aperture efficiency fitted
+  target's elevation), with the slope across the band that the windows'
+  noise shows (their Tsys over their efficiency relative to the band's),
+  and each dish size's Ruze aperture efficiency fitted
   to the efficiency the noise and Tsys imply, a factor for TDM windows
   where they depart from FDM windows of the same dish and band
   (tdm_efficiency), and a factor per dish and band where the band's windows
@@ -434,35 +435,6 @@ def _radiometer(
         {"upper_ghz": None if np.isinf(row[0]) else row[0], "trx_k": row[1]} for row in table
     ]
     edges = np.array([np.inf if r["upper_ghz"] is None else r["upper_ghz"] for r in rows])
-    needed: dict[int, list[tuple[float, float]]] = {}
-    for w in windows:
-        trx = _trx_needed(w, config.forward_efficiency)
-        if trx is not None and round(w.exposure.dish_diameter_m) == 12:
-            row = int(np.searchsorted(edges, w.exposure.frequency_ghz, side="right"))
-            needed.setdefault(min(row, len(rows) - 1), []).append((w.exposure.frequency_ghz, trx))
-    for k, row in enumerate(rows):
-        points = needed.get(k, [])
-        key = f"radiometer.receiver_temperature_k[{row.get('bands') or k}]"
-        if len(points) < min_windows:
-            notes.append(f"{key}: {len(points)} window(s), kept the base's")
-            continue
-        ghz, values = (np.array(x) for x in zip(*points, strict=True))
-        row.pop("slope_k_per_ghz", None)
-        row.pop("center_ghz", None)
-        line = (
-            _trx_slope(ghz, values) if len(points) >= max(min_windows, TRX_SLOPE_WINDOWS) else None
-        )
-        if line is not None:
-            slope, low, high, center = line
-            values = values - slope * (ghz - center)
-            stats[f"{key}.slope_k_per_ghz"] = ValueStats(
-                n=len(points), median=slope, q16=low, q84=high
-            )
-            row["slope_k_per_ghz"], row["center_ghz"] = slope, center
-        stats[key] = _stats(values.tolist())
-        row["trx_k"] = max(stats[key].median, 1.0)
-    radiometer["receiver_temperature_k"] = rows
-
     apertures = {float(d): (eta0, rms) for d, (eta0, rms) in (config.ruze or noise._RUZE).items()}
     correlator = config.correlator_efficiency
     kept: set[float] = set()  # dishes whose aperture stays the base's
@@ -495,6 +467,48 @@ def _radiometer(
         {"diameter_m": d, "eta0": e, "surface_rms_m": r}
         for d, (e, r) in sorted(apertures.items(), reverse=True)
     ]
+    relative = _relative_efficiencies(windows, rows, edges, apertures, correlator)
+    needed: dict[int, list[tuple[float, float, float | None]]] = {}
+    for i, w in enumerate(windows):
+        trx = _trx_needed(w, config.forward_efficiency)
+        if trx is not None and round(w.exposure.dish_diameter_m) == 12:
+            row = int(np.searchsorted(edges, w.exposure.frequency_ghz, side="right"))
+            by_noise = (
+                _trx_needed(w, config.forward_efficiency, w.tsys.median_k / relative[i])
+                if i in relative and w.tsys is not None
+                else None
+            )
+            needed.setdefault(min(row, len(rows) - 1), []).append(
+                (w.exposure.frequency_ghz, trx, by_noise)
+            )
+    for k, row in enumerate(rows):
+        trx_points = needed.get(k, [])
+        key = f"radiometer.receiver_temperature_k[{row.get('bands') or k}]"
+        if len(trx_points) < min_windows:
+            notes.append(f"{key}: {len(trx_points)} window(s), kept the base's")
+            continue
+        ghz = np.array([p[0] for p in trx_points])
+        values = np.array([p[1] for p in trx_points])
+        row.pop("slope_k_per_ghz", None)
+        row.pop("center_ghz", None)
+        noise_points = [(p[0], p[2]) for p in trx_points if p[2] is not None]
+        line = (
+            _trx_slope(*(np.array(x) for x in zip(*noise_points, strict=True)))
+            if len(noise_points) >= max(min_windows, TRX_SLOPE_WINDOWS)
+            else None
+        )
+        if line is not None:
+            slope, low, high, _ = line
+            center = float(np.median(ghz))
+            values = values - slope * (ghz - center)
+            stats[f"{key}.slope_k_per_ghz"] = ValueStats(
+                n=len(noise_points), median=slope, q16=low, q84=high
+            )
+            row["slope_k_per_ghz"], row["center_ghz"] = slope, center
+        stats[key] = _stats(values.tolist())
+        row["trx_k"] = max(stats[key].median, 1.0)
+    radiometer["receiver_temperature_k"] = rows
+
     ratios = _efficiency_ratios(windows, rows, edges, apertures, correlator)
     tdm = _tdm_efficiency(ratios, max(min_windows, 3), stats, notes)
     if tdm is not None:
@@ -637,11 +651,51 @@ def _scale_rows(
     return out
 
 
-def _trx_needed(window: WindowNoise, forward_efficiency: float | None = None) -> float | None:
-    """The receiver temperature that gives the window's median SYSCAL Tsys under
-    the simulator's Tsys model (linear in it; the Technical Handbook's with
-    ``forward_efficiency``), at the window's PWV and the target's elevation;
-    None without them."""
+def _relative_efficiencies(
+    windows: Sequence[WindowNoise],
+    rows: list[dict[str, Any]],
+    edges: np.ndarray,
+    apertures: dict[float, tuple[float, float]],
+    correlator: float,
+) -> dict[int, float]:
+    """Per window (by its index), its measured efficiency over the Ruze curve
+    relative to the median of the windows of its dish, band row and kind of
+    channels (TDM or FDM): what of the window's noise a band's one efficiency
+    leaves to its system temperature. Windows in a group of fewer than 3 have
+    none."""
+    from ..interferometry import noise
+
+    groups: dict[tuple[float, int, bool], list[tuple[int, float]]] = {}
+    for i, w in enumerate(windows):
+        diameter = next(
+            (d for d in apertures if round(d) == round(w.exposure.dish_diameter_m)), None
+        )
+        if diameter is None or not w.visibility.efficiency:
+            continue
+        hz = w.exposure.frequency_ghz * 1e9
+        curve = noise.aperture_efficiency(hz, diameter, {diameter: apertures[diameter]})
+        row = min(
+            int(np.searchsorted(edges, w.exposure.frequency_ghz, side="right")), len(rows) - 1
+        )
+        ratio = w.visibility.efficiency / correlator / curve
+        if ratio > 0 and np.isfinite(ratio):
+            groups.setdefault((diameter, row, window_tdm(w)), []).append((i, float(ratio)))
+    out: dict[int, float] = {}
+    for members in groups.values():
+        if len(members) < 3:
+            continue
+        centre = float(np.median([r for _, r in members]))
+        out.update({i: r / centre for i, r in members})
+    return out
+
+
+def _trx_needed(
+    window: WindowNoise, forward_efficiency: float | None = None, tsys_k: float | None = None
+) -> float | None:
+    """The receiver temperature that gives ``tsys_k`` (the window's median SYSCAL
+    Tsys when None) under the simulator's Tsys model (linear in it; the
+    Technical Handbook's with ``forward_efficiency``), at the window's PWV and
+    the target's elevation; None without them."""
     from ..interferometry.atmosphere import system_temperature
 
     w = window
@@ -666,7 +720,8 @@ def _trx_needed(window: WindowNoise, forward_efficiency: float | None = None) ->
     ]
     if at[1] <= at[0]:
         return None
-    return 100.0 * (w.tsys.median_k - at[0]) / (at[1] - at[0])
+    target = w.tsys.median_k if tsys_k is None else tsys_k
+    return 100.0 * (target - at[0]) / (at[1] - at[0])
 
 
 def _trx_slope(ghz: np.ndarray, trx: np.ndarray) -> tuple[float, float, float, float] | None:
