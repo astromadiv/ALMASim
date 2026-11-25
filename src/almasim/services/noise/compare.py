@@ -9,7 +9,10 @@ range, a paired Wilcoxon signed-rank p, and how many windows fall within
 cube and visibility noise within ``noise_tolerance`` of the real, the simulated
 visibilities' variance within ``weight_tolerance`` of what their WEIGHT
 claims, no listed metric differing at p below ``min_p``, and no band or
-array group's median noise off by more than ``group_tolerance``.
+array group's median noise off by more than ``group_tolerance``. A group has
+few windows, so its median is uncertain: the group fails only when its median
+is beyond the tolerance by more than ``group_sigma`` times the median's
+standard error, which the windows' own scatter gives (:func:`median_error`).
 
 The continuum noise, over all the windows and in each group, is judged on
 the jackknifed continuum noise (``jk.sigma``, :mod:`.jackknife`) when every
@@ -82,6 +85,12 @@ class Criteria(_Record):
     group_tolerance: float = Field(
         default=0.10, gt=0, description="Each band or array group within 1 +- this."
     )
+    group_sigma: float = Field(
+        default=2.0,
+        ge=0,
+        description="A group fails when its median is beyond group_tolerance by more than "
+        "this many standard errors of the median; 0 judges the median alone.",
+    )
     checked: tuple[str, ...] = Field(
         default=NOISE_LEVELS,
         description="Metrics whose p is checked (jk.sigma: cont.sigma unless every window has it).",
@@ -96,6 +105,11 @@ class MetricSummary(_Record):
     q84: float
     p: float | None = Field(description="Paired Wilcoxon signed-rank p (n >= 6).")
     within_10pct: int | None = Field(default=None, description="Windows within 10% (ratios).")
+    median_error: float | None = Field(
+        default=None,
+        description="The median's standard error, from the windows' robust scatter (n >= 3); "
+        "of a ratio, as a fraction of the median.",
+    )
 
 
 class Check(_Record):
@@ -307,7 +321,20 @@ def _summary(sim: np.ndarray, real: np.ndarray, kind: str) -> MetricSummary | No
         q84=float(q84),
         p=p,
         within_10pct=int(np.sum(np.abs(per - 1) <= 0.1)) if kind == "ratio" else None,
+        median_error=median_error(tested),
     )
+
+
+def median_error(values: np.ndarray) -> float | None:
+    """The standard error of the values' median: 1.2533 sigma / sqrt(n), the
+    median's for normal scatter, with sigma the robust 1.4826 times the median
+    absolute deviation, which a window far off does not inflate. None for
+    fewer than three values."""
+    values = np.asarray(values, dtype=float)
+    if values.size < 3:
+        return None
+    sigma = 1.4826 * float(np.median(np.abs(values - np.median(values))))
+    return 1.2533 * sigma / float(np.sqrt(values.size))
 
 
 def _checks(
@@ -351,12 +378,15 @@ def _checks(
             )
     for key, summary in groups.items():
         if summary.n >= 3:
+            # The median's standard error is of its log: times the median, the ratio's.
+            error = (summary.median_error or 0.0) * summary.median
+            beyond = abs(summary.median - 1) - criteria.group_tolerance
             checks.append(
                 Check(
                     name=f"{group_metrics[key]} of {key} within {criteria.group_tolerance:.0%}",
-                    passed=abs(summary.median - 1) <= criteria.group_tolerance,
+                    passed=beyond <= criteria.group_sigma * error,
                     value=summary.median,
-                    detail=f"{summary.n} windows",
+                    detail=f"+- {error:.2g}, {summary.n} windows",
                 )
             )
     return checks
