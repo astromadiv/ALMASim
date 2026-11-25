@@ -151,7 +151,7 @@ def test_a_matching_model_passes_and_a_quiet_one_does_not():
 
 
 @pytest.mark.unit
-def test_a_group_fails_only_beyond_its_medians_uncertainty():
+def test_a_group_fails_only_beyond_its_medians_uncertainty(capsys):
     """A few windows that scatter leave their median uncertain: a group 11% off
     whose windows scatter by 14% passes, the same median from windows that
     agree fails, and ``group_sigma`` 0 judges the median alone."""
@@ -179,6 +179,14 @@ def test_a_group_fails_only_beyond_its_medians_uncertainty():
     assert not {c.name: c.passed for c in compare(scattered, {"label": "x"}, alone).checks}[name]
     agreeing = group([1.10, 1.105, 1.11, 1.112, 1.112, 1.115, 1.12, 1.125])
     assert not {c.name: c.passed for c in compare(agreeing, {"label": "x"}, loose).checks}[name]
+    # Two windows give no error; the printed line shows a group's.
+    from almasim.cli.noise import _print_comparison
+    from almasim.services.noise.compare import median_error
+
+    assert median_error(np.array([0.1, 0.2])) is None
+    assert compare(scattered[:2], {"label": "x"}, loose).groups["band 6 7 m"].median_error is None
+    _print_comparison(found)
+    assert "within 10%: 1.112 (+- 0.08" in capsys.readouterr().out
 
 
 @pytest.mark.unit
