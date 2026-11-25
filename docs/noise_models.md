@@ -1411,7 +1411,7 @@ Thirteen choices keep the comparison fair, and one limit remains:
   windows with a continuum peak 700 to 2900 times the real noise, the
   simulated cleaned continuum (`cont.sigma`) goes from 1.8, 3.2, 3.4 and
   5.2 times the real one to 1.2, 1.8, 2.0 and 2.2 times, and its cube noise
-  from 0.90 to 1.10 times the real one to 1.07 to 1.26 times.
+  from 0.90 to 1.10 times the real one to 1.08 to 1.26 times.
 - *The averaging.* Each window is simulated with its own channel averaging,
   from its MS's `RESOLUTION` (`exposure.resolution_hz`), not the archive
   row's: the row lists the whole observing unit's windows, whose averaging
