@@ -993,6 +993,10 @@ def _print_comparison(comparison) -> None:
         typer.echo(
             f"  continuum clean diverged (cont.* left out): {', '.join(comparison.diverged)}"
         )
+    if comparison.diverged_cubes:
+        typer.echo(
+            f"  cube clean diverged (cube.* left out): {', '.join(comparison.diverged_cubes)}"
+        )
     for check in comparison.checks:
         detail = f" ({check.detail})" if check.detail else ""
         typer.echo(f"  [{'pass' if check.passed else 'FAIL'}] {check.name}: {check.value}{detail}")

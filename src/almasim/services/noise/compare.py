@@ -25,7 +25,10 @@ noise alone.
 A cleaned continuum that diverged (``image clean-quality``'s
 ``continuum.diverged``) holds the diverged model, not the noise: the window's
 cleaned continuum metrics (``cont.*``) are left out on both sides, and the
-comparison lists it. Its jackknife is imaged dirty and stays.
+comparison lists it. Its jackknife is imaged dirty and stays. A cube with more
+than ``CUBE_DIVERGED_SHARE`` of its channel cleans diverged
+(``cube.diverged`` over ``cube.channels``) is left out of the cube's metrics
+(``cube.*``) the same way: its median channel no longer holds the noise.
 """
 
 from __future__ import annotations
@@ -64,6 +67,9 @@ VISIBILITY_METRICS = ("visibility.unit_jy", "visibility.sigma_jy")
 GROUP_METRICS = ("jk.sigma", "cont.sigma")  # the first every window of a group has
 # image clean-quality's count of the continuum's diverged cleans.
 DIVERGED = "q.continuum.diverged"
+# A cube is left out when more than this share of its channel cleans diverged
+# (the median over the channels stands a few).
+CUBE_DIVERGED_SHARE = 0.2
 
 
 class _Record(BaseModel):
@@ -142,6 +148,11 @@ class Comparison(_Record):
         description="Windows whose cleaned continuum diverged, simulated or real: "
         "their cont.* metrics are left out.",
     )
+    diverged_cubes: list[str] = Field(
+        default_factory=list,
+        description="Windows with more than a fifth of the cube's channel cleans diverged, "
+        "simulated or real: their cube.* metrics are left out.",
+    )
 
 
 @dataclass(frozen=True)
@@ -188,6 +199,7 @@ def compare(pairs: Sequence[Pair], model: dict, criteria: Criteria | None = None
         checks=checks,
         passed=bool(checks) and all(c.passed for c in checks),
         diverged=[p.name for p in pairs if _diverged(p)],
+        diverged_cubes=[p.name for p in pairs if _cube_diverged(p)],
     )
 
 
@@ -225,9 +237,19 @@ def _diverged(pair: Pair) -> bool:
     return any((image.get(DIVERGED) or 0) > 0 for image in (pair.sim_image, pair.real_image))
 
 
+def _cube_diverged(pair: Pair) -> bool:
+    """Whether more than ``CUBE_DIVERGED_SHARE`` of either side's channel
+    cleans diverged."""
+    return any(
+        (image.get("q.cube.diverged") or 0)
+        > CUBE_DIVERGED_SHARE * (image.get("q.cube.channels") or np.inf)
+        for image in (pair.sim_image, pair.real_image)
+    )
+
+
 def _value(pair: Pair, metric: str, *, simulated: bool) -> float | None:
     head = metric.split(".", 1)[0]
-    if head == "cont" and _diverged(pair):
+    if (head == "cont" and _diverged(pair)) or (head == "cube" and _cube_diverged(pair)):
         return None
     if head in ("cont", "cube", "q", "jk"):
         value = (pair.sim_image if simulated else pair.real_image).get(metric)

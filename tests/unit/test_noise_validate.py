@@ -273,6 +273,32 @@ def test_a_diverged_continuum_is_left_out_of_the_continuum_metrics():
 
 
 @pytest.mark.unit
+def test_a_mostly_diverged_cube_is_left_out_of_the_cube_metrics(capsys):
+    """More than a fifth of a cube's channel cleans diverged, on either side:
+    its median channel holds diverged models, and its cube metrics are left
+    out; a few diverged channels leave the median the noise's."""
+    from almasim.cli.noise import _print_comparison
+
+    pairs = _pairs(1.0)
+    first = pairs[0]
+    high = 6.0 * first.sim_image["cube.sigma_median"]
+    diverged = {**first.sim_image, "cube.sigma_median": high, "q.cube.channels": 128}
+    pairs[0] = replace(first, sim_image={**diverged, "q.cube.diverged": 100})
+    judged = compare(pairs, {"label": "cube"})
+    assert judged.diverged_cubes == ["w0"] and judged.diverged == []
+    assert judged.metrics["cube.sigma_median"].n == 7
+    assert judged.metrics["cont.sigma"].n == 8
+    _print_comparison(judged)
+    assert "cube clean diverged (cube.* left out): w0" in capsys.readouterr().out
+    pairs[0] = replace(first, sim_image={**diverged, "q.cube.diverged": 5})
+    few = compare(pairs, {"label": "cube"})
+    assert few.diverged_cubes == [] and few.metrics["cube.sigma_median"].n == 8
+    real = {**first.real_image, "q.cube.channels": 64, "q.cube.diverged": 64}
+    pairs[0] = replace(first, real_image=real)
+    assert compare(pairs, {"label": "cube"}).diverged_cubes == ["w0"]
+
+
+@pytest.mark.unit
 def test_cube_noise_is_compared_at_the_real_cubes_channel_width():
     # The simulated cube has half the real cube's channels (its image is wider
     # and the size cap halves them), so its channels are twice as wide and its
@@ -557,6 +583,7 @@ def test_a_window_is_simulated_from_its_row_with_the_model(monkeypatch, tmp_path
         return "clean"
 
     monkeypatch.setattr(simulation, "generate_clean_cube", clean_cube)
+    monkeypatch.setattr(v, "without_lines", lambda clean: clean)  # the stand-in has no cube
     monkeypatch.setattr(
         simulation, "simulate_observation", lambda clean, compute_backend=None: "results"
     )
@@ -605,6 +632,7 @@ def test_a_window_is_simulated_with_its_own_channel_averaging(monkeypatch, tmp_p
         return "clean"
 
     monkeypatch.setattr(simulation, "generate_clean_cube", clean_cube)
+    monkeypatch.setattr(v, "without_lines", lambda clean: clean)  # the stand-in has no cube
     monkeypatch.setattr(simulation, "simulate_observation", lambda clean, compute_backend=None: 0)
     monkeypatch.setattr(
         simulation,
@@ -667,6 +695,14 @@ def test_the_simulated_source_is_as_bright_as_the_real_continuum():
     assert scaled.model_cube[2, 4, 4] / scaled.model_cube[0, 4, 4] == pytest.approx(3.0)
     for peak in (0.0, -1.0):
         assert v.with_continuum(stage, peak) is stage
+    # Without its lines the source keeps each channel's continuum share.
+    plain = v.without_lines(stage)
+    assert plain.model_cube[:, 4, 4].tolist() == pytest.approx([1.0, 1.0, 1.0, 1.0])
+    assert plain.continuum_fraction.tolist() == [1.0, 1.0, 1.0, 1.0]
+    assert all(run.skymodel is plain.model_cube for run in plain.interferometer_runs)
+    assert stage.model_cube[2, 4, 4] == 3.0
+    external = Stage(cube, None, [])
+    assert v.without_lines(external) is external
     assert v.with_continuum(Stage(np.zeros_like(cube), None, []), 0.002).model_cube.max() == 0
 
 

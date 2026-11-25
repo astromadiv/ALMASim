@@ -374,7 +374,9 @@ sky the simulated source lacks; `--criteria` takes a
 JSON file of other values. A window whose cleaned continuum diverged, simulated
 or real (`image clean-quality`'s `continuum.diverged`), is listed in
 `diverged` and left out of the cleaned continuum's metrics (`cont.*`); its
-jackknife, imaged dirty, stays.
+jackknife, imaged dirty, stays. A window with more than a fifth of its cube's
+channel cleans diverged on either side (`cube.diverged` over `cube.channels`)
+is listed in `diverged_cubes` and left out of the cube's metrics (`cube.*`).
 
 **`noise promote`** writes a candidate as the next version of a released
 model, `models/<name>-<n+1>.json` in the working tree, only with a passing
