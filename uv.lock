@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = "==3.12.*"
 resolution-markers = [
     "sys_platform == 'win32'",
@@ -1175,10 +1175,11 @@ wheels = [
 
 [[package]]
 name = "kaggle"
-version = "2.2.4"
+version = "2.2.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "bleach" },
+    { name = "certifi" },
     { name = "jupytext" },
     { name = "kagglesdk" },
     { name = "packaging" },
@@ -1190,9 +1191,9 @@ dependencies = [
     { name = "tqdm" },
     { name = "urllib3" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/8d/22/9e4d5015aad7c7794af098e3def53a26a7deae3ee2e348c129bc2446260e/kaggle-2.2.4.tar.gz", hash = "sha256:28a58f6c1b9f46ce2afdfb439e0c4e91219e818b377ea4254f4e479456d8cb78", size = 317079, upload-time = "2026-07-23T21:20:57.915Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/16/bb/e72ac9c6945758f4a5ac201f71327c8d286f9a5d2c3cdfb4e8d663ad9e26/kaggle-2.2.5.tar.gz", hash = "sha256:edb4298fbfddbdfcf020072a8971bd335e247191ebb4ab70ee4c6d30f6ecb9fa", size = 366401, upload-time = "2026-10-22T22:01:22.866Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/6d/0b/79bbabb2b3f7eaee3bcde7397abf29bbdd8694886f45bef460fca5d71729/kaggle-2.2.4-py3-none-any.whl", hash = "sha256:47d3b258363f4693ade67d875b1c108bfaa87a469f4b6fe85903e7c9757aa09c", size = 126165, upload-time = "2026-07-23T21:20:56.631Z" },
+    { url = "https://files.pythonhosted.org/packages/45/ef/93bee59e708657b392f995fdaed2d3fd9b2959a2b20140560417ebefdaed/kaggle-2.2.5-py3-none-any.whl", hash = "sha256:711901cf1dfe9133d83ffed6f09972d97ce87adafc2b24f9a91038828a6393d7", size = 140242, upload-time = "2026-10-22T22:01:21.415Z" },
 ]
 
 [[package]]
@@ -1773,7 +1774,7 @@ name = "pexpect"
 version = "4.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "ptyprocess", marker = "sys_platform != 'emscripten' and sys_platform != 'win32'" },
+    { name = "ptyprocess" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/42/92/cc564bf6381ff43ce1f4d06852fc19a2f11d180f23dc32d9588bee2f149d/pexpect-4.9.0.tar.gz", hash = "sha256:ee7d41123f3c9911050ea2c2dac107568dc43b2d3b0c7557a33212c398ead30f", size = 166450, upload-time = "2023-11-25T09:07:26.339Z" }
 wheels = [
