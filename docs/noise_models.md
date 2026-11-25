@@ -1339,7 +1339,21 @@ The default criteria:
 | continuum, cube and visibility noise | each median ratio is within 5% of 1; the continuum's is the jackknifed noise (`jk.sigma`) when every window has it, the cleaned continuum's (`cont.sigma`) otherwise |
 | simulated visibilities against their WEIGHT | the median `scale` is within 1% of 1 |
 | those three noise levels | none differs at p below 0.01 (p needs six or more windows; the continuum's as above) |
-| each band and array group | its median continuum noise ratio is within 10% of 1 (groups of 3 or more windows): the jackknifed noise (`jk.sigma`) when every window of the group has it, the cleaned continuum's (`cont.sigma`) otherwise; `group_metrics` in `comparison.json` names the one judged |
+| each band and array group | its median continuum noise ratio is within 10% of 1, or beyond it by no more than twice the median's standard error (groups of 3 or more windows; see below): the jackknifed noise (`jk.sigma`) when every window of the group has it, the cleaned continuum's (`cont.sigma`) otherwise; `group_metrics` in `comparison.json` names the one judged |
+
+A group has few windows, and the windows of one band scatter by some 10 to
+15% each, so a group's median is itself uncertain: the median of eight such
+windows moves by about 6% from one set of windows to another. Each summary
+in `comparison.json` therefore carries `median_error`, the median's standard
+error from the windows' own scatter (1.2533 sigma / sqrt(n), sigma being
+1.4826 times the median absolute deviation of the windows' log ratios, which
+one window far off does not inflate; as a fraction of the median). A group
+fails when its median is beyond the 10% by more than `group_sigma` (2) of
+these errors, and its line shows the error and the number of windows:
+
+```
+  [pass] jk.sigma of band 6 7 m within 10%: 1.112 (+- 0.082, 8 windows)
+```
 
 This is `alma@1` validated on four real windows (band 3 and band 6 12 m, a
 band 6 7 m one), 16 minutes in all:
@@ -1485,7 +1499,8 @@ Eleven choices keep the comparison fair, and one limit remains:
 
 Write other criteria to a JSON file and pass `--criteria file.json`. Its
 keys are `noise_tolerance` (0.05), `weight_tolerance` (0.01), `min_p`
-(0.01), `group_tolerance` (0.10) and `checked` (the metrics whose p is
+(0.01), `group_tolerance` (0.10), `group_sigma` (2; 0 judges a group's
+median alone) and `checked` (the metrics whose p is
 checked: the three noise levels, `jk.sigma` standing for the continuum's
 as in the table above), for example
 `{"noise_tolerance": 0.1, "checked": []}`. `noise compare` alone re-judges

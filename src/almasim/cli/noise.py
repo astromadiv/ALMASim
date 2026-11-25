@@ -994,7 +994,8 @@ def _print_comparison(comparison) -> None:
             f"  continuum clean diverged (cont.* left out): {', '.join(comparison.diverged)}"
         )
     for check in comparison.checks:
-        typer.echo(f"  [{'pass' if check.passed else 'FAIL'}] {check.name}: {check.value}")
+        detail = f" ({check.detail})" if check.detail else ""
+        typer.echo(f"  [{'pass' if check.passed else 'FAIL'}] {check.name}: {check.value}{detail}")
     typer.echo("PASSED" if comparison.passed else "NOT PASSED")
 
 

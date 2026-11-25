@@ -151,6 +151,45 @@ def test_a_matching_model_passes_and_a_quiet_one_does_not():
 
 
 @pytest.mark.unit
+def test_a_group_fails_only_beyond_its_medians_uncertainty(capsys):
+    """A few windows that scatter leave their median uncertain: a group 11% off
+    whose windows scatter by 14% passes, the same median from windows that
+    agree fails, and ``group_sigma`` 0 judges the median alone."""
+    base = _pairs(1.0)[0]
+
+    def group(ratios):
+        return [
+            replace(
+                base,
+                name=f"g{k}",
+                sim_image={**base.sim_image, "cont.sigma": r * base.real_image["cont.sigma"]},
+                band="band 6 7 m",
+            )
+            for k, r in enumerate(ratios)
+        ]
+
+    name = "cont.sigma of band 6 7 m within 10%"
+    loose = Criteria(noise_tolerance=0.5, checked=())
+    scattered = group([0.925, 0.939, 0.940, 1.103, 1.121, 1.121, 1.179, 1.421])
+    found = compare(scattered, {"label": "x"}, loose)
+    assert found.groups["band 6 7 m"].median == pytest.approx(1.112)
+    assert found.groups["band 6 7 m"].median_error == pytest.approx(0.074, abs=0.01)
+    assert {c.name: c.passed for c in found.checks}[name]
+    alone = Criteria(noise_tolerance=0.5, checked=(), group_sigma=0)
+    assert not {c.name: c.passed for c in compare(scattered, {"label": "x"}, alone).checks}[name]
+    agreeing = group([1.10, 1.105, 1.11, 1.112, 1.112, 1.115, 1.12, 1.125])
+    assert not {c.name: c.passed for c in compare(agreeing, {"label": "x"}, loose).checks}[name]
+    # Two windows give no error; the printed line shows a group's.
+    from almasim.cli.noise import _print_comparison
+    from almasim.services.noise.compare import median_error
+
+    assert median_error(np.array([0.1, 0.2])) is None
+    assert compare(scattered[:2], {"label": "x"}, loose).groups["band 6 7 m"].median_error is None
+    _print_comparison(found)
+    assert "within 10%: 1.112 (+- 0.08" in capsys.readouterr().out
+
+
+@pytest.mark.unit
 def test_the_continuum_is_judged_on_its_jackknife_when_every_window_has_one():
     """Real cleaned residuals carry sky the simulation lacks: a continuum 20%
     quieter than the real one passes on a jackknife that matches."""
