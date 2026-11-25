@@ -11,8 +11,6 @@ import time
 from collections.abc import Sequence
 from pathlib import Path
 
-import numpy as np
-
 from almasim.services.instrument.constants import DEFAULT_MAX_WEIGHT
 from almasim.services.ms.tables import (
     open_table,
@@ -107,26 +105,6 @@ def _extract_single_window_ms_once(
     renumber = {old: new for new, old in enumerate(dd_ids)}
     with open_table(out, readonly=False) as main:
         main.putcol("DATA_DESC_ID", [renumber[int(x)] for x in main.getcol("DATA_DESC_ID")])
-    # WSClean (mgain < 1, Cotton-Schwab) needs a MODEL_DATA column to read and
-    # update during major iterations. The source MSs do not carry one, and WSClean's
-    # on-the-fly creation of it is broken, so create a zero-filled one here when the
-    # table supports it (real casacore tables do; the fake one in tests does not).
-    try:
-        with open_table(out, readonly=False) as main:
-            columns = (
-                main.colnames() if hasattr(main, "colnames") else list(getattr(main, "columns", {}))
-            )
-            if "MODEL_DATA" not in columns:
-                if hasattr(main, "getcoldesc") and hasattr(main, "addcols"):
-                    data_desc = main.getcoldesc("DATA")
-                    model_desc = dict(data_desc)
-                    model_desc["comment"] = "Model data column"
-                    model_desc["dataManagerGroup"] = "TiledMODEL_DATA"
-                    main.addcols({"MODEL_DATA": model_desc})
-                    data = main.getcol("DATA")
-                    main.putcol("MODEL_DATA", np.zeros(data.shape, dtype=data.dtype))
-    except Exception:  # noqa: BLE001 - best effort; WSClean can still create it
-        pass
     size = sum(f.stat().st_size for f in out.rglob("*") if f.is_file())
     return {
         "rows": n_rows,
