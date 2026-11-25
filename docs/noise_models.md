@@ -1385,7 +1385,7 @@ than a real one, mostly because of the 7 m window (1.47; the 12 m ones are
 0.96 to 1.08), so `alma@1` does not pass. With four windows no Wilcoxon p is
 computed (it needs six); a real validation uses tens.
 
-Twelve choices keep the comparison fair, and one limit remains:
+Thirteen choices keep the comparison fair, and one limit remains:
 
 - *The source.* The simulated point source is as bright as the real image's
   continuum peak. A source as bright as the archive row's sensitivities
@@ -1401,6 +1401,17 @@ Twelve choices keep the comparison fair, and one limit remains:
   a few antennas observe for minutes: 64 and 100% of those windows'
   channels with the line, 17 and 13% without it, their cube noise going
   from 6 times the real one's to within 5% of it.
+- *The self-calibration.* A simulated window is self-calibrated with the
+  rounds the real window's imaging applied (`image image-from-ms --selfcal`,
+  read from the real task's log: its "self-calibration round" lines, when
+  the log records that their gains were applied), and not at all where the
+  real one was not. Self-calibration takes the calibration's residual gain
+  errors out of a bright source's cleaned continuum, so a window
+  self-calibrated on one side only compares two different images. On four
+  windows with a continuum peak 700 to 2900 times the real noise, the
+  simulated cleaned continuum (`cont.sigma`) goes from 1.8, 3.2, 3.4 and
+  5.2 times the real one to 1.2, 1.8, 2.0 and 2.2 times, and its cube noise
+  from 0.90 to 1.10 times the real one to 1.07 to 1.26 times.
 - *The averaging.* Each window is simulated with its own channel averaging,
   from its MS's `RESOLUTION` (`exposure.resolution_hz`), not the archive
   row's: the row lists the whole observing unit's windows, whose averaging

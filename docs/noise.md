@@ -355,7 +355,7 @@ window's PWV or, without one, the PWV its SYSCAL Tsys implies, with the window's
 `noise fit` measured one, its `fit.json` beside its `window.json`), exports the MS, flags as large a share of its rows as the real
 image misses (the window's flagged data and the unflagged data of its rows over the imaging's
 maximum WEIGHT, `exposure.high_weight_fraction`), measures it with `noise extract` (in a process of
-its own, without the real window's line channels) and images it as the real one was imaged. It also measures the real
+its own, without the real window's line channels) and images it as the real one was imaged, self-calibrated with the same rounds where the real window's imaging applied self-calibration. It also measures the real
 and the simulated window's continuum noise with the sky cancelled
 (`jk.sigma`): every other integration of each baseline sign-flipped, imaged
 dirty with the window's own continuum command. Everything goes under `validation/<model sha256[:12]>/`, so different

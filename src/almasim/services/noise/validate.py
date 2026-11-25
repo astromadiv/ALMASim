@@ -20,6 +20,7 @@ different models never mix; :mod:`.compare` judges them.
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import zlib
@@ -139,7 +140,7 @@ def validate_window(
     _write_atomic(directory / BAND_FILE, band.to_json())
     sim_window = measure(ms, task.name, run, line_channels=band.simulated_line_channels())
     _write_atomic(directory / SIM_WINDOW, sim_window.model_dump_json(indent=2) + "\n")
-    task_dir = image(run, imaging)
+    task_dir = image(run, imaging, selfcal=real_selfcal(task.task_log))
     sim_stats = image_noise_stats(task_dir)
     sim_stats.update(jackknife(task_dir, ms, 0, None, run / "jackknife", imaging))
     _write_atomic(directory / SIM_IMAGE, json.dumps(sim_stats, indent=1) + "\n")
@@ -641,14 +642,35 @@ def measure(ms: Path, name: str, run: Path, *, line_channels: str = "") -> Windo
     return WindowNoise.model_validate_json((out / "windows" / name / WINDOW_FILE).read_text())
 
 
-def image(run: Path, imaging: Imaging) -> Path:
-    """Image the run's MS as the real windows were; the imaging task directory."""
+SELFCAL_ROUND = re.compile(r"^# self-calibration round \d+ \((p|ap), solint (\S+)\):", re.M)
+
+
+def real_selfcal(task_log: str | Path | None) -> str:
+    """The self-calibration the real window's imaging applied, as ``image
+    image-from-ms --selfcal`` takes it (``inf,30s,ap:inf``): the rounds its log
+    records, when it records that their gains were applied; empty otherwise. A
+    real window imaged self-calibrated has the calibration's slow residue taken
+    out of its cleaned continuum, so the simulated one is imaged the same way."""
+    if not task_log or not Path(task_log).is_file():
+        return ""
+    text = Path(task_log).read_text(errors="replace")
+    if "# self-calibration applied" not in text:
+        return ""
+    return ",".join(
+        f"ap:{solint}" if mode == "ap" else solint for mode, solint in SELFCAL_ROUND.findall(text)
+    )
+
+
+def image(run: Path, imaging: Imaging, *, selfcal: str = "") -> Path:
+    """Image the run's MS as the real windows were, self-calibrated with
+    ``selfcal``'s rounds when given; the imaging task directory."""
     from ...jobs.wrapper import ALMASIM_COMMAND
 
     params, cubes = run / "imaging-params.csv", run / "cubes"
+    arguments = imaging.arguments() + (["--selfcal", selfcal] if selfcal else [])
     for command in (
         ["image", "compute-parameters", str(run), str(params), "--pattern", "*.ms"],
-        ["image", "image-from-ms", str(params), str(cubes), *imaging.arguments()],
+        ["image", "image-from-ms", str(params), str(cubes), *arguments],
         ["image", "clean-quality", str(cubes)],
     ):
         result = subprocess.run([*ALMASIM_COMMAND, *command], capture_output=True, text=True)
