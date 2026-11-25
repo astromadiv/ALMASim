@@ -24,6 +24,7 @@ import math
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
 import httpx
@@ -207,7 +208,11 @@ def _sexagesimal_deg(text: str, *, ra: bool) -> float:
     if len(parts) == 1:
         value = float(parts[0])
         return sign * value * (15.0 if ra else 1.0)
-    hours, minutes, seconds = (float(part) for part in parts[:3])
+    if len(parts) < 3:
+        raise ValueError(f"cannot read a sexagesimal angle from {text!r}")
+    # ``-065.20.21.024``: the dots after the third field are the seconds' decimals.
+    hours, minutes = float(parts[0]), float(parts[1])
+    seconds = float(".".join(parts[2:]))
     value = hours + minutes / 60.0 + seconds / 3600.0
     return sign * value * (15.0 if ra else 1.0)
 
@@ -227,6 +232,10 @@ def _phasecenter_deg(
 ) -> tuple[float | None, float | None]:
     """The tclean phase centre, falling back to the WCS reference coordinates."""
     raw = parameters.get("phasecenter")
+    if isinstance(raw, str) and raw.strip().upper() == "TRACKFIELD":
+        # A moving target (an ephemeris field): the image follows it, so it has
+        # no fixed phase centre to shift the MS to.
+        return None, None
     if isinstance(raw, str) and raw.strip():
         try:
             ra, dec = parse_phasecenter(raw)
@@ -263,8 +272,10 @@ def image_geometry(header: fits.Header) -> dict[str, object]:
     niter = parameters.get("niter")
     threshold = parameters.get("threshold")
     return {
-        "image_n_pixels": naxis1 or naxis2,
-        "image_cell_arcsec": round(cell * 3600.0, 6),
+        # WSClean images a square: the longer side covers a non-square image.
+        # A header without the grid leaves both unset: the MS-derived ones apply.
+        "image_n_pixels": max(naxis1, naxis2) or math.nan,
+        "image_cell_arcsec": round(cell * 3600.0, 6) or math.nan,
         "image_n_channels": n_channels,
         "image_channel_width_hz": float(channel_width) if channel_width is not None else math.nan,
         "image_reference_frequency": float(reference) if reference is not None else math.nan,
@@ -341,9 +352,16 @@ def _normalize_field(value: str) -> str:
 
 
 def _image_field_token(filename: str) -> str:
-    """The ``<field>_<intent>`` token of an ALMA image name."""
-    match = re.search(r"\.([^.]+)\.spw\d+\.", filename)
+    """The field part of an ALMA science image name (``...<field>_sci.spw25...``)."""
+    match = re.search(r"uid___[A-Za-z0-9_]+?\.(.+)_sci\.spw[\d_]+\.", filename)
     return match.group(1) if match else ""
+
+
+def _names_field(filename: str, field_name: str) -> bool:
+    """Whether an image's name is of ``field_name``, which the name may truncate."""
+    token = _normalize_field(_image_field_token(filename))
+    field = _normalize_field(field_name)
+    return bool(token) and bool(field) and (field.startswith(token) or token.startswith(field))
 
 
 def _spw_list(filename: str) -> list[int]:
@@ -355,11 +373,10 @@ def _spw_list(filename: str) -> list[int]:
 
 
 def _image_preference(name: str) -> tuple[int, int, int]:
-    """Lower is better: selfcal/regcal/manual, then Stokes I, then shorter name."""
-    selfcal = 0 if ".selfcal." in name else 1
-    regcal = 0 if ".regcal." in name else 1
+    """Lower is better: selfcal, then regcal, then Stokes I, then shorter name."""
+    calibration = 0 if ".selfcal." in name else 1 if ".regcal." in name else 2
     stokes_i = 0 if (".I." in name or ".I_" in name or name.endswith(".I.pbcor.fits")) else 1
-    return (selfcal + regcal, stokes_i, len(name))
+    return (calibration, stokes_i, len(name))
 
 
 def match_member_images(
@@ -401,15 +418,11 @@ def match_member_images(
     return images
 
 
-def archive_member_images(
-    member_ous_uid: str,
-    field_name: str,
-    spw: int,
-    kinds: Sequence[str] = _IMAGE_KINDS,
-    include: Sequence[str] = (),
-    exclude: Sequence[str] = (),
-) -> list[MemberImage]:
-    """The member's images of one field and spectral window, resolved from the archive."""
+@lru_cache(maxsize=256)
+def _archive_science_images(
+    member_ous_uid: str, include: tuple[str, ...], exclude: tuple[str, ...]
+) -> tuple[tuple[str, str], ...]:
+    """A member's science images in the archive as ``(filename, url)``, asked once."""
     from almasim.services.download.datalink import (
         expand_archives,
         resolve_products,
@@ -418,22 +431,44 @@ def archive_member_images(
 
     products = resolve_products([member_ous_uid])
     products = expand_archives(products, layout="flat")
-    globs = list(include) or ["*.pbcor.fits"]
-    products = select_files(products, include=globs, exclude=exclude)
+    products = select_files(products, include=list(include) or ["*.pbcor.fits"], exclude=exclude)
+    return tuple(
+        (product.filename, product.access_url)
+        for product in products
+        if "_sci." in product.filename
+    )
+
+
+def archive_member_images(
+    member_ous_uid: str,
+    field_name: str,
+    spw: int,
+    kinds: Sequence[str] = _IMAGE_KINDS,
+    include: Sequence[str] = (),
+    exclude: Sequence[str] = (),
+) -> list[MemberImage]:
+    """The member's images of one field and spectral window, resolved from the archive.
+
+    The archive is asked once per member. The field is matched on the image
+    name, which may truncate it; a member whose images are all of one field
+    needs no match.
+    """
+    products = _archive_science_images(member_ous_uid, tuple(include), tuple(exclude))
+    if len({_image_field_token(filename) for filename, _ in products}) > 1:
+        products = tuple(item for item in products if _names_field(item[0], field_name))
     images: list[MemberImage] = []
     for kind in kinds:
-        selected = [
-            product
-            for product in products
-            if f".{kind}." in product.filename
-            and spw in _spw_list(product.filename)
-            and ("_sci" in product.filename)
-        ]
-        selfcal = [product for product in selected if ".selfcal." in product.filename]
-        regcal = [product for product in selected if ".regcal." in product.filename]
-        chosen = selfcal or regcal or selected[:1]
-        for product in chosen[:1]:
-            images.append(MemberImage(product.filename, kind, url=product.access_url))
+        selected = sorted(
+            (
+                (filename, url)
+                for filename, url in products
+                if f".{kind}." in filename and spw in _spw_list(filename)
+            ),
+            key=lambda item: _image_preference(item[0]),
+        )
+        if selected:
+            filename, url = selected[0]
+            images.append(MemberImage(filename, kind, url=url))
     return images
 
 
@@ -510,7 +545,7 @@ def collect_headers(
                     else:
                         header_path.parent.mkdir(parents=True, exist_ok=True)
                         header_path.write_bytes(_pad_header_bytes(raw))
-                ms_ra, ms_dec = ms_phase_center(ms, int(row.get("target_field_ids") or 0))
+                ms_ra, ms_dec = ms_phase_center(ms, row.get("target_field_ids"))
                 rows.append(
                     {
                         **row,
@@ -658,10 +693,11 @@ def parse_manifest(
     return result
 
 
-def ms_phase_center(ms: str | Path, field_id: int) -> tuple[float | None, float | None]:
+def ms_phase_center(ms: str | Path, field_id: object) -> tuple[float | None, float | None]:
     """The MS field's phase centre as ``(ra_deg, dec_deg)``, or ``(None, None)``.
 
-    Read from the MS ``FIELD`` table's ``PHASE_DIR`` column (radians).
+    Read from the MS ``FIELD`` table's ``PHASE_DIR`` column (radians), with the
+    right ascension between 0 and 360 degrees.
     """
     try:
         from almasim.services.imaging.ms_geometry import import_casacore_tables
@@ -669,8 +705,10 @@ def ms_phase_center(ms: str | Path, field_id: int) -> tuple[float | None, float 
 
         opener = import_casacore_tables()
         with open_table(f"{ms}::FIELD", opener=opener) as field:
-            direction = field.getcell("PHASE_DIR", int(field_id))
-        return float(direction[0, 0]) * 180.0 / math.pi, float(direction[0, 1]) * 180.0 / math.pi
+            direction = field.getcell("PHASE_DIR", int(str(field_id)))
+        # casacore gives RA in (-180, 180]; the image headers count from 0 to 360.
+        ra_deg = math.degrees(float(direction[0, 0])) % 360.0
+        return ra_deg, math.degrees(float(direction[0, 1]))
     except Exception:  # noqa: BLE001 - missing optional dependency or table
         return None, None
 
