@@ -24,6 +24,7 @@ It provides reusable services in [`src/almasim`](src/almasim) that can be driven
 - [Compute Backends](#compute-backends)
 - [Metadata and Downloads](#metadata-and-downloads)
 - [Web Console](#web-console)
+- [AI Assistants (MCP)](#ai-assistants-mcp)
 - [Examples](#examples)
 - [Documentation](#documentation)
 - [Contributing](#contributing)
@@ -86,12 +87,13 @@ src/almasim/          ← installable library  (pip install almasim)
   jobs/               ← runs of `almasim` commands as Slurm jobs (run folders, profiles)
   cli/                ← the `almasim` command line
   web/                ← the web console (`almasim serve`, API v2)
+  mcp_server.py       ← the MCP server (`almasim mcp`): the commands as an AI assistant's tools
 frontend/             ← the console's pages (SvelteKit, built into the wheel)
 ood/almasim/          ← Open OnDemand interactive app for the console
 examples/             ← CLI scripts and Jupyter notebooks
 ```
 
-The library layer owns all domain logic. The CLI wraps the library services, and the web console runs CLI commands as jobs. Scripts and notebooks call the same staged services directly.
+The library layer owns all domain logic. The CLI wraps the library services, and the web console and the MCP server run CLI commands as jobs. Scripts and notebooks call the same staged services directly.
 
 ---
 
@@ -108,7 +110,7 @@ pip install almasim
 almasim --help
 ```
 
-Optional extras: `[web]` for the web console (`almasim serve`), `[casa]` and `[ms-casacore]` for MeasurementSet work (below).
+Optional extras: `[web]` for the web console (`almasim serve`), `[mcp]` for the MCP server (`almasim mcp`), `[casa]` and `[ms-casacore]` for MeasurementSet work (below).
 
 ### From source
 
@@ -390,6 +392,21 @@ On a site with Open OnDemand, the console can instead start from the portal as a
 The console serves its pages and API v2 (`/api/v2`, OpenAPI docs at `/api/docs`) together, so a cluster needs no Node and no database: the runs live in run folders a team can share.
 
 Full reference: [Web console docs](https://astromadiv.github.io/ALMASim/console.html)
+
+---
+
+## AI Assistants (MCP)
+
+`almasim mcp` serves the commands to an AI assistant over the [Model Context Protocol](https://modelcontextprotocol.io): the assistant lists the commands and their options (read from the CLI itself), submits any of them as a run exactly as `almasim submit` does, and follows the runs. In Claude Code:
+
+```bash
+pip install "almasim[mcp]"                         # or the site's shared install
+claude mcp add --scope user almasim -- almasim mcp
+```
+
+The assistant then has the tools (`list_commands`, `describe_command`, `submit_command`, `list_runs`, `show_run`, `run_logs`, `wait_for_run`, `cancel_run`, `run_here`), and you have the server's prompts as commands: `/mcp__almasim__runs`, `/mcp__almasim__run <task>` and `/mcp__almasim__validate-noise-model`.
+
+Full reference: [MCP server docs](https://astromadiv.github.io/ALMASim/mcp.html)
 
 ---
 

@@ -285,8 +285,8 @@ runs_root = "~/almasim-runs"
 ## For administrators: the shared install
 
 One environment serves everyone: the Python every job runs (with almasim,
-its web console, casatools, casatasks, python-casacore and bokeh (for the
-Dask dashboard), at the versions
+its web console, its [MCP server](mcp.md), casatools, casatasks, python-casacore
+and bokeh (for the Dask dashboard), at the versions
 in `uv.lock`), a site profile pointing at it, and a file users source.
 
 ```bash

@@ -84,6 +84,7 @@ def render() -> str:
         ("update-shared", top.update_shared_command),
         ("submit", top.submit_command),
         ("serve", top.serve_command),
+        ("mcp", top.mcp_command),
     )
     # and clean, documented below from its own module
     parts = [HEADER.format(groups=len(_GROUPS), singles=len(singles) + 1)]

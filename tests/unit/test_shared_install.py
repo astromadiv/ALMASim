@@ -128,14 +128,15 @@ def test_the_update_submits_the_job_and_shows_its_log(tmp_path, monkeypatch, too
 
 def test_the_install_script_installs_every_extra_jobs_need():
     """Jobs run the shared Python: image compute-parameters needs python-casacore,
-    and a Dask scheduler serves the dashboard the console relays only with bokeh."""
+    a Dask scheduler serves the dashboard the console relays only with bokeh,
+    and `almasim mcp` needs the MCP SDK."""
     from pathlib import Path
 
     script = (Path(__file__).parents[2] / "scripts" / "install_shared.sh").read_text()
     subprocess.run(["bash", "-n"], input=script, text=True, check=True)
-    for extra in ("web", "casa", "ms-casacore", "dashboard"):
+    for extra in ("web", "casa", "ms-casacore", "dashboard", "mcp"):
         assert f"--extra {extra}" in script
-    assert '"$wheel[web,casa,ms-casacore,dashboard]"' in script
+    assert '"$wheel[web,casa,ms-casacore,dashboard,mcp]"' in script
 
 
 def _standin_uv(tmp_path, python_home: str = "$UV_PYTHON_INSTALL_DIR") -> dict[str, str]:

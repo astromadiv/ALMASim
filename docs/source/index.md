@@ -12,6 +12,7 @@
 quickstart
 cli
 console
+mcp
 simulation
 interferometry
 noise
