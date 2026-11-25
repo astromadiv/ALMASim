@@ -1330,7 +1330,11 @@ on either side (WSClean stopped its clean for divergence: `image
 clean-quality`'s `continuum.diverged`) has the diverged model in its residual,
 not the noise. Its cleaned continuum metrics (`cont.*`) are left out,
 `comparison.json` lists it under `diverged`, and its jackknife, imaged dirty,
-is compared as usual.
+is compared as usual. A cube stands a few diverged channels, its noise being
+the median over the channels; with more than a fifth of its channel cleans
+diverged on either side (`cube.diverged` over `cube.channels`) the window's
+cube metrics (`cube.*`) are left out and `comparison.json` lists it under
+`diverged_cubes`.
 
 The default criteria:
 
@@ -1367,7 +1371,7 @@ than a real one, mostly because of the 7 m window (1.47; the 12 m ones are
 0.96 to 1.08), so `alma@1` does not pass. With four windows no Wilcoxon p is
 computed (it needs six); a real validation uses tens.
 
-Eleven choices keep the comparison fair, and one limit remains:
+Twelve choices keep the comparison fair, and one limit remains:
 
 - *The source.* The simulated point source is as bright as the real image's
   continuum peak. A source as bright as the archive row's sensitivities
@@ -1375,6 +1379,14 @@ Eleven choices keep the comparison fair, and one limit remains:
   residuals, not the noise, then set the continuum's noise wherever the real
   field is faint (1.8 times the real noise in the median, up to 700 times,
   on 44 of 79 windows).
+- *The lines.* The simulated source has no line: each channel keeps the
+  continuum's share of the source. The sky models give a source a line
+  hundreds of times a channel's noise, which the real field does not have.
+  Its line mask is then larger than the real one's (1.5 to 5 times on two
+  short 7 m tracks), and cleaning inside it down to 1 sigma diverges where
+  a few antennas observe for minutes: 64 and 100% of those windows'
+  channels with the line, 17 and 13% without it, their cube noise going
+  from 6 times the real one's to within 5% of it.
 - *The averaging.* Each window is simulated with its own channel averaging,
   from its MS's `RESOLUTION` (`exposure.resolution_hz`), not the archive
   row's: the row lists the whole observing unit's windows, whose averaging

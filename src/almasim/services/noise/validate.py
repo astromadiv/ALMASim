@@ -295,12 +295,34 @@ def simulate(
         observation_configs=observation_configs(record, window),
     )
     with create_backend("sync") as backend:
-        clean = generate_clean_cube(params, logger=print, compute_backend=backend)
+        clean = without_lines(generate_clean_cube(params, logger=print, compute_backend=backend))
         if peak_jy is not None:
             clean = with_continuum(clean, peak_jy)
         results = simulate_observation(clean, compute_backend=backend)
         exported = export_results(params, clean, results, logger=print)
     return Path(exported["ms_path"])
+
+
+def without_lines(clean: Any) -> Any:
+    """The clean-cube stage with its source's lines taken out: each channel
+    keeps its continuum share of the source. The noise is what is compared,
+    and a line the real field does not have, hundreds of times a channel's
+    noise, sets a line mask several times the real one's, whose deep clean
+    diverges on the short tracks of a few antennas. Unchanged without the
+    channels' continuum shares (an external model)."""
+    from dataclasses import replace
+
+    import numpy as np
+
+    fraction = clean.continuum_fraction
+    if fraction is None or np.size(fraction) != np.shape(clean.model_cube)[0]:
+        return clean
+    share = np.asarray(fraction, dtype=float)
+    model = clean.model_cube * share.reshape(-1, 1, 1)
+    runs = [replace(run, skymodel=model) for run in clean.interferometer_runs]
+    return replace(
+        clean, model_cube=model, interferometer_runs=runs, continuum_fraction=np.ones_like(share)
+    )
 
 
 def with_continuum(clean: Any, peak_jy: float) -> Any:
