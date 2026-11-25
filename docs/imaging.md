@@ -142,6 +142,98 @@ the CSV has that column, and `-mem` set to its share of the node
 against a threaded OpenBLAS. `--backend sync` runs the tasks one at a time in
 the current process, which is handy for a smoke test on one MS.
 
+### Imaging on the grid of the pipeline's images
+
+`compute-parameters` derives each window's grid from the MeasurementSet. The
+images the ALMA pipeline delivered carry the grid tclean imaged them on, and
+`image fetch-headers` and `image parse-headers` write a parameter CSV that
+holds it, so that `image-from-ms` makes images on the delivered ones' grid:
+
+```bash
+# 1. the FITS header of every (MS, window, field)'s delivered image
+almasim image fetch-headers /data/deliveries /data/image_headers
+
+# 2. the parameter CSV, with the image's grid next to the MS-derived one
+almasim image parse-headers /data/image_headers imaging_parameters.csv
+
+# 3. as with a compute-parameters CSV
+almasim image image-from-ms imaging_parameters.csv /data/deliveries --by-member --cube
+```
+
+**fetch-headers** finds, for each row `compute-parameters` would write, the
+member's `mfs` and `cube` science images of that window (`--kinds`), and
+saves their FITS headers under `<header_folder>/<member>/<image>.hdr`, with
+the manifest `headers.csv` (one row per MS, window, field and image). It
+needs the delivery tree's `ous_index.csv`, which names each MS's member
+(`--ous-index`, or the one at `--delivery-root`, or the nearest above the
+MSs). The images are those in the member's `product/` folder (`--source
+local`), those of the archive (`archive`), or the archive's where the folder
+has none (`auto`, the default). Only the header is read, a 2880-byte block at
+a time up to its `END` card, a few tens of kilobytes of a cube of gigabytes.
+The archive is asked once per member for its list of images.
+
+- An image is of a window when its name lists it (`spw25`, or
+  `spw13_15_17_19` for an image of several windows), and of a field when its
+  `OBJECT` card is the field's name: the file name truncates long names. An
+  archive image is matched on its name alone, since its header is not on disk.
+- Of several images of one window and field, the self-calibrated one
+  (`.selfcal.`) is taken before the `.regcal.` one, and a Stokes I image
+  before any other.
+- A header already saved is not read again (`--overwrite` reads it again),
+  and a rerun adds only the MSs `headers.csv` does not list (`--no-resume`
+  starts over). The manifest is written every 50 MSs.
+- A row with no image, or an MS that cannot be read, is listed in
+  `headers.csv.failed.tsv` and the command exits 1 after the scan
+  (`--fail-fast` stops at the first unreadable MS instead).
+
+**parse-headers** writes one row per (MS, window, field): the columns of
+`compute-parameters`, and those of the window's cube header (of its `mfs`
+header when the member has no cube). It prints, and records in
+`image_check`, where the image's size or cell is more than 2 % from the
+MS-derived one.
+
+| column | from | `image-from-ms` uses it as |
+|---|---|---|
+| `image_n_pixels` | `NAXIS1`, `NAXIS2` (the longer side) | `-size` |
+| `image_cell_arcsec` | `CDELT2` | `-scale` |
+| `image_weighting`, `image_robust` | tclean's `weighting`, `robust` | `-weight` |
+| `image_niter` | tclean's `niter` | `-niter` |
+| `image_threshold_jy` | tclean's `threshold` | `-abs-threshold` |
+| `phasecenter_ra_deg`, `phasecenter_dec_deg` | tclean's `phasecenter` (the `CRVAL` cards without one) | `-shift` |
+| `ms_phasecenter_ra_deg`, `ms_phasecenter_dec_deg` | the field's `PHASE_DIR` in the MS | `-shift` |
+| `image_n_channels`, `image_specmode` | `NAXIS3`, tclean's `specmode` | `-channels-out` of a cube |
+
+The other `image_*` columns (`image_stokes`, `image_deconvolver`,
+`image_imsize`, `image_cell`, `image_phasecenter`, `image_threshold`,
+`image_channel_width_hz`, `image_reference_frequency`) record tclean's values
+and the header's spectral axis; `image-from-ms` does not read them.
+
+**image-from-ms** takes each of these columns in place of the MS-derived
+value where the row has it, and the MS-derived value where it is empty, so a
+window with no delivered image is imaged as from a `compute-parameters` CSV:
+
+- **Weighting.** tclean's `briggs` and `briggsbwtaper` are WSClean's
+  `briggs <robust>`; `natural` and `uniform` are WSClean's own. Any other
+  scheme images with `briggs 0.5`.
+- **Iterations.** An image the pipeline found nothing to clean in has
+  `niter = 0`. That is not a limit on the clean, so `-niter` is then 100000,
+  as it is without a header.
+- **Phase centre.** `-shift` is added when the image's centre is more than
+  1 arcsec from the field's in the MS (a mosaic, an offset centre). A moving
+  target's image (`phasecenter = 'TRACKFIELD'`) has no fixed centre and is
+  not shifted.
+- **Cube channels.** tclean regrids a window to LSRK, so its cube often has a
+  few channels fewer than the window; WSClean images the window's own
+  channels. The cube takes tclean's channel averaging, not its count: the
+  window's channels over the whole number of them per tclean channel (a
+  1917-channel cube of a 1920-channel window gives 1920; a 958-channel one
+  gives 960). This replaces `--spectral-sampling` and
+  `--velocity-resolution`; `--max-cube-gb` caps the count as it does
+  without a header.
+
+`--fov-fraction`, `--beam-sampling` and `--min-beams-across` do not change a
+row that has `image_n_pixels` and `image_cell_arcsec`.
+
 ### Cubes, self-calibration and primary-beam correction
 
 `image-from-ms` makes the continuum image of every window by default. Other

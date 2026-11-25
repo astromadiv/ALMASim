@@ -30,7 +30,14 @@ from .profile import Profile
 # The commands that need the internet: on Slurm by default, on the server
 # node only where a profile says so (compute nodes without internet).
 NETWORK_COMMANDS = frozenset(
-    {"metadata", "products resolve", "products download", "products executions"}
+    {
+        "metadata",
+        "products resolve",
+        "products download",
+        "products executions",
+        # Reads from the archive the images the delivery tree does not hold.
+        "image fetch-headers",
+    }
 )
 
 KNOWN_COMMANDS = frozenset(
@@ -47,6 +54,8 @@ KNOWN_COMMANDS = frozenset(
         "visibilities flag-summary",
         "predict",
         "image compute-parameters",
+        "image fetch-headers",
+        "image parse-headers",
         "image image-from-ms",
         "image clean-quality",
         "image pb-correct",

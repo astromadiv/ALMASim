@@ -421,6 +421,8 @@ $ almasim image [OPTIONS] COMMAND [ARGS]...
 **Commands**:
 
 * `compute-parameters`: Derive per-spectral-window imaging...
+* `fetch-headers`: Read the FITS header of every (MS, window,...
+* `parse-headers`: Parse the saved tclean headers into the...
 * `image-from-ms`: Image every (MS, spectral window) row of a...
 * `clean-quality`: Measure how much source signal the clean...
 * `pb-correct`: Primary-beam correct the images of an...
@@ -451,6 +453,68 @@ $ almasim image compute-parameters [OPTIONS] [archive_folder] [output_metadata_f
 * `--intent <str>`: Scan intent selecting the fields, e.g. CALIBRATE_PHASE#ON_SOURCE, or CALIBRATE_PHASE for any sub-intent. Repeat for several. Default: OBSERVE_TARGET. Not with --all-spws.
 * `--require-done-marker / --no-require-done-marker`: Skip an MS whose <ms>.done calibration marker is missing. Only applies when the folder holds at least one such marker, so plain folders still work.  [default: require-done-marker]
 * `--fail-fast`: Abort on the first MS that cannot be read (default: record it and continue).
+* `--help`: Show this message and exit.
+
+### `almasim image fetch-headers`
+
+Read the FITS header of every (MS, window, field)'s tclean image.
+
+The header is read a block at a time and stops at the END card, so a
+multi-gigabyte cube costs a few tens of kilobytes. Writes one header per
+image under ``header_folder`` and the manifest ``headers.csv``;
+``image parse-headers`` turns it into the imaging parameter CSV.
+
+**Usage**:
+
+```console
+$ almasim image fetch-headers [OPTIONS] [archive_folder] [header_folder]
+```
+
+**Arguments**:
+
+* `archive_folder`: Processed MSs folder (default: current directory)  [default: .]
+* `header_folder`: Folder the image FITS headers and their manifest are written to  [default: wsclean]
+
+**Options**:
+
+* `--pattern <str>`: Glob for the MeasurementSets inside the folder.  [default: *.cal]
+* `--delivery-root <path>`: Root of the ALMA delivery tree holding the member product folders.
+* `--ous-index <path>`: The delivery tree's ous_index.csv (default: nearest above the MSs).
+* `--source <str>`: Where the tclean images are read: local, archive, or auto (local first).  [default: auto]
+* `--kinds <str>`: Image kinds to read, comma-separated (mfs, cube).  [default: mfs,cube]
+* `--include <str>`: Glob picking image files, e.g. '*_sci.*.pbcor.fits'. Repeatable.
+* `--exclude <str>`: Glob dropping image files. Repeatable.
+* `--require-done-marker / --no-require-done-marker`: Skip an MS whose <ms>.done calibration marker is missing.  [default: require-done-marker]
+* `--fail-fast`: Abort on the first MS that cannot be read (default: record it and continue).
+* `--resume / --no-resume`: Skip MSs already listed in headers.csv and checkpoint progress (default: on).  [default: resume]
+* `--overwrite / --no-overwrite`: Re-read every header even when a cached copy exists (default: reuse cached).  [default: no-overwrite]
+* `--help`: Show this message and exit.
+
+### `almasim image parse-headers`
+
+Parse the saved tclean headers into the imaging parameter CSV.
+
+One row per (MS, window, field), carrying the image's grid (size, cell,
+phase centre, channels) and a check against the MS-derived geometry. The
+CSV is read by ``image image-from-ms``, which prefers the image's
+parameters when they are present.
+
+**Usage**:
+
+```console
+$ almasim image parse-headers [OPTIONS] [header_folder] [output_metadata_file]
+```
+
+**Arguments**:
+
+* `header_folder`: Folder image fetch-headers wrote the headers and headers.csv to  [default: wsclean]
+* `output_metadata_file`: Parameters CSV file (default: imaging_parameters.csv)  [default: imaging_parameters.csv]
+
+**Options**:
+
+* `--fov-fraction <float range>`: MS-derived size check: fraction of the FOV to image.  [default: 1.5; x>=1e-06]
+* `--beam-sampling <float range>`: MS-derived size check: pixels per synthesized beam.  [default: 8.0; x>=1e-06]
+* `--min-beams-across <float range>`: MS-derived size check: minimum beams across.  [default: 32.0; x>=0.0]
 * `--help`: Show this message and exit.
 
 ### `almasim image image-from-ms`
