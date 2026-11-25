@@ -217,20 +217,12 @@ def _weight_arguments(row: pd.Series) -> list[str]:
 
 def _abs_threshold_arg(threshold_jy: object) -> list[str]:
     """``-abs-threshold`` flag from an image-derived threshold, or ``[]``."""
-    if threshold_jy is None:
-        return []
-    try:
-        if isinstance(threshold_jy, float) and math.isnan(threshold_jy):
-            return []
-    except TypeError:
-        return []
     try:
         value = float(threshold_jy)  # type: ignore[arg-type]
     except (TypeError, ValueError):
         return []
-    if value > 0:
-        return ["-abs-threshold", f"{value:g}Jy"]
-    return []
+    # NaN is not above zero either.
+    return ["-abs-threshold", f"{value:g}Jy"] if value > 0 else []
 
 
 def _phasecenter_arguments(row: pd.Series) -> tuple[str, str] | None:

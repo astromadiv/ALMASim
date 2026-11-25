@@ -281,3 +281,18 @@ def test_cube_channels_take_the_averaging_of_the_pipeline_cube() -> None:
         _row(image_n_channels=1917.0, **cube), 2000, CubeOptions(max_cube_gb=1.0)
     )
     assert capped == 60
+
+
+def test_unreadable_image_values_leave_the_defaults() -> None:
+    junk = _row(
+        image_niter="auto",
+        image_threshold_jy="deep",
+        image_robust="half",
+        image_weighting="briggs",
+        image_n_channels="many",
+        image_specmode="cube",
+    )
+    plain = imaging_parameter_to_command_arg(_row(), 1.0, 4.0)
+    assert imaging_parameter_to_command_arg(junk, 1.0, 4.0) == plain
+    options = CubeOptions()
+    assert cube_channels(junk, 100, options) == cube_channels(_row(), 100, options)

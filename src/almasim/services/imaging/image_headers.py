@@ -200,20 +200,27 @@ def parse_tclean_parameters(header: fits.Header) -> dict[str, object]:
 
 
 def _sexagesimal_deg(text: str, *, ra: bool) -> float:
-    """``14:13:09.9473`` (RA) or ``-065.20.21.024`` (Dec) as decimal degrees."""
+    """``14:13:09.9473`` (RA) or ``-065.20.21.024`` (Dec) as decimal degrees.
+
+    A declination with at most one dot is already in degrees. A right
+    ascension that is not ``h:m:s`` could be hours or degrees and is refused.
+    """
     sign = -1.0 if text.startswith("-") else 1.0
     body = text.lstrip("+-")
-    separator = ":" if ":" in body else "."
-    parts = body.split(separator)
-    if len(parts) == 1:
-        value = float(parts[0])
-        return sign * value * (15.0 if ra else 1.0)
+    if ":" in body:
+        parts = body.split(":")
+    elif ra:
+        raise ValueError(f"cannot read a right ascension from {text!r}")
+    elif body.count(".") <= 1:
+        return sign * float(body)
+    else:
+        parts = body.split(".")
     if len(parts) < 3:
         raise ValueError(f"cannot read a sexagesimal angle from {text!r}")
     # ``-065.20.21.024``: the dots after the third field are the seconds' decimals.
-    hours, minutes = float(parts[0]), float(parts[1])
-    seconds = float(".".join(parts[2:]))
-    value = hours + minutes / 60.0 + seconds / 3600.0
+    first, minutes = float(parts[0]), float(parts[1])
+    seconds = float(".".join(parts[2:])) if ":" not in body else float(parts[2])
+    value = first + minutes / 60.0 + seconds / 3600.0
     return sign * value * (15.0 if ra else 1.0)
 
 
