@@ -55,9 +55,9 @@ esac
 # The versions tested (uv.lock), not the newest: a newer casatools, say,
 # can change what calibration gives.
 uv export --project "$repo" --frozen --no-hashes --no-emit-project --extra web --extra casa \
-  --extra ms-casacore --extra dashboard --no-default-groups > "$prefix/constraints.txt"
+  --extra ms-casacore --extra dashboard --extra mcp --no-default-groups > "$prefix/constraints.txt"
 uv pip install --python "$prefix/env/bin/python" --constraints "$prefix/constraints.txt" \
-  --reinstall-package almasim "$wheel[web,casa,ms-casacore,dashboard]"
+  --reinstall-package almasim "$wheel[web,casa,ms-casacore,dashboard,mcp]"
 
 python_line="executable = \"$prefix/env/bin/python\""
 noise_line="noise_models = \"$prefix/noise-models\""

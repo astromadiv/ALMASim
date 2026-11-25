@@ -259,6 +259,27 @@ def serve_command(
     serve(port, status, stop, base_path, managed)
 
 
+@app.command("mcp", help="Serve the commands as tools for an AI assistant (needs almasim[mcp]).")
+def mcp_command(
+    profile: Path | None = typer.Option(
+        None,
+        "--profile",
+        help="User profile (default: $ALMASIM_PROFILE, else ~/.config/almasim/almasim.toml).",
+    ),
+) -> None:
+    """Speak the Model Context Protocol on stdin and stdout: an MCP client starts
+    this command and gets the commands, `almasim submit` and the runs as tools."""
+    try:
+        import mcp  # noqa: F401  (the extra, checked before the server is built)
+    except ImportError:
+        from ._shared import fail
+
+        fail("The MCP server needs the mcp extra: pip install 'almasim[mcp]'")
+    from almasim.mcp_server import run
+
+    run(profile)
+
+
 def _raise_open_file_limit() -> None:
     """Lift the soft open-file limit to the hard one.
 

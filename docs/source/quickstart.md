@@ -9,7 +9,7 @@ almasim --help
 
 or, from a clone of the repository, into a uv environment (`uv sync --group dev`,
 then `uv run almasim ...`) or editable (`pip install -e .`). The `[web]` extra adds
-the web console, `[casa]` and `[ms-casacore]` the MeasurementSet tools.
+the web console, `[mcp]` the [MCP server](mcp.md) for AI assistants, `[casa]` and `[ms-casacore]` the MeasurementSet tools.
 
 The `almasim` command is the main entry point. A first simulation, from an
 archive query:
