@@ -702,6 +702,8 @@ class ImageFromMsOptions:
     plan_only: bool
     ous_index: Path | None
     by_member: bool
+    aggregate_continuum: bool = False
+    aggregate_line_free: bool = True
 
 
 @image_app.command("image-from-ms")
@@ -1110,6 +1112,28 @@ def image_from_ms(
         ),
         rich_help_panel="Imaging",
     ),
+    aggregate_continuum: bool = typer.Option(
+        False,
+        "--aggregate-continuum/--no-aggregate-continuum",
+        help=(
+            "Also image the continuum of all the windows of each field together, in "
+            "CONT[_<field>] beside the windows' SPW-<n>[_<field>]: one multi-frequency "
+            "image, one output channel per window, a spectral slope fitted per component. "
+            "Needs the continuum and --single-window-ms. Off by default."
+        ),
+        rich_help_panel="Imaging",
+    ),
+    aggregate_line_free: bool = typer.Option(
+        True,
+        "--aggregate-line-free/--aggregate-all-channels",
+        help=(
+            "Make the --aggregate-continuum image from each window's continuum fitted over "
+            "its line-free channels (order --contsub-order), so the windows' lines stay out "
+            "of it; a window with too few line-free channels is left out. "
+            "--aggregate-all-channels images every channel, lines included."
+        ),
+        rich_help_panel="Imaging",
+    ),
 ):
     """Image every (MS, spectral window) row of a parameter CSV with WSClean.
 
@@ -1169,6 +1193,8 @@ def _image_from_ms_options(o: ImageFromMsOptions) -> tuple[ImagingOptions, ExecO
         continuum_restart=o.continuum_restart,
         cube_line_mask=o.cube_line_mask,
         pbcor=o.pbcor,
+        aggregate_continuum=o.aggregate_continuum,
+        aggregate_line_free=o.aggregate_line_free,
         selfcal=SelfcalOptions(
             solints=tuple(part.strip() for part in o.selfcal.split(",") if part.strip()),
             min_snr=o.selfcal_min_snr,
@@ -1240,6 +1266,7 @@ def _image_from_ms_tasks(o: ImageFromMsOptions, imaging: ImagingOptions) -> list
         multiscale=o.multiscale,
         join_channels=o.join_channels,
         ous_index_csv=o.ous_index,
+        aggregate_continuum=imaging.aggregate_continuum,
     )
     if skipped:
         typer.echo(f"Skipped {skipped} already-imaged SPW(s).")
@@ -1523,6 +1550,8 @@ def image_set(
         plan_only=False,
         ous_index=None,
         by_member=False,
+        aggregate_continuum=False,
+        aggregate_line_free=True,
         postprocess_backend=postprocess_backend,
         slurm_queue=slurm_queue,
         slurm_project=slurm_project,

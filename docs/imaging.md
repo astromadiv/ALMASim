@@ -300,6 +300,60 @@ lists every option.
   Airy model) and the corrected images (`wsclean[-cube]-image.pbcor.fits`).
   `almasim image pb-correct` adds them to an existing run.
 
+### One continuum image of all the windows
+
+A task images one window, so a field observed in four windows has four
+continuum images. `--aggregate-continuum` adds one task per field that
+images the continuum of all its windows together, as the ALMA pipeline's
+aggregate continuum does:
+
+```bash
+almasim image image-from-ms imaging_parameters.csv /data/deliveries --by-member --aggregate-continuum
+```
+
+The task writes to `CONT[_<field>]` beside the windows' folders
+(`<member>/images/CONT_<field>/` beside `<member>/images/SPW-<n>_<field>/`
+with `--by-member`, `<ms>/CONT_FIELD-<id>/` beside `<ms>/SPW-<n>_FIELD-<id>/`
+for one execution block), with the products' names of a window task
+(`wsclean-image.fits`, `wsclean-residual.fits`, `wsclean-model.fits`,
+`wsclean-psf.fits`, and with `--pbcor` `wsclean-pb.fits` and
+`wsclean-image.pbcor.fits`) and its own `CONT[_<field>].done`, `.failed` and
+`.log`. A field with a single window gets none: that window's image is its
+continuum.
+
+- **The data.** The task builds each window's single-window MS as the
+  window's own task does (with `--by-member`, from all the execution
+  blocks), and removes them when it ends. With `--selfcal` each window is
+  self-calibrated on its own continuum first. Each window's continuum is
+  then fitted to its visibilities over its line-free channels (a polynomial
+  of order `--contsub-order` per visibility, the fit `--uv-contsub` makes
+  for a window's cube; with `--pipeline-line-free` the pipeline's `cont.dat`
+  line channels are left out too), and the image is made from the fitted
+  continua, so the windows' lines stay out of it. A window with too few
+  line-free channels for the fit is left out, and the log names it.
+  `--aggregate-all-channels` images every channel of every window instead,
+  lines included, as a window's own continuum image without `--uv-contsub`
+  is.
+- **The image.** WSClean takes all the MSs in one run. It makes one output
+  channel per window (`-channels-out`, split in the middle of the gaps
+  between the windows with `-channel-division-frequencies`; windows that
+  overlap share a channel), finds the clean components on their sum
+  (`-join-channels`) and fits each with a two-term polynomial over
+  frequency (`-fit-spectral-pol 2`), so a source's spectral slope across
+  the windows does not stay in the residual. The image WSClean makes of all
+  the channels together is kept; the per-channel ones are removed.
+- **The grid.** The finest cell of the windows', and as many pixels as the
+  widest of their images needs on it.
+- **The header.** `SPW` is left out (the image is of several windows); the
+  `HISTORY` names the windows imaged and any left out.
+
+`--aggregate-continuum` needs the continuum (not `--no-continuum`) and
+`--single-window-ms`. `clean-quality` assesses a `CONT` folder like any
+task's: its `quality.json` and its row of `clean-quality.csv` hold the
+continuum statistics. `pb-correct` and the noise commands work on the
+windows' tasks and do not read the `CONT` folders; `--pbcor` corrects the
+aggregate image in its own task.
+
 ### Imaging a member from all its execution blocks
 
 `--by-member` images each member OUS as ALMA does, from every execution block

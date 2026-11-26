@@ -717,7 +717,7 @@ def test_image_from_ms_passes_pipeline_line_free(tmp_path, monkeypatch):
 
     refused = runner.invoke(cli.app, [*args, "--pipeline-line-free"])
     assert refused.exit_code != 0
-    assert "--pipeline-line-free needs --uv-contsub or --selfcal" in click.unstyle(refused.output)
+    assert "--pipeline-line-free needs --uv-contsub, --selfcal or" in click.unstyle(refused.output)
 
 
 def _run_selfcal(
