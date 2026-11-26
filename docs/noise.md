@@ -340,7 +340,8 @@ windows each comes from and their 16-84% spread in `provenance.values`:
 | `fast_phase` wind_mps | the frozen-flow screen's speed the fitted windows find |
 | `baseline_errors` instrumental_* | the median share `s` of a window's non-closing error that is the instrument's (windows whose line channels tell it apart and hold at least 5% continuum), times the windows' median; the continuum term keeps `sqrt(1 - s^2)` of it |
 | `antenna_gains` bandpass | per dish size, when at least three windows see a ripple (period under 50 MHz, larger than the noise's own rms): their median period and rms as a sine's peak, up to their highest frequency |
-| `slow_phase`, `fast_phase`, `antenna_gains`, `baseline_errors` | `noise fit` |
+| `slow_phase`, `fast_phase` | `noise fit`, every fitted window |
+| `antenna_gains` amp_rms, `baseline_errors` amp_rms, phase_rms_deg | `noise fit`, the windows whose cleaned continuum S/N (`continuum_snr` in `fit.json`) is at least `--bright-snr` (250): on a fainter continuum the clean model's own errors and the solve's noise read as errors of the instrument |
 
 A value fewer than `--min-windows` (3) windows measure keeps the base
 model's, with a note in `provenance.notes`.

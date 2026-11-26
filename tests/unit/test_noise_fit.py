@@ -155,7 +155,7 @@ def _task_dir(tmp_path, line_flux: float = 0.0):
     image[0, 0, n // 2 - 2 : n // 2 + 3, n // 2 - 2 : n // 2 + 3] = 1.0
     fits.PrimaryHDU(image, header).writeto(task / "wsclean-image.fits")
     (task / "quality.json").write_text(
-        json.dumps({"continuum": {"beam_arcsec": [0.3, 0.3], "noise_jy_beam": 0.01}})
+        json.dumps({"continuum": {"beam_arcsec": [0.3, 0.3], "noise_jy_beam": 0.01, "snr": 320.0}})
     )
     return task
 
@@ -182,6 +182,7 @@ def test_the_per_scan_phase_and_gains_are_found(window_ms, tmp_path):
     window = window_ms(truth)
     result = fit.fit_window("ms", 0, None, _task_dir(tmp_path), window, realizations=2, seed=3)
     assert result.bright_groups == NSCAN * NANT * (NANT - 1) // 2
+    assert result.continuum_snr == 320.0
     assert result.slow_phase is not None
     assert result.slow_phase.path_um_1km == pytest.approx(150.0, rel=0.4)
     assert 0.25 < result.slow_phase.slope < 0.75

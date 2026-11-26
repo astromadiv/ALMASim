@@ -113,6 +113,7 @@ def _fit(k: int) -> WindowFit:
     return WindowFit(
         name=f"w{k}",
         bright_groups=500,
+        continuum_snr=400.0,
         realizations=2,
         kappa=2.67,
         bins=[
@@ -270,6 +271,34 @@ def test_the_fits_set_the_wind_the_instrument_s_share_and_a_seen_ripple():
     assert resolve_noise_model(candidate.model_dump_json()).engine_fields()[
         "baseline_instrumental_amp_rms"
     ] == pytest.approx(0.037)
+
+
+@pytest.mark.unit
+def test_gain_and_baseline_errors_come_from_the_bright_windows():
+    base = released_model("alma", 1)
+    faint = {"gain_amp_rms": 0.3, "baseline_amp_rms": 0.4, "baseline_phase_rms_deg": 20.0}
+    measured = [Measured(_window(k), _fit(k)) for k in range(3)]
+    # Faint windows, and one whose task has no continuum S/N, read too large.
+    measured += [
+        Measured(_window(k), _fit(k).model_copy(update={**faint, "continuum_snr": snr}))
+        for k, snr in ((3, 249.0), (4, 30.0), (5, 8.0), (6, None))
+    ]
+    candidate = aggregate(measured, base)
+    values = candidate.provenance.values
+    assert values["antenna_gains.amp_rms"].n == 3
+    assert candidate.components.antenna_gains.amp_rms == pytest.approx(0.06)
+    assert values["baseline_errors.amp_rms"].median == pytest.approx(0.04)
+    assert values["baseline_errors.phase_rms_deg"].median == pytest.approx(3.0)
+    # The phase screens are every fitted window's.
+    assert values["slow_phase.path_um_1km"].n == 7
+
+    everyone = aggregate(measured, base, bright_snr=0.0)
+    assert everyone.provenance.values["antenna_gains.amp_rms"].n == 6
+    assert everyone.components.antenna_gains.amp_rms > 0.06
+    # Too few bright windows keep the base's values.
+    few = aggregate(measured, base, bright_snr=1000.0)
+    assert few.components.antenna_gains.amp_rms == base.components.antenna_gains.amp_rms
+    assert "antenna_gains.amp_rms: 0 window(s), kept the base's" in few.provenance.notes
 
 
 @pytest.mark.unit

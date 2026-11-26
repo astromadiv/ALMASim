@@ -882,6 +882,7 @@ $ almasim noise aggregate [OPTIONS]
 * `--name <str>`: The candidate's name (default: <base>-candidate).
 * `--version <int range>`: The candidate's version (default: the base's + 1).  [x>=1]
 * `--min-windows <int range>`: Windows a value needs; fewer keep the base's.  [default: 3; x>=1]
+* `--bright-snr <float range>`: Cleaned continuum S/N from which a window's fit counts for the antenna amplitude and baseline errors.  [default: 250.0; x>=0.0]
 * `--help`: Show this message and exit.
 
 ### `almasim noise validate`

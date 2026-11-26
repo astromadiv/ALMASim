@@ -197,6 +197,7 @@ def fit_window(
     return WindowFit(
         name=window.name,
         bright_groups=int(bright.sum()),
+        continuum_snr=_continuum_snr(task_dir),
         realizations=int(realizations),
         kappa=float(kappa),
         bins=[
@@ -228,6 +229,16 @@ def fit_window(
         line_nonclosing=instrumental,
         notes=notes,
     )
+
+
+def _continuum_snr(task_dir: Path) -> float | None:
+    """The task's cleaned continuum peak over its noise (quality.json), which
+    tells how well the window measures gain and baseline errors."""
+    try:
+        snr = json.loads((task_dir / "quality.json").read_text())["continuum"]["snr"]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+    return float(snr) if snr is not None and np.isfinite(snr) else None
 
 
 def _read_rows(
