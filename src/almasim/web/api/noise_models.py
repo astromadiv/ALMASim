@@ -68,7 +68,10 @@ def _site_folder(request: Request) -> Path | None:
 
 def _info(model: NoiseModel, *, newest: bool, source: str) -> dict[str, Any]:
     p = model.provenance
-    validated = _VALIDATED.search(p.notes or "") if p is not None else None
+    # A model promoted from an earlier release's values keeps that release's
+    # note before its own: the last validation named is this model's.
+    found = list(_VALIDATED.finditer(p.notes or "")) if p is not None else []
+    validated = found[-1] if found else None
     return {
         "spec": f"{model.name}@{model.version}",
         "name": model.name,
