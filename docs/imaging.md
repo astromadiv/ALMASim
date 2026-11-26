@@ -145,25 +145,31 @@ the current process, which is handy for a smoke test on one MS.
 ### Imaging on the grid of the pipeline's images
 
 `compute-parameters` derives each window's grid from the MeasurementSet. The
-images the ALMA pipeline delivered carry the grid tclean imaged them on, and
-`image fetch-headers` and `image parse-headers` write a parameter CSV that
-holds it, so that `image-from-ms` makes images on the delivered ones' grid:
+images the ALMA pipeline delivered carry the grid tclean imaged them on.
+`image fetch-headers` saves each delivered image's header and writes its
+imaging parameters beside it, inside the image's own member, so that
+`image-from-ms` makes images on the delivered ones' grid:
 
 ```bash
-# 1. the FITS header of every (MS, window, field)'s delivered image
-almasim image fetch-headers /data/deliveries /data/image_headers
+# 1. a header and a parameter CSV per delivered image, in its member's folder
+almasim image fetch-headers /data/deliveries
 
-# 2. the parameter CSV, with the image's grid next to the MS-derived one
-almasim image parse-headers /data/image_headers imaging_parameters.csv
+# 2. image from them: the tree stands for the parameter CSV
+almasim image image-from-ms /data/deliveries /data/deliveries --by-member --cube
+```
 
-# 3. as with a compute-parameters CSV
-almasim image image-from-ms imaging_parameters.csv /data/deliveries --by-member --cube
+The delivery tree is the only folder to name. Each image of a member's
+`product/` folder gets two files in the member's `images/headers/` folder,
+next to the images ALMASim makes:
+
+```text
+<member>/product/<image>.pbcor.fits            the pipeline's image
+<member>/images/headers/<image>.pbcor.fits.hdr its FITS header
+<member>/images/headers/<image>.pbcor.fits.csv its imaging parameters
 ```
 
 **fetch-headers** finds, for each row `compute-parameters` would write, the
-member's `mfs` and `cube` science images of that window (`--kinds`), and
-saves their FITS headers under `<header_folder>/<member>/<image>.hdr`, with
-the manifest `headers.csv` (one row per MS, window, field and image). It
+member's `mfs` and `cube` science images of that window (`--kinds`). It
 needs the delivery tree's `ous_index.csv`, which names each MS's member
 (`--ous-index`, or the one at `--delivery-root`, or the nearest above the
 MSs). The images are those in the member's `product/` folder (`--source
@@ -179,18 +185,32 @@ The archive is asked once per member for its list of images.
 - Of several images of one window and field, the self-calibrated one
   (`.selfcal.`) is taken before the `.regcal.` one, and a Stokes I image
   before any other.
+- An image's CSV has one row per (MS, window, field) the image is of: an
+  image of a member with three execution blocks has three rows, and an image
+  of several windows a row for each. A row holds the columns of
+  `compute-parameters`, those of the header, the MS-derived size and cell
+  (`ms_n_pixels`, `ms_cell_arcsec`), and in `image_check` where the image's
+  size or cell is more than 2 % from them.
 - A header already saved is not read again (`--overwrite` reads it again),
-  and a rerun adds only the MSs `headers.csv` does not list (`--no-resume`
-  starts over). The manifest is written every 50 MSs.
+  and a rerun skips an MS its member's CSVs already list (`--no-resume`
+  writes its rows again).
 - A row with no image, or an MS that cannot be read, is listed in
-  `headers.csv.failed.tsv` and the command exits 1 after the scan
-  (`--fail-fast` stops at the first unreadable MS instead).
+  `headers.failed.tsv` at the tree's root and the command exits 1 after the
+  scan (`--fail-fast` stops at the first unreadable MS instead).
+- `--output <folder>` writes to `<folder>/<member>/` instead of the members'
+  own folders. MSs outside a delivery tree need it.
 
-**parse-headers** writes one row per (MS, window, field): the columns of
-`compute-parameters`, and those of the window's cube header (of its `mfs`
-header when the member has no cube). It prints, and records in
-`image_check`, where the image's size or cell is more than 2 % from the
-MS-derived one.
+**image-from-ms** given a folder in place of a parameter CSV reads the
+per-image CSVs under it: every member's in a delivery tree, one member's in
+a member folder, or those of an `--output` folder. Each (MS, window, field)
+takes the row of its cube image, or of its `mfs` image when the member has no
+cube. `pb-correct` reads a folder the same way.
+
+**parse-headers** reads the saved headers again and rewrites the image
+columns and the check of each CSV, without opening an MS or the archive:
+`almasim image parse-headers /data/deliveries`. It serves after a change of
+`--fov-fraction`, `--beam-sampling` or `--min-beams-across`, which set the
+MS-derived size and cell the check compares with.
 
 | column | from | `image-from-ms` uses it as |
 |---|---|---|

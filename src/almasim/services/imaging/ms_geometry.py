@@ -166,7 +166,7 @@ def add_spectral_columns(parameters: pd.DataFrame) -> pd.DataFrame:
 def image_override(row: pd.Series | Mapping[str, Any], key: str) -> Any | None:
     """The image-derived value of ``key`` when a CSV row carries one.
 
-    ``image parse-headers`` adds columns such as ``image_n_pixels`` and
+    ``image fetch-headers`` adds columns such as ``image_n_pixels`` and
     ``image_cell_arcsec``; when they are present and set, they replace the
     MS-derived geometry. NaN and empty strings count as absent.
     """
@@ -192,7 +192,7 @@ def image_pixels(
 
     ``min_beams_across`` widens images narrower than that many synthesized
     beams: a compact configuration's primary beam spans few of them. A row with
-    ``image_n_pixels`` (from ``image parse-headers``) uses that size instead.
+    ``image_n_pixels`` (from ``image fetch-headers``) uses that size instead.
     """
     override = image_override(imaging_parameters, "image_n_pixels")
     if override is not None:

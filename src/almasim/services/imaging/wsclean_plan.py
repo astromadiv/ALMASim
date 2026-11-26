@@ -63,7 +63,7 @@ def cube_channels(row: pd.Series, n_pixels: int, options: CubeOptions) -> int:
     channel width.
 
     A row with the pipeline's cube header (``image_n_channels`` of an
-    ``image_specmode`` ``cube``, from ``image parse-headers``) takes the
+    ``image_specmode`` ``cube``, from ``image fetch-headers``) takes the
     channel averaging tclean imaged with instead of the one the options give:
     the native count over the whole number of native channels per tclean
     channel. tclean regrids the window (its cube often has a few channels
@@ -151,7 +151,7 @@ def imaging_parameter_to_command_arg(
     """
     spw = imaging_parameters["spectral_window_id"]
     n_pixels = image_pixels(imaging_parameters, fov_fraction, beam_sampling, min_beams_across)
-    # An image-derived cell (image parse-headers) replaces the MS-derived one.
+    # An image-derived cell (image fetch-headers) replaces the MS-derived one.
     cell = image_override(imaging_parameters, "image_cell_arcsec")
     cell_arcsec = (
         float(cell)

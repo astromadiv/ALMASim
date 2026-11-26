@@ -421,8 +421,8 @@ $ almasim image [OPTIONS] COMMAND [ARGS]...
 **Commands**:
 
 * `compute-parameters`: Derive per-spectral-window imaging...
-* `fetch-headers`: Read the FITS header of every (MS, window,...
-* `parse-headers`: Parse the saved tclean headers into the...
+* `fetch-headers`: Save the FITS header of every (MS, window,...
+* `parse-headers`: Read the saved tclean headers again and...
 * `image-from-ms`: Image every (MS, spectral window) row of a...
 * `clean-quality`: Measure how much source signal the clean...
 * `pb-correct`: Primary-beam correct the images of an...
@@ -457,27 +457,32 @@ $ almasim image compute-parameters [OPTIONS] [archive_folder] [output_metadata_f
 
 ### `almasim image fetch-headers`
 
-Read the FITS header of every (MS, window, field)'s tclean image.
+Save the FITS header of every (MS, window, field)'s tclean image, with
+the image's imaging parameter CSV beside it.
 
-The header is read a block at a time and stops at the END card, so a
-multi-gigabyte cube costs a few tens of kilobytes. Writes one header per
-image under ``header_folder`` and the manifest ``headers.csv``;
-``image parse-headers`` turns it into the imaging parameter CSV.
+In a delivery tree each image of a member's ``product/`` folder gets
+``<member>/images/headers/<image>.hdr`` and ``<image>.csv``; no output
+folder is given. The header is read a block at a time and stops at the END
+card, so a multi-gigabyte cube costs a few tens of kilobytes.
+``image image-from-ms`` given the tree (or a member) images from the CSVs.
 
 **Usage**:
 
 ```console
-$ almasim image fetch-headers [OPTIONS] [archive_folder] [header_folder]
+$ almasim image fetch-headers [OPTIONS] [archive_folder]
 ```
 
 **Arguments**:
 
 * `archive_folder`: Processed MSs folder (default: current directory)  [default: .]
-* `header_folder`: Folder the image FITS headers and their manifest are written to  [default: wsclean]
 
 **Options**:
 
+* `--output <path>`: Folder for the headers and parameter CSVs, one sub-folder per member (default: each member's own images/headers/ in the delivery tree).
 * `--pattern <str>`: Glob for the MeasurementSets inside the folder.  [default: *.cal]
+* `--fov-fraction <float range>`: MS-derived size check: fraction of the FOV to image.  [default: 1.5; x>=1e-06]
+* `--beam-sampling <float range>`: MS-derived size check: pixels per synthesized beam.  [default: 8.0; x>=1e-06]
+* `--min-beams-across <float range>`: MS-derived size check: minimum beams across.  [default: 32.0; x>=0.0]
 * `--delivery-root <path>`: Root of the ALMA delivery tree holding the member product folders.
 * `--ous-index <path>`: The delivery tree's ous_index.csv (default: nearest above the MSs).
 * `--source <str>`: Where the tclean images are read: local, archive, or auto (local first).  [default: auto]
@@ -486,29 +491,28 @@ $ almasim image fetch-headers [OPTIONS] [archive_folder] [header_folder]
 * `--exclude <str>`: Glob dropping image files. Repeatable.
 * `--require-done-marker / --no-require-done-marker`: Skip an MS whose <ms>.done calibration marker is missing.  [default: require-done-marker]
 * `--fail-fast`: Abort on the first MS that cannot be read (default: record it and continue).
-* `--resume / --no-resume`: Skip MSs already listed in headers.csv and checkpoint progress (default: on).  [default: resume]
-* `--overwrite / --no-overwrite`: Re-read every header even when a cached copy exists (default: reuse cached).  [default: no-overwrite]
+* `--resume / --no-resume`: Skip an MS its member's parameter CSVs already list (default: on).  [default: resume]
+* `--overwrite / --no-overwrite`: Read every header again even when it is already saved (default: keep it).  [default: no-overwrite]
 * `--help`: Show this message and exit.
 
 ### `almasim image parse-headers`
 
-Parse the saved tclean headers into the imaging parameter CSV.
+Read the saved tclean headers again and rewrite each image's parameter CSV.
 
-One row per (MS, window, field), carrying the image's grid (size, cell,
-phase centre, channels) and a check against the MS-derived geometry. The
-CSV is read by ``image image-from-ms``, which prefers the image's
-parameters when they are present.
+``image fetch-headers`` already writes the CSVs; this renews their image
+columns (size, cell, phase centre, channels) and the check against the
+MS-derived geometry from the ``.hdr`` beside each, without reading an MS
+or the archive. It prints one row per (MS, window, field and image).
 
 **Usage**:
 
 ```console
-$ almasim image parse-headers [OPTIONS] [header_folder] [output_metadata_file]
+$ almasim image parse-headers [OPTIONS] [folder]
 ```
 
 **Arguments**:
 
-* `header_folder`: Folder image fetch-headers wrote the headers and headers.csv to  [default: wsclean]
-* `output_metadata_file`: Parameters CSV file (default: imaging_parameters.csv)  [default: imaging_parameters.csv]
+* `folder`: A delivery tree, one member's folder, or the --output folder of image fetch-headers (default: current directory)  [default: .]
 
 **Options**:
 
@@ -539,7 +543,7 @@ $ almasim image image-from-ms [OPTIONS] {imaging_parameters} {output_directory}
 
 **Arguments**:
 
-* `imaging_parameters`: Imaging parameter file  [required]
+* `imaging_parameters`: Imaging parameter file, or a delivery tree or member folder holding the per-image CSVs of image fetch-headers  [required]
 * `output_directory`: Output directory path  [required]
 
 **Options**:

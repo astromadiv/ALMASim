@@ -7,8 +7,9 @@ imaged with: the ``HISTORY`` cards repeat every tclean parameter (``imsize``,
 ``cell``, ``phasecenter``, ``specmode``, ``nchan``, ``weighting`` ...) and the
 WCS cards describe the grid (``NAXIS``, ``CDELT``, ``CRVAL``, ``CRPIX``,
 ``BMAJ`` ...). This module reads those headers -- from the downloaded delivery
-tree, or from the archive when they are not on disk -- and turns them into the
-parameter rows ``image-from-ms`` images from.
+tree, or from the archive when they are not on disk -- and writes, for each
+image, its header and a CSV of the parameter rows ``image-from-ms`` images
+from, in the member's ``images/headers`` folder.
 
 The headers are read a block at a time and stop at the ``END`` card, so a
 multi-gigabyte cube costs a few tens of kilobytes. The ALMA data portal answers
@@ -32,6 +33,7 @@ import pandas as pd
 from astropy.io import fits
 from tenacity import retry, stop_after_attempt, wait_exponential
 
+from almasim.services.archive.delivery import IMAGES_FOLDER
 from almasim.services.imaging.ms_geometry import compute_imaging_parameters
 from almasim.services.imaging.provenance import eb_uid_from_ms
 
@@ -43,7 +45,8 @@ __all__ = [
     "collect_headers",
     "image_geometry",
     "match_member_images",
-    "parse_manifest",
+    "parse_headers",
+    "read_parameters",
     "parse_tclean_parameters",
     "read_fits_header",
     "read_fits_header_bytes",
@@ -57,9 +60,13 @@ END_CARD = b"END"
 # instead of an endless read.
 MAX_HEADER_BYTES = 64 * 1024 * 1024
 
-MANIFEST_FILENAME = "headers.csv"
+# A member's headers and parameter CSVs: <member>/images/headers/.
+HEADERS_FOLDER = "headers"
+FAILED_FILENAME = "headers.failed.tsv"
+# One parameter row is of one MS, window and field.
+_ROW_KEY = ("filename", "spectral_window_id", "field_name")
 
-# The parameter columns ``parse_manifest`` adds to the MS-derived rows. The
+# The parameter columns ``collect_headers`` adds to the MS-derived rows. The
 # command builder prefers them over the MS-derived geometry when they are set.
 IMAGE_COLUMNS = (
     "image_n_pixels",
@@ -479,47 +486,128 @@ def archive_member_images(
     return images
 
 
-def _header_path(header_folder: Path, member_ous_uid: str, image: MemberImage) -> Path:
-    """The local path a header is cached under, one per unique image."""
-    member = member_ous_uid.replace("://", "___").replace("/", "_") or "member"
-    return header_folder / member / f"{image.filename}.hdr"
+def headers_folder(
+    member_folder: str,
+    member_ous_uid: str,
+    *,
+    delivery_root: Path | None,
+    output: Path | None = None,
+) -> Path:
+    """Where a member's headers and parameter CSVs go: its own
+    ``images/headers`` folder in the delivery tree, or ``<output>/<member>``."""
+    if output is not None:
+        member = member_ous_uid.replace("://", "___").replace("/", "_") or "member"
+        return Path(output) / member
+    if delivery_root is None or not member_folder:
+        raise ValueError("an MS outside a delivery tree needs an output folder (--output)")
+    return Path(delivery_root) / member_folder / IMAGES_FOLDER / HEADERS_FOLDER
+
+
+def product_paths(folder: Path, image: MemberImage) -> tuple[Path, Path]:
+    """One delivered image's saved header and its parameter CSV."""
+    return folder / f"{image.filename}.hdr", folder / f"{image.filename}.csv"
+
+
+def listed_mss(folder: Path) -> set[str]:
+    """The MSs the parameter CSVs of one member's folder have rows of."""
+    listed: set[str] = set()
+    for path in sorted(Path(folder).glob("*.fits.csv")):
+        try:
+            listed |= {str(v) for v in pd.read_csv(path, usecols=["filename"])["filename"]}
+        except Exception:  # noqa: BLE001 - an unreadable CSV lists nothing
+            continue
+    return listed
+
+
+def _geometry(header_path: object, kind: object) -> dict[str, object]:
+    """The image columns of one saved header (empty ones when it cannot be read)."""
+    try:
+        return image_geometry(read_fits_header(str(header_path)))
+    except Exception as exc:  # noqa: BLE001 - reported in the row
+        logger.warning("Could not parse %s: %s", header_path, exc)
+        geometry: dict[str, object] = {
+            column: math.nan for column in IMAGE_COLUMNS if column != "image_kind"
+        }
+        geometry["image_kind"] = kind
+        return geometry
+
+
+def _checked(record: dict[str, object], grid: tuple[float, float, float]) -> dict[str, object]:
+    """``record`` with the MS-derived size and cell and how the image's compare."""
+    from almasim.services.imaging.ms_geometry import image_pixels
+
+    fov_fraction, beam_sampling, min_beams_across = grid
+    # Without the image's own size, which image_pixels would hand back.
+    from_ms = {key: record.get(key) for key in _MS_COLUMNS}
+    record["ms_n_pixels"] = image_pixels(from_ms, fov_fraction, beam_sampling, min_beams_across)
+    record["ms_cell_arcsec"] = float(str(record["synthetized_beam_size"])) / beam_sampling
+    record["image_check"] = _geometry_check(record)
+    return record
+
+
+def _write_rows(csv_path: Path, rows: Sequence[dict[str, object]]) -> None:
+    """Put ``rows`` in one image's parameter CSV, replacing those of the same
+    (MS, window, field): an image of several execution blocks or windows has
+    a row for each."""
+    frame = pd.DataFrame(list(rows))
+    if csv_path.is_file():
+        try:
+            old = pd.read_csv(csv_path)
+        except Exception:  # noqa: BLE001 - an unreadable CSV is written afresh
+            old = pd.DataFrame()
+        if not old.empty:
+            keys = set(zip(*(frame[k].astype(str) for k in _ROW_KEY), strict=True))
+            kept = [
+                tuple(str(v) for v in key) not in keys
+                for key in zip(*(old[k] for k in _ROW_KEY), strict=True)
+            ]
+            frame = pd.concat([old[kept], frame], ignore_index=True)
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    frame.to_csv(csv_path, index=False)
 
 
 def collect_headers(
     mss: Sequence[Path],
-    header_folder: Path,
     *,
     index: dict[str, dict[str, str]],
     delivery_root: Path | None,
+    output: Path | None = None,
     kinds: Sequence[str] = _IMAGE_KINDS,
     include: Sequence[str] = (),
     exclude: Sequence[str] = (),
     source: str = "local",
     overwrite: bool = False,
+    fov_fraction: float = 1.5,
+    beam_sampling: float = 8.0,
+    min_beams_across: float = 32.0,
 ) -> tuple[list[dict[str, object]], list[tuple[Path, str]]]:
-    """Read the tclean header of every (MS, window, field) row; the manifest rows.
+    """Save the header of every (MS, window, field)'s tclean image and write
+    its parameter CSV beside it; the rows written and what failed.
 
     ``source`` is ``local`` (the delivery tree's ``product/`` folders),
     ``archive`` (the ALMA data portal), or ``auto`` (local first, then archive).
-    Each unique image's header is read once and cached under
-    ``header_folder/<member>/<image>.hdr``; the manifest has one row per
-    (MS, window, field, image kind).
+    Each image has ``<image>.hdr`` and ``<image>.csv`` in its member's
+    ``headers_folder``; the CSV has one row per (MS, window, field) the image
+    is of, with the MS-derived columns, the image's and their comparison.
     """
-    header_folder = Path(header_folder)
-    header_folder.mkdir(parents=True, exist_ok=True)
+    grid = (fov_fraction, beam_sampling, min_beams_across)
     rows: list[dict[str, object]] = []
     failures: list[tuple[Path, str]] = []
     for ms in mss:
+        eb = eb_uid_from_ms(ms) or ""
+        member = index.get(eb, {})
+        member_uid = str(member.get("member_ous_uid", ""))
+        member_folder = str(member.get("member_folder", ""))
         try:
+            folder = headers_folder(
+                member_folder, member_uid, delivery_root=delivery_root, output=output
+            )
             ms_rows = compute_imaging_parameters(ms)
         except Exception as exc:  # noqa: BLE001 - recorded and reported
             failures.append((ms, f"{type(exc).__name__}: {exc}"))
             continue
+        by_image: dict[Path, list[dict[str, object]]] = {}
         for row in ms_rows.to_dict("records"):
-            eb = eb_uid_from_ms(ms) or ""
-            member = index.get(eb, {})
-            member_uid = str(member.get("member_ous_uid", ""))
-            member_folder = str(member.get("member_folder", ""))
             field_name = str(row.get("field_name", ""))
             spw = int(row["spectral_window_id"])
             images = _images_for(
@@ -538,11 +626,12 @@ def collect_headers(
                     (ms, f"no tclean image for spw {spw} field {field_name} ({member_uid})")
                 )
                 continue
+            ms_ra, ms_dec = ms_phase_center(ms, row.get("target_field_ids"))
             for image in images:
-                header_path = _header_path(header_folder, member_uid, image)
+                header_path, csv_path = product_paths(folder, image)
                 status, error = "ok", ""
                 if header_path.is_file() and not overwrite:
-                    logger.info("Keeping cached header %s", header_path)
+                    logger.info("Keeping saved header %s", header_path)
                 else:
                     try:
                         raw = image.read_header_bytes()
@@ -552,23 +641,25 @@ def collect_headers(
                     else:
                         header_path.parent.mkdir(parents=True, exist_ok=True)
                         header_path.write_bytes(_pad_header_bytes(raw))
-                ms_ra, ms_dec = ms_phase_center(ms, row.get("target_field_ids"))
-                rows.append(
-                    {
-                        **row,
-                        "member_ous_uid": member_uid,
-                        "member_folder": member_folder,
-                        "ms_phasecenter_ra_deg": ms_ra if ms_ra is not None else math.nan,
-                        "ms_phasecenter_dec_deg": ms_dec if ms_dec is not None else math.nan,
-                        "image_filename": image.filename,
-                        "image_kind": image.kind,
-                        "image_path": "" if image.path is None else str(image.path),
-                        "image_url": "" if image.url is None else str(image.url),
-                        "header_path": str(header_path),
-                        "status": status,
-                        "error": error,
-                    }
-                )
+                record = {
+                    **{key: row.get(key, "") for key in _MS_COLUMNS},
+                    "ms_phasecenter_ra_deg": ms_ra if ms_ra is not None else math.nan,
+                    "ms_phasecenter_dec_deg": ms_dec if ms_dec is not None else math.nan,
+                    **_geometry(header_path, image.kind),
+                    "image_path": "" if image.path is None else str(image.path),
+                    "image_url": "" if image.url is None else str(image.url),
+                    "image_filename": image.filename,
+                    "image_kind": image.kind,
+                    "header_path": str(header_path),
+                    "member_ous_uid": member_uid,
+                    "member_folder": member_folder,
+                    "status": status,
+                    "error": error,
+                }
+                by_image.setdefault(csv_path, []).append(_checked(record, grid))
+        for csv_path, image_rows in by_image.items():
+            _write_rows(csv_path, image_rows)
+            rows.extend(image_rows)
     return rows, failures
 
 
@@ -604,24 +695,6 @@ def _pad_header_bytes(raw: bytes) -> bytes:
     return raw
 
 
-def write_manifest(rows: Sequence[dict[str, object]], path: Path) -> Path:
-    """Write the header manifest CSV; the path."""
-    frame = pd.DataFrame(list(rows))
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    frame.to_csv(path, index=False)
-    return path
-
-
-def _first_present(row: dict[str, object], key: str) -> object:
-    value = row.get(key)
-    if value is None:
-        return math.nan
-    if isinstance(value, float) and math.isnan(value):
-        return math.nan
-    return value
-
-
 def _geometry_check(record: dict[str, object]) -> str:
     """A short note on how the image's grid compares with the MS-derived one."""
     notes: list[str] = []
@@ -642,62 +715,58 @@ def _geometry_check(record: dict[str, object]) -> str:
     return "; ".join(notes) if notes else "ok"
 
 
-def parse_manifest(
-    manifest: Path,
-    output_csv: Path,
+def parameter_csvs(root: Path) -> list[Path]:
+    """The per-image parameter CSVs under ``root``: a delivery tree (each
+    member's ``images/headers``), one member's folder, or an output folder of
+    ``fetch-headers``. An MS is never descended into."""
+    from almasim.services.archive.delivery import is_delivery_root
+
+    root = Path(root)
+    inside = f"{IMAGES_FOLDER}/{HEADERS_FOLDER}/*.fits.csv"
+    if is_delivery_root(root):
+        return sorted(root.glob(f"*/science_goal.*/group.*/member.*/{inside}"))
+    found: list[Path] = []
+    for pattern in ("*.fits.csv", "*/*.fits.csv", f"{HEADERS_FOLDER}/*.fits.csv", inside):
+        found += root.glob(pattern)
+    return sorted(set(found))
+
+
+def parse_headers(
+    root: Path,
     *,
     fov_fraction: float = 1.5,
     beam_sampling: float = 8.0,
     min_beams_across: float = 32.0,
 ) -> pd.DataFrame:
-    """Turn the header manifest into the imaging parameter CSV.
+    """Read each saved header under ``root`` again and rewrite the image
+    columns and the comparison of its parameter CSV; every row rewritten."""
+    grid = (fov_fraction, beam_sampling, min_beams_across)
+    frames: list[pd.DataFrame] = []
+    for csv_path in parameter_csvs(root):
+        records = []
+        for row in pd.read_csv(csv_path).to_dict("records"):
+            header_path = csv_path.with_suffix(".hdr")
+            row.update(_geometry(header_path, row.get("image_kind", "")))
+            row["header_path"] = str(header_path)
+            records.append(_checked(row, grid))
+        frame = pd.DataFrame(records)
+        frame.to_csv(csv_path, index=False)
+        frames.append(frame)
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
 
-    One output row per (MS, window, field): the MS-derived columns of the
-    manifest, plus the image geometry of the cube header (the mfs header when
-    there is no cube), plus a comparison with the MS-derived geometry.
-    """
-    from almasim.services.imaging.ms_geometry import image_pixels
 
-    frame = pd.read_csv(manifest)
-    if frame.empty:
-        raise ValueError(f"{manifest}: no header rows")
-    groups = frame.groupby(
-        ["filename", "spectral_window_id", "field_name"], sort=False, dropna=False
-    )
-    records: list[dict[str, object]] = []
-    for _, group in groups:
-        base = dict(group.iloc[0])
-        cube = group[group["image_kind"] == "cube"]
-        chosen = cube.iloc[0] if len(cube) else group.iloc[0]
-        header_path = chosen.get("header_path")
-        try:
-            header = read_fits_header(header_path)
-            geometry = image_geometry(header)
-        except Exception as exc:  # noqa: BLE001 - reported in the row
-            logger.warning("Could not parse %s: %s", header_path, exc)
-            geometry = {column: math.nan for column in IMAGE_COLUMNS if column != "image_kind"}
-            geometry["image_kind"] = chosen.get("image_kind", "")
-        record = {
-            **{key: base.get(key, "") for key in _MS_COLUMNS},
-            "ms_phasecenter_ra_deg": base.get("ms_phasecenter_ra_deg", math.nan),
-            "ms_phasecenter_dec_deg": base.get("ms_phasecenter_dec_deg", math.nan),
-            **geometry,
-            "image_path": chosen.get("image_path", ""),
-            "image_filename": chosen.get("image_filename", ""),
-            "image_kind": chosen.get("image_kind", ""),
-            "header_path": chosen.get("header_path", ""),
-            "member_ous_uid": base.get("member_ous_uid", ""),
-            "member_folder": base.get("member_folder", ""),
-        }
-        record["ms_n_pixels"] = image_pixels(base, fov_fraction, beam_sampling, min_beams_across)
-        record["ms_cell_arcsec"] = float(base["synthetized_beam_size"]) / beam_sampling
-        record["image_check"] = _geometry_check(record)
-        records.append(record)
-    result = pd.DataFrame(records)
-    output_csv = Path(output_csv)
-    output_csv.parent.mkdir(parents=True, exist_ok=True)
-    result.to_csv(output_csv, index=False)
-    return result
+def read_parameters(root: Path) -> pd.DataFrame:
+    """The imaging parameter rows of the per-image CSVs under ``root``: one
+    per (MS, window, field), from its cube image's CSV, or its ``mfs``
+    image's when there is no cube."""
+    paths = parameter_csvs(root)
+    if not paths:
+        raise ValueError(f"{root}: no per-image parameter CSV; run image fetch-headers first")
+    frame = pd.concat([pd.read_csv(path) for path in paths], ignore_index=True)
+    cube_first = (frame["image_kind"] != "cube").astype(int)
+    frame = frame.assign(_order=cube_first).sort_values("_order", kind="stable")
+    frame = frame.drop_duplicates(list(_ROW_KEY), keep="first").drop(columns="_order")
+    return frame.sort_values(list(_ROW_KEY), kind="stable").reset_index(drop=True)
 
 
 def ms_phase_center(ms: str | Path, field_id: object) -> tuple[float | None, float | None]:
@@ -741,8 +810,3 @@ _MS_COLUMNS = (
     "target_field_ids",
     "field_name",
 )
-
-
-def read_manifest(path: Path) -> pd.DataFrame:
-    """The header manifest CSV."""
-    return pd.read_csv(path)

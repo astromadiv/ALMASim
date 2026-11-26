@@ -25,10 +25,14 @@ from almasim.services.imaging.batch_runner import (
     run_imaging_tasks,
 )
 from almasim.services.imaging.image_headers import (
-    MANIFEST_FILENAME,
+    FAILED_FILENAME,
     collect_headers,
-    parse_manifest,
-    write_manifest,
+    headers_folder,
+    listed_mss,
+    read_parameters,
+)
+from almasim.services.imaging.image_headers import (
+    parse_headers as rewrite_parameter_csvs,
 )
 from almasim.services.imaging.ms_geometry import (  # noqa: F401  (moved; re-exported)
     MIN_IMAGE_PIXELS,
@@ -43,6 +47,7 @@ from almasim.services.imaging.ms_geometry import (  # noqa: F401  (moved; re-exp
     spectral_window_properties,
 )
 from almasim.services.imaging.options import ExecOptions, ImagingOptions, SelfcalOptions
+from almasim.services.imaging.provenance import eb_uid_from_ms
 from almasim.services.imaging.wsclean_plan import (  # noqa: F401  (moved; re-exported)
     CUBE_PRODUCTS,
     CubeOptions,
@@ -297,7 +302,7 @@ def _header_index(
 
 def _run_fetch_headers(
     mss: Sequence[Path],
-    header_folder: Path,
+    output: Path | None,
     index: dict[str, dict[str, str]],
     root: Path,
     image_kinds: tuple[str, ...],
@@ -307,42 +312,34 @@ def _run_fetch_headers(
     fail_fast: bool,
     overwrite: bool,
     resume: bool,
+    grid: tuple[float, float, float],
 ) -> None:
-    manifest_path = header_folder / MANIFEST_FILENAME
-    existing_rows: list[dict[str, object]] = []
-    done_ms: set[str] = set()
-    if resume and manifest_path.is_file():
-        try:
-            existing = pd.read_csv(manifest_path)
-            existing_rows = existing.to_dict("records")
-            done_ms = {
-                str(value) for value in existing.get("filename", pd.Series()).dropna().unique()
-            }
-            typer.echo(f"Resuming: {len(done_ms)} MS(s) already in {manifest_path}")
-        except Exception:  # noqa: BLE001 - a corrupt manifest is rebuilt
-            existing_rows = []
-            done_ms = set()
-
-    pending = [ms for ms in mss if str(ms.resolve()) not in done_ms and str(ms) not in done_ms]
+    pending = list(mss)
+    if resume and not overwrite:
+        pending = [ms for ms in mss if not _headers_listed(ms, index, root, output)]
+        if len(pending) < len(mss):
+            typer.echo(f"Resuming: {len(mss) - len(pending)} MS(s) already have their CSVs")
     if not pending:
-        typer.echo(f"Nothing to do: all {len(mss)} MS(s) are already in {manifest_path}")
+        typer.echo(f"Nothing to do: all {len(mss)} MS(s) already have their parameter CSVs")
         return
 
-    rows = list(existing_rows)
+    rows: list[dict[str, object]] = []
     failures: list[tuple[Path, str]] = []
-    checkpoint_every = 50
-    for position, ms in enumerate(tqdm(pending, desc="Image headers"), start=1):
+    for ms in tqdm(pending, desc="Image headers"):
         try:
             collected, failed = collect_headers(
                 [ms],
-                header_folder,
                 index=index,
                 delivery_root=root,
+                output=output,
                 kinds=image_kinds,
                 include=include,
                 exclude=exclude,
                 source=source,
                 overwrite=overwrite,
+                fov_fraction=grid[0],
+                beam_sampling=grid[1],
+                min_beams_across=grid[2],
             )
         except Exception as exc:
             if fail_fast:
@@ -351,39 +348,87 @@ def _run_fetch_headers(
             continue
         rows.extend(collected)
         failures.extend(failed)
-        if position % checkpoint_every == 0:
-            write_manifest(rows, manifest_path)
-            typer.echo(f"  checkpoint: {len({r['filename'] for r in rows})} MS(s)")
 
-    manifest = write_manifest(rows, manifest_path)
+    images = {str(row["header_path"]) for row in rows}
     typer.echo(
-        f"Wrote {len(rows)} header row(s) for {len({row['filename'] for row in rows})} MS(s) "
-        f"to {manifest}"
+        f"Wrote the header and parameter CSV of {len(images)} image(s), "
+        f"{len(rows)} row(s) of {len({row['filename'] for row in rows})} MS(s)"
     )
     if failures:
-        failed_path = header_folder / (MANIFEST_FILENAME + ".failed.tsv")
+        failed_path = (output if output is not None else root) / FAILED_FILENAME
+        failed_path.parent.mkdir(parents=True, exist_ok=True)
         failed_path.write_text(
             "".join(f"{ms}\t{error}\n" for ms, error in failures), encoding="utf-8"
         )
         fail(f"{len(failures)} MS row(s) had no readable header; listed in {failed_path}")
 
 
-@image_app.command("request-headers", hidden=True)
-@image_app.command("read-headers", hidden=True)
+def _headers_listed(
+    ms: Path, index: dict[str, dict[str, str]], root: Path, output: Path | None
+) -> bool:
+    """Whether a parameter CSV of the MS's member already has rows of it."""
+    member = index.get(eb_uid_from_ms(ms) or "", {})
+    try:
+        folder = headers_folder(
+            str(member.get("member_folder", "")),
+            str(member.get("member_ous_uid", "")),
+            delivery_root=root,
+            output=output,
+        )
+    except ValueError:
+        return False
+    listed = listed_mss(folder)
+    return str(ms.resolve()) in listed or str(ms) in listed
+
+
+def _read_parameters(path: Path) -> pd.DataFrame:
+    """The imaging parameter rows: a CSV, or the per-image CSVs of
+    ``image fetch-headers`` under a delivery tree, a member or a folder."""
+    path = Path(path)
+    if not path.is_dir():
+        return pd.read_csv(str(path))
+    try:
+        return read_parameters(path)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+
+
 @image_app.command("fetch-headers")
 def fetch_headers(
     archive_folder: Path = typer.Argument(
         default=Path("."),
         help="Processed MSs folder (default: current directory)",
     ),
-    header_folder: Path = typer.Argument(
-        default=Path("wsclean"),
-        help="Folder the image FITS headers and their manifest are written to",
+    output: Path | None = typer.Option(
+        None,
+        "--output",
+        help=(
+            "Folder for the headers and parameter CSVs, one sub-folder per member "
+            "(default: each member's own images/headers/ in the delivery tree)."
+        ),
     ),
     pattern: str = typer.Option(
         "*.cal",
         "--pattern",
         help="Glob for the MeasurementSets inside the folder.",
+    ),
+    fov_fraction: float = typer.Option(
+        1.5,
+        "--fov-fraction",
+        min=1e-6,
+        help="MS-derived size check: fraction of the FOV to image.",
+    ),
+    beam_sampling: float = typer.Option(
+        8.0,
+        "--beam-sampling",
+        min=1e-6,
+        help="MS-derived size check: pixels per synthesized beam.",
+    ),
+    min_beams_across: float = typer.Option(
+        32.0,
+        "--min-beams-across",
+        min=0.0,
+        help="MS-derived size check: minimum beams across.",
     ),
     delivery_root: Path | None = typer.Option(
         None,
@@ -428,20 +473,22 @@ def fetch_headers(
     resume: bool = typer.Option(
         True,
         "--resume/--no-resume",
-        help="Skip MSs already listed in headers.csv and checkpoint progress (default: on).",
+        help="Skip an MS its member's parameter CSVs already list (default: on).",
     ),
     overwrite: bool = typer.Option(
         False,
         "--overwrite/--no-overwrite",
-        help="Re-read every header even when a cached copy exists (default: reuse cached).",
+        help="Read every header again even when it is already saved (default: keep it).",
     ),
 ) -> None:
-    """Read the FITS header of every (MS, window, field)'s tclean image.
+    """Save the FITS header of every (MS, window, field)'s tclean image, with
+    the image's imaging parameter CSV beside it.
 
-    The header is read a block at a time and stops at the END card, so a
-    multi-gigabyte cube costs a few tens of kilobytes. Writes one header per
-    image under ``header_folder`` and the manifest ``headers.csv``;
-    ``image parse-headers`` turns it into the imaging parameter CSV.
+    In a delivery tree each image of a member's ``product/`` folder gets
+    ``<member>/images/headers/<image>.hdr`` and ``<image>.csv``; no output
+    folder is given. The header is read a block at a time and stops at the END
+    card, so a multi-gigabyte cube costs a few tens of kilobytes.
+    ``image image-from-ms`` given the tree (or a member) images from the CSVs.
     """
     if source not in {"local", "archive", "auto"}:
         raise typer.BadParameter("--source must be local, archive or auto")
@@ -468,7 +515,7 @@ def fetch_headers(
 
     _run_fetch_headers(
         mss,
-        Path(header_folder),
+        None if output is None else Path(output),
         index,
         root,
         image_kinds,
@@ -478,6 +525,7 @@ def fetch_headers(
         fail_fast,
         overwrite,
         resume,
+        (fov_fraction, beam_sampling, min_beams_across),
     )
 
 
@@ -485,13 +533,12 @@ def fetch_headers(
 @image_app.command("parse-parameters", hidden=True)
 @image_app.command("parse-headers")
 def parse_headers(
-    header_folder: Path = typer.Argument(
-        default=Path("wsclean"),
-        help="Folder image fetch-headers wrote the headers and headers.csv to",
-    ),
-    output_metadata_file: Path = typer.Argument(
-        default=Path("imaging_parameters.csv"),
-        help="Parameters CSV file (default: imaging_parameters.csv)",
+    folder: Path = typer.Argument(
+        default=Path("."),
+        help=(
+            "A delivery tree, one member's folder, or the --output folder of "
+            "image fetch-headers (default: current directory)"
+        ),
     ),
     fov_fraction: float = typer.Option(
         1.5,
@@ -512,23 +559,21 @@ def parse_headers(
         help="MS-derived size check: minimum beams across.",
     ),
 ) -> None:
-    """Parse the saved tclean headers into the imaging parameter CSV.
+    """Read the saved tclean headers again and rewrite each image's parameter CSV.
 
-    One row per (MS, window, field), carrying the image's grid (size, cell,
-    phase centre, channels) and a check against the MS-derived geometry. The
-    CSV is read by ``image image-from-ms``, which prefers the image's
-    parameters when they are present.
+    ``image fetch-headers`` already writes the CSVs; this renews their image
+    columns (size, cell, phase centre, channels) and the check against the
+    MS-derived geometry from the ``.hdr`` beside each, without reading an MS
+    or the archive. It prints one row per (MS, window, field and image).
     """
-    manifest = Path(header_folder) / MANIFEST_FILENAME
-    if not manifest.is_file():
-        fail(f"No header manifest: {manifest}. Run `image fetch-headers` first.")
-    result = parse_manifest(
-        manifest,
-        output_metadata_file,
+    result = rewrite_parameter_csvs(
+        Path(folder),
         fov_fraction=fov_fraction,
         beam_sampling=beam_sampling,
         min_beams_across=min_beams_across,
     )
+    if result.empty:
+        fail(f"No per-image parameter CSV under {folder}. Run `image fetch-headers` first.")
     columns = [
         "filename",
         "spectral_window_id",
@@ -545,7 +590,8 @@ def parse_headers(
     ]
     columns = [column for column in columns if column in result.columns]
     typer.echo(result[columns].to_string(index=False))
-    typer.echo(f"Wrote {len(result)} (MS, window, field) row(s) to {output_metadata_file}")
+    images = result["header_path"].nunique()
+    typer.echo(f"Rewrote the parameter CSV of {images} image(s), {len(result)} row(s)")
 
 
 def _echo_cube_plan(
@@ -660,7 +706,12 @@ class ImageFromMsOptions:
 
 @image_app.command("image-from-ms")
 def image_from_ms(
-    imaging_parameters: Path = typer.Argument(help="Imaging parameter file"),
+    imaging_parameters: Path = typer.Argument(
+        help=(
+            "Imaging parameter file, or a delivery tree or member folder holding the "
+            "per-image CSVs of image fetch-headers"
+        )
+    ),
     output_directory: Path = typer.Argument(help="Output directory path"),
     fov_fraction: float = typer.Option(
         help="Fraction of the FOV to image",
@@ -1150,7 +1201,7 @@ def _image_from_ms_options(o: ImageFromMsOptions) -> tuple[ImagingOptions, ExecO
 
 def _image_from_ms_tasks(o: ImageFromMsOptions, imaging: ImagingOptions) -> list[ImagingTask]:
     """The tasks still to image (none with --plan-only), after the cube plan is shown."""
-    parameters = pd.read_csv(str(o.imaging_parameters))
+    parameters = _read_parameters(o.imaging_parameters)
     if o.by_member:
         parameters = _member_rows(o, parameters)
     if imaging.cube is not None:
@@ -1344,7 +1395,7 @@ def pb_correct(
     from ..services.imaging.markers import imaging_log_path, imaging_marker_path
     from ..services.imaging.task import pb_correct_task, pb_note
 
-    parameters = pd.read_csv(str(imaging_parameters))
+    parameters = _read_parameters(imaging_parameters)
     root = Path(output_directory).expanduser().absolute()
     corrected = failed = skipped = 0
     for _, row in tqdm(list(parameters.iterrows()), desc="pb-correct", unit="task"):
@@ -1664,7 +1715,7 @@ def predict_batch(
     scheduler_interface: SchedulerInterface = None,
     task_timeout: TaskTimeout = 3600,
 ):
-    parameters = pd.read_csv(str(imaging_parameters))
+    parameters = _read_parameters(imaging_parameters)
     slurm_commands: list[tuple[str, list[str]]] = []
     for _, dset_parameter in tqdm(parameters.iterrows(), total=len(parameters)):
         input_filename = Path(dset_parameter["filename"])
