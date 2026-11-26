@@ -329,7 +329,15 @@ def test_a_member_task_images_the_combined_ms(tmp_path, monkeypatch):
     built = []
 
     def fake_build(
-        windows, out, *, casa_data, timeout=None, log_path=None, max_weight=None, channels_out=None
+        windows,
+        out,
+        *,
+        casa_data,
+        timeout=None,
+        log_path=None,
+        max_weight=None,
+        channels_out=None,
+        grid=None,
     ):
         built.append((list(windows), Path(out).name, casa_data, channels_out))
         Path(out).mkdir()
@@ -648,3 +656,49 @@ def test_a_combined_ms_of_several_windows_or_fields_is_refused(tmp_path, monkeyp
 def test_a_member_window_needs_an_execution_block(tmp_path):
     with pytest.raises(ValueError, match="needs at least one execution block"):
         member_window.build_member_window_ms([], tmp_path / "member.ms", casa_data="/c")
+
+
+def test_the_delivered_channels_the_execution_blocks_cover():
+    """A delivered cube's grid is kept where the data cover it, edge to edge."""
+    native = 100.0
+    # Data channel centres from 1000 to 2000 Hz: a band from 950 to 2050 Hz.
+    inside = member_window.delivered_channels([1000.0, 100.0, 11], 1000.0, 2000.0, native)
+    assert inside == (0, 11)
+    # Wider channels, the last reaching past the band: it is left out.
+    assert member_window.delivered_channels([1050.0, 200.0, 6], 1000.0, 2000.0, native) == (0, 5)
+    # A grid starting below the band loses its first channels.
+    assert member_window.delivered_channels([800.0, 100.0, 8], 1000.0, 2000.0, native) == (2, 6)
+    # Narrower than the data's channels, or wholly outside: not used.
+    assert member_window.delivered_channels([1000.0, 50.0, 20], 1000.0, 2000.0, native) is None
+    assert member_window.delivered_channels([5000.0, 100.0, 4], 1000.0, 2000.0, native) is None
+
+
+def test_a_member_cube_takes_the_delivered_cubes_channels(tmp_path):
+    from almasim.services.imaging.wsclean_plan import CubeOptions, header_spectral_grid
+
+    row = pd.Series(
+        {
+            "image_specmode": "cube",
+            "image_n_channels": 477.0,
+            "image_start_frequency_hz": 4.774622764e11,
+            "image_channel_width_hz": 122461.0,
+            "image_spectral_frame": "LSRK",
+        },
+        dtype=object,
+    )
+    assert header_spectral_grid(row) == (4.774622764e11, 122461.0, 477)
+    # A cube whose frequency runs down: the same channels, lowest first.
+    down = row.copy()
+    down["image_channel_width_hz"] = -122461.0
+    lowest, width, count = header_spectral_grid(down)
+    assert (width, count) == (122461.0, 477)
+    assert lowest == pytest.approx(4.774622764e11 - 476 * 122461.0)
+    for column, value in (
+        ("image_spectral_frame", "TOPOCENT"),
+        ("image_specmode", "mfs"),
+        ("image_start_frequency_hz", float("nan")),
+    ):
+        other = row.copy()
+        other[column] = value
+        assert header_spectral_grid(other) is None
+    assert CubeOptions()  # the option's cube is any cube

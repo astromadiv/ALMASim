@@ -342,6 +342,17 @@ def test_the_header_gives_the_restoring_beam() -> None:
     assert len(beam) == 3 and all(math.isnan(float(v)) for v in beam.values())
 
 
+def test_the_header_gives_the_first_channel_and_the_frame() -> None:
+    header = _header()
+    header["CRPIX3"] = 3.0
+    header["SPECSYS"] = "LSRK"
+    geometry = image_geometry(header)
+    assert geometry["image_start_frequency_hz"] == pytest.approx(1.0e9 - 2 * 1.0e6)
+    assert geometry["image_spectral_frame"] == "LSRK"
+    header["CTYPE3"] = "STOKES"
+    assert math.isnan(float(image_geometry(header)["image_start_frequency_hz"]))
+
+
 def test_the_header_beam_restores_each_image_with_its_own() -> None:
     row = _row(
         image_bmaj_arcsec=0.6127,

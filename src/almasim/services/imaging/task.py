@@ -96,6 +96,7 @@ def run_wsclean_task(  # noqa: C901
     pb_dish_diameter: float | None = None,
     provenance: Provenance | None = None,
     member_windows: Sequence[tuple[str, int, Sequence[int]]] | None = None,
+    spectral_grid: Sequence[float] | None = None,
 ) -> dict[str, object]:
     """Run one WSClean task in a subprocess and leave a marker whatever happens.
 
@@ -152,6 +153,9 @@ def run_wsclean_task(  # noqa: C901
     of a member, earliest first; needs ``single_window`` and ``casa_data``)
     the single-window MS combines them all, regridded onto one LSRK grid
     (``build_member_window_ms``); ``ms_path`` and ``spw`` name the earliest.
+    With ``spectral_grid`` (first channel's centre in Hz, channel width in Hz,
+    channel count: a delivered cube's) that grid is the delivered cube's, as
+    far as every execution block covers it, and the cube has its channels.
 
     Every FITS the task leaves carries ``provenance`` (by default the MS's
     execution block and the window) and its steps, each WSClean command among
@@ -228,6 +232,7 @@ def run_wsclean_task(  # noqa: C901
                     log_path=log_path,
                     max_weight=max_weight,
                     channels_out=int(planned) if cube_command and planned else None,
+                    grid=spectral_grid if cube_command else None,
                 )
             else:
                 extracted = extract_single_window_ms_subprocess(
@@ -265,6 +270,8 @@ def run_wsclean_task(  # noqa: C901
                 f"{float(extracted['start_hz']) / 1e9:.6f} GHz, "
                 f"{float(extracted['width_hz']) / 1e3:.3f} kHz wide"
             )
+            if extracted.get("grid_note"):
+                extraction_note += f"; {extracted['grid_note']}"
             if cube_command and extracted.get("channels_out"):
                 # The plan counted the first EB's channels; the grid has fewer.
                 commands[-1] = (

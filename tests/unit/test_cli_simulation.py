@@ -526,3 +526,14 @@ def test_casatools_gets_its_runtime_data_before_any_run(monkeypatch, tmp_path):
     configured.clear()
     cli_simulation._prepare_ms_export(tmp_path, tmp_path / "shared")
     assert configured == [(tmp_path / ".casa-work", (tmp_path / "shared").absolute())]
+
+
+def test_visibilities_only_makes_the_ms_alone(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli_simulation, "_prepare_ms_export", lambda out, casa: None)
+    kwargs, result = _params_from_cli(monkeypatch, tmp_path)
+    assert result.exit_code == 0 and not kwargs["visibilities_only"]
+    kwargs, result = _params_from_cli(monkeypatch, tmp_path, "--ms-export", "--visibilities-only")
+    assert result.exit_code == 0, result.output
+    assert kwargs["visibilities_only"] and kwargs["ms_export"]
+    _, refused = _params_from_cli(monkeypatch, tmp_path, "--visibilities-only")
+    assert refused.exit_code == 2

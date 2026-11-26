@@ -709,3 +709,16 @@ def test_each_antennas_level_reaches_its_noise_shape_from_a_stream_of_its_own():
     sim.corruptions = CorruptionModel(antenna_ripple_rms=0.02, antenna_sefd_log_rms=0.2)
     both = Interferometer._corruption_fields(sim)["antenna_noise"]
     np.testing.assert_allclose(both, ripple * level[:, :1])
+
+
+@pytest.mark.unit
+def test_a_channel_can_hand_back_its_visibilities_alone():
+    """image_products off: the same rows and baselines, none of the six images."""
+    sky = np.zeros((64, 64))
+    sky[32, 32] = 1.0
+    wavelength = [1.0e-6, 1.0e-6, 1.0e-6]
+    whole = image_configured_channel(_config(), sky, wavelength, 0.0, channel=0)
+    lean = image_configured_channel(_config(image_products=False), sky, wavelength, 0.0, channel=0)
+    assert [value is None for value in lean[:8]] == [True] * 4 + [False] * 2 + [True] * 2
+    assert np.array_equal(lean[4], whole[4]) and np.array_equal(lean[5], whole[5])
+    assert np.array_equal(lean[-1]["data"], whole[-1]["data"])

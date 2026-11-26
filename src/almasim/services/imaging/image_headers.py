@@ -101,6 +101,8 @@ IMAGE_COLUMNS = (
     "image_n_channels",
     "image_channel_width_hz",
     "image_reference_frequency",
+    "image_start_frequency_hz",
+    "image_spectral_frame",
     "phasecenter_ra_deg",
     "phasecenter_dec_deg",
     "ms_phasecenter_ra_deg",
@@ -298,7 +300,10 @@ def image_geometry(header: fits.Header) -> dict[str, object]:
 
     ``image_n_pixels`` and ``image_cell_arcsec`` are the ``-size``/``-scale``
     tclean imaged with; ``image_n_channels`` is the cube's ``NAXIS3`` (1 for an
-    mfs image). ``image_bmaj_arcsec``, ``image_bmin_arcsec`` and
+    mfs image).
+    ``image_start_frequency_hz`` is the centre of its first channel and
+    ``image_spectral_frame`` the frame of its frequency axis (``SPECSYS``).
+    ``image_bmaj_arcsec``, ``image_bmin_arcsec`` and
     ``image_bpa_deg`` are the restoring beam (``BMAJ``, ``BMIN``, ``BPA``;
     unset for a cube with a beam per channel, which has no such cards). The
     ``image_*`` strings are tclean's own values, kept for the report.
@@ -326,6 +331,8 @@ def image_geometry(header: fits.Header) -> dict[str, object]:
         "image_n_channels": n_channels,
         "image_channel_width_hz": float(channel_width) if channel_width is not None else math.nan,
         "image_reference_frequency": float(reference) if reference is not None else math.nan,
+        "image_start_frequency_hz": _first_channel_hz(header),
+        "image_spectral_frame": str(header.get("SPECSYS", "") or "").strip(),
         "phasecenter_ra_deg": ra if ra is not None else math.nan,
         "phasecenter_dec_deg": dec if dec is not None else math.nan,
         "image_weighting": parameters.get("weighting", ""),
@@ -344,6 +351,17 @@ def image_geometry(header: fits.Header) -> dict[str, object]:
         "image_cell": tclean_cell if isinstance(tclean_cell, str) else _format_value(tclean_cell),
         "image_phasecenter": parameters.get("phasecenter", ""),
     }
+
+
+def _first_channel_hz(header: fits.Header) -> float:
+    """The centre of the first channel of the frequency axis (axis 3), or NaN."""
+    try:
+        if not str(header.get("CTYPE3", "")).upper().startswith("FREQ"):
+            return math.nan
+        reference, width = float(header["CRVAL3"]), float(header["CDELT3"])
+        return reference + (1.0 - float(header.get("CRPIX3", 1.0))) * width
+    except (KeyError, TypeError, ValueError):
+        return math.nan
 
 
 def _restoring_beam(header: fits.Header) -> dict[str, float]:

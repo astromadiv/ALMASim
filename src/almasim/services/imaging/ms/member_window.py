@@ -41,6 +41,7 @@ def build_member_window_ms(
     log_path: str | os.PathLike[str] | None = None,
     max_weight: float | None = DEFAULT_MAX_WEIGHT,
     channels_out: int | None = None,
+    grid: Sequence[float] | None = None,
 ) -> dict[str, object]:
     """Combine ``windows`` ((MS, window, field ids) per EB, earliest first) into ``out_path``.
 
@@ -49,7 +50,10 @@ def build_member_window_ms(
     as in ``extract_single_window_ms``), the size, the grid (``channels``,
     ``start_hz``, ``width_hz``), each EB's own LSRK start (``shifts_hz``,
     relative to the first's) and, with ``channels_out``, the cube's channel
-    count on the grid (``regrid_and_concat``).
+    count on the grid (``regrid_and_concat``). With ``grid`` (first channel's
+    centre in Hz, channel width in Hz, channel count) the grid is that one, as
+    far as the EBs cover it, and ``grid_note`` in the result says which of its
+    channels were made.
     """
     if not windows:
         raise ValueError("build_member_window_ms needs at least one execution block")
@@ -81,6 +85,7 @@ def build_member_window_ms(
                 "casa_data": str(casa_data),
                 "log_file": str(log_path) if log_path else str(out.with_suffix(".casa.log")),
                 "channels_out": channels_out,
+                "grid": [float(v) for v in grid] if grid else None,
             },
             what="combining the execution blocks",
             env=casa_environment(),
@@ -113,6 +118,7 @@ def regrid_and_concat(
     casa_data: str,
     log_file: str,
     channels_out: int | None = None,
+    grid: Sequence[float] | None = None,
 ) -> dict[str, object]:
     """CASA: regrid single-window MSs onto one LSRK grid and concatenate them.
 
@@ -128,6 +134,13 @@ def regrid_and_concat(
     the first EB's channel count) the grid's channel count is a multiple of
     the native channels per cube channel, and ``channels_out`` in the result
     is the cube's channel count on it.
+
+    With ``grid`` (first channel's centre in Hz, channel width in Hz, channel
+    count: the channels of a delivered cube) the grid is those channels that
+    lie inside the EBs' overlap, each as wide as the delivered cube's and
+    centred where its is; ``channels_out`` is their count and ``grid_note``
+    names them. A grid narrower than the EBs' own channels, or outside their
+    overlap, is not used, and ``grid_note`` says so.
     """
     import math
 
@@ -184,6 +197,26 @@ def regrid_and_concat(
     channels = int(math.floor((high - low) / width + 1e-6)) + 1 if high >= low else 0
     native = int(coverage[0]["channels"])  # type: ignore[call-overload]
     per_cube_channel = native // channels_out if channels_out and native % channels_out == 0 else 1
+    grid_note = ""
+    if grid:
+        chosen = delivered_channels(grid, low - width, high + width, width)
+        if chosen is None:
+            grid_note = (
+                "the delivered cube's channels are not used (narrower than the execution "
+                "blocks' own, or outside where they overlap)"
+            )
+        else:
+            first, count = chosen
+            low, width, channels, per_cube_channel = (
+                float(grid[0]) + first * float(grid[1]),
+                float(grid[1]),
+                count,
+                1,
+            )
+            grid_note = (
+                f"on the delivered cube's channels {first}~{first + count - 1} "
+                f"of its {int(grid[2])}"
+            )
     channels -= channels % per_cube_channel
     if channels < per_cube_channel or channels < 1:
         raise RuntimeError(
@@ -227,4 +260,30 @@ def regrid_and_concat(
         "width_hz": width,
         "shifts_hz": [round(float(c["low"]) - reference, 1) for c in coverage],  # type: ignore[arg-type]
         "channels_out": channels // per_cube_channel if channels_out else None,
+        "grid_note": grid_note,
     }
+
+
+def delivered_channels(
+    grid: Sequence[float], low: float, high: float, native_width: float
+) -> tuple[int, int] | None:
+    """Which channels of ``grid`` (first centre Hz, width Hz, count) can be
+    regridded from data whose channel centres run from ``low`` to ``high``,
+    ``native_width`` wide: ``(index of the first, how many)``, or None.
+
+    A channel is kept when it lies within the data's band, edge to edge. A
+    grid narrower than the data's channels is refused: ``mstransform`` does
+    not regrid onto narrower channels.
+    """
+    import math
+
+    start, width, count = float(grid[0]), float(grid[1]), int(grid[2])
+    if width < native_width * (1 - 1e-6) or count < 1:
+        return None
+    band_low, band_high = low - native_width / 2, high + native_width / 2
+    slack = 1e-6 * width
+    first = max(math.ceil((band_low - (start - width / 2) - slack) / width), 0)
+    last = min(math.floor((band_high - (start + width / 2) + slack) / width), count - 1)
+    if last < first:
+        return None
+    return first, last - first + 1

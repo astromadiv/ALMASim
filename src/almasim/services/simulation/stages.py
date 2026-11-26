@@ -209,8 +209,15 @@ def simulate_observation(  # noqa: C901
     robust: float = 0.0,
     terminal_logger=None,
     interferometer_progress_callback: Callable[[int], None] | None = None,
+    image_products: bool = True,
 ) -> dict[str, Any]:
     """Run the interferometric observation stage from a prepared clean cube.
+
+    ``image_products`` off makes the visibilities only: each channel's images
+    are dropped as it is simulated, so the run holds the visibilities and the
+    input cube, not the padded model, dirty, beam and sampling cubes (about a
+    hundred times the input cube together); those cubes then hold one empty
+    pixel per channel.
 
     Without a ``compute_backend`` the channels are imaged in-process
     (:class:`SyncBackend`); the Interferometer needs one to scatter the cube.
@@ -234,6 +241,7 @@ def simulate_observation(  # noqa: C901
             noise_entropy=stream_entropy(clean_cube_stage.seed, "interferometer", config_index),
             corruptions=clean_cube_stage.corruptions,
             continuum_fraction=clean_cube_stage.continuum_fraction,
+            image_products=image_products,
             **run.interferometer_kwargs(),
         )
         if interferometer_progress_callback is not None:

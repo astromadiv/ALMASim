@@ -278,6 +278,26 @@ def beam_arguments(row: pd.Series, prefix: str = "image") -> list[str]:
     return ["-beam-shape", f"{major:g}asec", f"{minor:g}asec", f"{angle:g}deg"]
 
 
+def header_spectral_grid(row: pd.Series) -> tuple[float, float, int] | None:
+    """The delivered cube's channels as ``(first centre Hz, width Hz, count)``,
+    lowest frequency first, or None: the row is not of an LSRK cube, or its
+    header lacks the frequency axis."""
+    if _image_cube_channels(row) is None:
+        return None
+    if str(image_override(row, "image_spectral_frame") or "").strip().upper() != "LSRK":
+        return None
+    try:
+        first = float(image_override(row, "image_start_frequency_hz"))  # type: ignore[arg-type]
+        width = float(image_override(row, "image_channel_width_hz"))  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    count = int(_image_cube_channels(row) or 0)
+    if not (math.isfinite(first) and math.isfinite(width)) or width == 0 or count < 2:
+        return None
+    lowest = first if width > 0 else first + (count - 1) * width
+    return lowest, abs(width), count
+
+
 def _abs_threshold_arg(threshold_jy: object) -> list[str]:
     """``-abs-threshold`` flag from an image-derived threshold, or ``[]``."""
     try:
@@ -352,6 +372,9 @@ class ImagingTask:
     dish_diameter: float | None = None
     provenance: Provenance | None = None
     member_windows: tuple[tuple[Path, int, tuple[int, ...]], ...] = ()
+    # A member's cube on the delivered cube's channels: the centre of the
+    # first (lowest) channel, the channel width and the channel count.
+    spectral_grid: tuple[float, float, int] | None = None
     # An aggregate continuum task: the windows it images together, each with
     # its own task's values (``aggregate_window``); ``command`` is the joint one.
     aggregate: tuple[dict[str, Any], ...] = ()
@@ -533,6 +556,7 @@ def build_imaging_tasks(  # noqa: C901
     ous_index_csv: str | Path | None = None,
     aggregate_continuum: bool = False,
     header_beam: bool = False,
+    header_channels: bool = False,
 ) -> tuple[list[ImagingTask], int]:
     """Turn parameter rows into WSClean tasks, skipping the ones already done.
 
@@ -567,6 +591,11 @@ def build_imaging_tasks(  # noqa: C901
     a window's continuum with its ``mfs`` image's, and the aggregate continuum
     with that of the image of the windows together (``aggregate_*``), or the
     first window's ``mfs`` beam without one.
+
+    With ``header_channels`` a member's cube is made on the channels of its
+    delivered cube (``header_spectral_grid``; the task's ``spectral_grid``):
+    the execution blocks are regridded onto them, whatever ``cube`` would
+    give the window.
 
     Each task carries its data's provenance (``row_provenance``) for the
     products' FITS headers: the OUSs from ``ous_index_csv``, or from the
@@ -680,6 +709,11 @@ def build_imaging_tasks(  # noqa: C901
             dish_diameter=row_dish_diameter(row),
             provenance=row_provenance(row, ous_index_csv, indexes),
             member_windows=member_windows(row),
+            spectral_grid=(
+                header_spectral_grid(row)
+                if header_channels and cube is not None and is_member_row(row)
+                else None
+            ),
         )
 
     for _, row in parameters.iterrows():

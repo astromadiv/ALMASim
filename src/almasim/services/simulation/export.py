@@ -136,7 +136,8 @@ def export_results(  # noqa: C901
                 ),
             )
 
-    if params.ml_dataset_path:
+    # A visibilities-only run has no dirty cube to put in a shard.
+    if params.ml_dataset_path and not params.visibilities_only:
         ml_dataset_path = write_ml_dataset_shard(
             params.ml_dataset_path,
             clean_cube=exported_results["model_cube"],

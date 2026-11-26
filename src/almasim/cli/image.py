@@ -710,6 +710,7 @@ class ImageFromMsOptions:
     aggregate_continuum: bool = False
     aggregate_line_free: bool = True
     header_beam: bool = False
+    header_channels: bool = False
 
 
 @image_app.command("image-from-ms")
@@ -1152,6 +1153,19 @@ def image_from_ms(
         ),
         rich_help_panel="Imaging",
     ),
+    header_channels: bool = typer.Option(
+        False,
+        "--header-channels/--window-channels",
+        help=(
+            "With --by-member and --cube, make each cube on the channels of its delivered "
+            "cube (first channel, channel width and count of the header image fetch-headers "
+            "saved, in LSRK): the execution blocks are regridded onto them, so channel n of "
+            "the cube is channel n of the delivered one, whatever --spectral-sampling and "
+            "--max-cube-gb say. Channels the execution blocks do not all cover are left out "
+            "(the log names those made). Default --window-channels: the window's own."
+        ),
+        rich_help_panel="Imaging",
+    ),
 ):
     """Image every (MS, spectral window) row of a parameter CSV with WSClean.
 
@@ -1286,6 +1300,7 @@ def _image_from_ms_tasks(o: ImageFromMsOptions, imaging: ImagingOptions) -> list
         ous_index_csv=o.ous_index,
         aggregate_continuum=imaging.aggregate_continuum,
         header_beam=o.header_beam,
+        header_channels=o.header_channels,
     )
     if skipped:
         typer.echo(f"Skipped {skipped} already-imaged SPW(s).")
