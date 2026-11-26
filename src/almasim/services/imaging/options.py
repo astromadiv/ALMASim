@@ -53,6 +53,8 @@ class ImagingOptions:
     continuum_restart: bool = False
     cube_line_mask: bool = False
     pbcor: bool = False
+    # Also image all the windows of each field together (aggregate.py).
+    aggregate_continuum: bool = False
     selfcal: SelfcalOptions = field(default_factory=SelfcalOptions)
 
     def validate(self) -> None:
@@ -76,6 +78,8 @@ class ImagingOptions:
             raise ValueError("--pipeline-line-free needs --uv-contsub or --selfcal")
         if self.uv_contsub and not self.single_window:
             raise ValueError("--uv-contsub needs --single-window-ms: it edits the copy")
+        if self.aggregate_continuum and not (self.continuum and self.single_window):
+            raise ValueError("--aggregate-continuum needs --continuum and --single-window-ms")
         if not self.continuum and self.cube is None:
             raise ValueError("--no-continuum needs --cube: there would be nothing to image")
 

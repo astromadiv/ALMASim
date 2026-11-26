@@ -80,6 +80,32 @@ def _member_windows(task: ImagingTask) -> list[tuple[str, int, list[int]]] | Non
     return [(str(ms), spw, list(fields)) for ms, spw, fields in task.member_windows] or None
 
 
+def _task_call(
+    task: ImagingTask, imaging: ImagingOptions, shared: dict[str, Any]
+) -> tuple[Any, dict[str, Any]]:
+    """The function that runs ``task`` on a worker, and its keyword arguments."""
+    from almasim.services.imaging.aggregate import run_aggregate_continuum_task
+    from almasim.services.imaging.task import run_wsclean_task
+
+    common = {
+        "command": task.command,
+        "output_dir": str(task.output_dir),
+        "pb_dish_diameter": task.dish_diameter if imaging.pbcor else None,
+        "provenance": task.provenance,
+        **shared,
+    }
+    if task.aggregate:
+        return run_aggregate_continuum_task, {"windows": list(task.aggregate), **common}
+    return run_wsclean_task, {
+        "ms_path": str(task.ms_path),
+        "spw": task.spw,
+        "field_ids": list(task.field_ids),
+        "cube_command": task.cube_command,
+        "member_windows": _member_windows(task),
+        **common,
+    }
+
+
 def run_imaging_tasks(  # noqa: C901
     tasks: list[ImagingTask],
     imaging: ImagingOptions,
@@ -99,7 +125,6 @@ def run_imaging_tasks(  # noqa: C901
     goes to ``echo`` (called like ``typer.echo``; the log by default).
     """
     from almasim.services.imaging.markers import imaging_log_path
-    from almasim.services.imaging.task import run_wsclean_task
 
     backend_kind, cores_per_task = execution.backend, execution.cores_per_task
     n_jobs, node_cores = execution.n_jobs, execution.node_cores
@@ -124,20 +149,8 @@ def run_imaging_tasks(  # noqa: C901
             log_path = imaging_log_path(task.output_dir)
             echo(f"Image [{index}/{len(tasks)}] {task.label} (log: {log_path})")
             try:
-                results.append(
-                    run_wsclean_task(
-                        command=task.command,
-                        output_dir=str(task.output_dir),
-                        ms_path=str(task.ms_path),
-                        spw=task.spw,
-                        field_ids=list(task.field_ids),
-                        cube_command=task.cube_command,
-                        pb_dish_diameter=task.dish_diameter if imaging.pbcor else None,
-                        provenance=task.provenance,
-                        member_windows=_member_windows(task),
-                        **shared_kwargs,
-                    )
-                )
+                run_task, kwargs = _task_call(task, imaging, shared_kwargs)
+                results.append(run_task(**kwargs))
             except Exception as exc:
                 _record_imaging_failure(task, str(exc), failures)
                 echo(f"  FAILED {task.label}: {error_headline(str(exc))}", err=True)
@@ -178,20 +191,8 @@ def run_imaging_tasks(  # noqa: C901
         slots = max(int(n_jobs), 1) * max(int(node_cores) // max(int(cores_per_task), 1), 1)
 
         def _submit(task: ImagingTask) -> Any:
-            return backend.submit_callable(
-                run_wsclean_task,
-                cores=cores_per_task,
-                command=task.command,
-                output_dir=str(task.output_dir),
-                ms_path=str(task.ms_path),
-                spw=task.spw,
-                field_ids=list(task.field_ids),
-                cube_command=task.cube_command,
-                pb_dish_diameter=task.dish_diameter if imaging.pbcor else None,
-                provenance=task.provenance,
-                member_windows=_member_windows(task),
-                **shared_kwargs,
-            )
+            run_task, kwargs = _task_call(task, imaging, shared_kwargs)
+            return backend.submit_callable(run_task, cores=cores_per_task, **kwargs)
 
         queued = list(range(len(tasks)))
         pending: dict[int, Any] = {}

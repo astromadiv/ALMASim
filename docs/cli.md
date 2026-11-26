@@ -597,6 +597,7 @@ $ almasim image image-from-ms [OPTIONS] {imaging_parameters} {output_directory}
 * `--plan-only`: Print the channel plan and the projected cube volume, then exit without imaging.
 * `--ous-index <path>`: The delivery tree's ous_index.csv, for the project, science goal, group and member OUS in every FITS header (default: the ous_index.csv nearest above each MS).
 * `--by-member / --by-ms`: Image each member OUS from all its execution blocks: one task per window and field, the EBs' visibilities regridded onto one LSRK grid (CASA mstransform) and combined. Only complete members are imaged: every EB ALMA calibrated for the member has a calibrated MS (the ous_index.csv) and a row in the CSV. Needs --single-window-ms. Default --by-ms: one task per MS.  [default: by-ms]
+* `--aggregate-continuum / --no-aggregate-continuum`: Also image the continuum of all the windows of each field together, in CONT[_<field>] beside the windows' SPW-<n>[_<field>]: one multi-frequency image, one output channel per window, a spectral slope fitted per component. Needs the continuum and --single-window-ms. Off by default.  [default: no-aggregate-continuum]
 * `--help`: Show this message and exit.
 
 ### `almasim image clean-quality`

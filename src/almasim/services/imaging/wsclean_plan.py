@@ -11,6 +11,7 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -289,6 +290,20 @@ class ImagingTask:
     dish_diameter: float | None = None
     provenance: Provenance | None = None
     member_windows: tuple[tuple[Path, int, tuple[int, ...]], ...] = ()
+    # An aggregate continuum task: the windows it images together, each with
+    # its own task's values (``aggregate_window``); ``command`` is the joint one.
+    aggregate: tuple[dict[str, Any], ...] = ()
+
+
+def aggregate_window(task: ImagingTask) -> dict[str, Any]:
+    """A window task as plain values, for the aggregate task that images it too."""
+    return {
+        "ms_path": str(task.ms_path),
+        "spw": int(task.spw),
+        "field_ids": list(task.field_ids),
+        "command": list(task.command),
+        "member_windows": [(str(ms), spw, list(f)) for ms, spw, f in task.member_windows],
+    }
 
 
 def _field_arguments(row: pd.Series) -> list[str]:
@@ -429,7 +444,7 @@ def _task_label(outdir: Path, ms: Path, spw: int, single_field: int | None, memb
     return f"{ms.stem}_{spw}" + ("" if single_field is None else f"_f{single_field}")
 
 
-def build_imaging_tasks(
+def build_imaging_tasks(  # noqa: C901
     parameters: pd.DataFrame,
     output_directory: Path,
     *,
@@ -454,6 +469,7 @@ def build_imaging_tasks(
     multiscale: bool = False,
     join_channels: bool = False,
     ous_index_csv: str | Path | None = None,
+    aggregate_continuum: bool = False,
 ) -> tuple[list[ImagingTask], int]:
     """Turn parameter rows into WSClean tasks, skipping the ones already done.
 
@@ -476,10 +492,18 @@ def build_imaging_tasks(
     markers existed and writes its marker. ``overwrite_outputs`` redoes
     everything.
 
+    With ``aggregate_continuum`` (needs ``continuum`` and ``single_window``)
+    every field imaged in two or more windows also gets a task that images
+    their continuum together (``almasim.services.imaging.aggregate``), in
+    ``CONT[_<field>]`` beside the windows' ``SPW-<n>[_<field>]``: on the
+    finest of the windows' cells, over the widest of their fields. It is done
+    when its marker and its image exist, whatever its windows' tasks are.
+
     Each task carries its data's provenance (``row_provenance``) for the
     products' FITS headers: the OUSs from ``ous_index_csv``, or from the
     ``ous_index.csv`` nearest above each MS when it is None.
     """
+    from almasim.services.imaging.aggregate import aggregate_directory
     from almasim.services.imaging.markers import is_imaging_complete, write_imaging_marker
     from almasim.services.imaging.products import (
         CUBE_IMAGE_FILENAME,
@@ -492,6 +516,8 @@ def build_imaging_tasks(
 
     if not continuum and cube is None:
         raise ValueError("Nothing to image: neither the continuum nor a cube was requested")
+    if aggregate_continuum and not (continuum and single_window):
+        raise ValueError("an aggregate continuum needs the continuum and single-window MSs")
     required = (IMAGE_FILENAME,) * continuum + (CUBE_IMAGE_FILENAME,) * (cube is not None)
     tasks: list[ImagingTask] = []
     skipped = 0
@@ -505,35 +531,17 @@ def build_imaging_tasks(
     # .../SPW-5/ms-imaged-flagged/... and every task failed (2026-10-09).
     output_directory = Path(output_directory).expanduser().absolute()
     indexes: dict[Path | None, dict[str, dict[str, str]]] = {}
+    groups: dict[Path, list[pd.Series]] = {}
     _check_member_rows(parameters, single_window)
-    for _, row in parameters.iterrows():
+
+    def window_task(row: pd.Series) -> ImagingTask:
+        """The task of one parameter row (its continuum and, with ``cube``, its cube)."""
         input_filename = Path(row["filename"]).expanduser().absolute()
         spw = int(row["spectral_window_id"])
-        member = is_member_row(row)
         outdir, field_ids = task_directory(output_directory, row)
         single_field = field_ids[0] if len(field_ids) == 1 else None
-        if not overwrite_outputs:
-            if is_imaging_complete(outdir, required):
-                skipped += 1
-                continue
-            if (
-                trust_existing_images
-                and required == (IMAGE_FILENAME,)
-                and (outdir / IMAGE_FILENAME).is_file()
-            ):
-                write_imaging_marker(outdir, ms_path=str(input_filename), spw=spw)
-                skipped += 1
-                continue
 
-        # The loop variables are bound as defaults: ruff cannot see that the
-        # closure runs within this iteration only.
-        def wsclean_command(
-            name: str,
-            with_cube: bool,
-            row: pd.Series = row,
-            outdir: Path = outdir,
-            input_filename: Path = input_filename,
-        ) -> list[str]:
+        def wsclean_command(name: str, with_cube: bool) -> list[str]:
             command_args = imaging_parameter_to_command_arg(
                 row,
                 fov_fraction,
@@ -591,21 +599,88 @@ def build_imaging_tasks(
                     command = command.with_option("-no-reorder")
             return command.argv()
 
-        tasks.append(
-            ImagingTask(
-                label=_task_label(outdir, input_filename, spw, single_field, member),
-                ms_path=input_filename,
-                spw=spw,
-                output_dir=outdir,
-                command=wsclean_command("wsclean", False) if continuum else [],
-                field_ids=field_ids,
-                cube_command=wsclean_command(CUBE_NAME, True) if cube is not None else None,
-                dish_diameter=row_dish_diameter(row),
-                provenance=row_provenance(row, ous_index_csv, indexes),
-                member_windows=member_windows(row),
-            )
+        return ImagingTask(
+            label=_task_label(outdir, input_filename, spw, single_field, is_member_row(row)),
+            ms_path=input_filename,
+            spw=spw,
+            output_dir=outdir,
+            command=wsclean_command("wsclean", False) if continuum else [],
+            field_ids=field_ids,
+            cube_command=wsclean_command(CUBE_NAME, True) if cube is not None else None,
+            dish_diameter=row_dish_diameter(row),
+            provenance=row_provenance(row, ous_index_csv, indexes),
+            member_windows=member_windows(row),
         )
+
+    for _, row in parameters.iterrows():
+        input_filename = Path(row["filename"]).expanduser().absolute()
+        spw = int(row["spectral_window_id"])
+        outdir, _ = task_directory(output_directory, row)
+        if aggregate_continuum:
+            # Before the skip: a window already imaged is still in the aggregate.
+            groups.setdefault(aggregate_directory(outdir, spw), []).append(row)
+        if not overwrite_outputs:
+            if is_imaging_complete(outdir, required):
+                skipped += 1
+                continue
+            if (
+                trust_existing_images
+                and required == (IMAGE_FILENAME,)
+                and (outdir / IMAGE_FILENAME).is_file()
+            ):
+                write_imaging_marker(outdir, ms_path=str(input_filename), spw=spw)
+                skipped += 1
+                continue
+
+        tasks.append(window_task(row))
+    for outdir, rows in groups.items():
+        if len(rows) < 2:
+            continue  # one window: its own image is the field's continuum
+        if not overwrite_outputs and is_imaging_complete(outdir, (IMAGE_FILENAME,)):
+            skipped += 1
+            continue
+        tasks.append(_aggregate_task(outdir, [window_task(row) for row in rows], rows))
     return tasks, skipped
+
+
+def _aggregate_task(
+    outdir: Path, windows: Sequence[ImagingTask], rows: Sequence[pd.Series]
+) -> ImagingTask:
+    """The task imaging ``windows`` (one field's) together into ``outdir``: the
+    first window's continuum command on the finest cell of them all, wide
+    enough for the widest of their images."""
+    from almasim.services.imaging.wsclean.command import WSCleanCommand
+
+    grids = []
+    for window in windows:
+        command = WSCleanCommand.parse(window.command)
+        cell = float(str(command.value("-scale")).removesuffix("asec"))
+        grids.append((cell, cell * int(str(command.value("-size")))))
+    cell = min(cell for cell, _ in grids)
+    pixels = math.ceil(max(extent for _, extent in grids) / cell)
+    pixels += pixels % 2
+    first = windows[0]
+    joint = WSCleanCommand.parse(first.command)
+    options = list(joint.options)
+    at = options.index("-size")
+    options[at + 1 : at + 3] = [str(pixels), str(pixels)]
+    joint = replace(joint, options=tuple(options))
+    joint = joint.with_option("-scale", f"{cell}asec").with_option("-name", outdir / "wsclean")
+    diameters = [w.dish_diameter for w in windows if w.dish_diameter]
+    return ImagingTask(
+        label=_task_label(outdir, first.ms_path, first.spw, None, True)
+        if is_member_row(rows[0])
+        else f"{first.ms_path.stem}_{outdir.name}",
+        ms_path=first.ms_path,
+        spw=first.spw,
+        output_dir=outdir,
+        command=joint.argv(),
+        field_ids=first.field_ids,
+        dish_diameter=min(diameters) if diameters else None,
+        provenance=first.provenance,
+        member_windows=first.member_windows,
+        aggregate=tuple(aggregate_window(w) for w in windows),
+    )
 
 
 CUBE_PRODUCTS = ("image", "residual", "psf", "model", "dirty")
