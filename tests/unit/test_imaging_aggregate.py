@@ -153,7 +153,7 @@ def test_clean_quality_finds_the_aggregate_folder(tmp_path):
 def stubbed(monkeypatch):
     """The MS building, the fit and WSClean replaced by stand-ins; what was run."""
     ran: list[list[str]] = []
-    state = {"skipped": set(), "corrected": set(), "copied": []}
+    state = {"skipped": set(), "corrected": set(), "copied": [], "frames": set()}
 
     def extract(ms_path, spw, field_ids, out_path, **kwargs):
         Path(out_path).mkdir(parents=True)
@@ -182,7 +182,11 @@ def stubbed(monkeypatch):
     monkeypatch.setattr(aggregate, "extract_single_window_ms_subprocess", extract)
     monkeypatch.setattr(aggregate, "subtract_uv_continuum_subprocess", fit)
     monkeypatch.setattr(aggregate.TaskRun, "run", run)
-    monkeypatch.setattr(aggregate, "stamp_fits", lambda path, header: None)
+    monkeypatch.setattr(
+        aggregate,
+        "stamp_fits",
+        lambda path, header, spectral_frame=None: state["frames"].add(spectral_frame),
+    )
     monkeypatch.setattr(aggregate, "has_corrected_data", has_corrected)
     monkeypatch.setattr(
         aggregate, "call_in_child", lambda target, kwargs, **kw: state["copied"].append(kwargs)
@@ -236,6 +240,7 @@ def test_the_task_images_the_windows_together_and_names_the_products(tmp_path, s
     assert not list(out.glob("*.single.ms")), "the single-window MSs are removed"
     assert markers.is_imaging_complete(out, (IMAGE_FILENAME,))
     assert result["imaged_spws"] == [13, 15, 19] and result["channels"] == 3
+    assert state["frames"] == {None}, "single EBs' windows stay topocentric, as WSClean writes"
     payload = json.loads(markers.imaging_marker_path(out).read_text())
     assert payload["spw"] == 13
     log = markers.imaging_log_path(out).read_text()
@@ -424,3 +429,27 @@ def test_a_window_that_cannot_be_built_or_fitted_fails_the_task(tmp_path, stubbe
     with pytest.raises(RuntimeError, match="Could not build the MS of window 13: disk full"):
         _run(out, _windows(13, 19))
     assert markers.imaging_failure_marker_path(out).is_file()
+
+
+@pytest.mark.unit
+def test_member_windows_are_labelled_lsrk(tmp_path, stubbed, monkeypatch):
+    """A member's windows are regridded onto an LSRK grid; WSClean writes TOPOCENT."""
+    _, state = stubbed
+
+    def member_ms(members, out_path, **kwargs):
+        Path(out_path).mkdir(parents=True)
+        return {"rows": 5}
+
+    monkeypatch.setattr(aggregate, "build_member_window_ms", member_ms)
+    windows = _windows(13, 19)
+    for window in windows:
+        window["member_windows"] = [("/data/a.ms", window["spw"], [4])]
+    out = tmp_path / "CONT_NGC1"
+    aggregate.run_aggregate_continuum_task(
+        command=["wsclean", "-name", str(out / "wsclean"), SINGLE_WINDOW_PLACEHOLDER],
+        output_dir=str(out),
+        windows=windows,
+        threads=2,
+        casa_data="/casa",
+    )
+    assert state["frames"] == {"LSRK"}

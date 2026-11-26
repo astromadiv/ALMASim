@@ -381,9 +381,11 @@ def run_aggregate_continuum_task(  # noqa: C901
         if not (out / IMAGE_FILENAME).is_file():
             raise task.fail(f"WSClean exited 0 but wrote no {IMAGE_FILENAME} under {out}", 0)
         header = task.header()
+        # Member windows are on an LSRK grid; WSClean writes TOPOCENT regardless.
+        lsrk = bool(windows) and all(w.get("member_windows") for w in windows)
         for path in sorted(out.glob("*.fits")):
             try:
-                stamp_fits(path, header)
+                stamp_fits(path, header, spectral_frame="LSRK" if lsrk else None)
             except (OSError, ValueError) as exc:  # the images stand without it
                 with log_path.open("a", encoding="utf-8") as log:
                     log.write(f"# provenance NOT written into {path.name}: {exc}\n")

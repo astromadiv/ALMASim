@@ -138,14 +138,25 @@ def copy_provenance(source: fits.Header, target: fits.Header) -> fits.Header:
     return target
 
 
-def stamp_fits(path: str | os.PathLike[str], provenance: fits.Header) -> bool:
+def stamp_fits(
+    path: str | os.PathLike[str],
+    provenance: fits.Header,
+    *,
+    spectral_frame: str | None = None,
+) -> bool:
     """Add ``provenance`` to the primary header of the FITS at ``path``; False when it has one.
 
     A file that already carries ``ALMASVER`` (a cube stacked with it, or an
     image made from one) is left alone.
+
+    ``spectral_frame`` (``LSRK`` for a member task) replaces ``SPECSYS`` in
+    either case: WSClean writes ``TOPOCENT`` whatever the frame of the MS it
+    imaged, and a member's windows are regridded onto an LSRK grid first.
     """
     with fits.open(path, mode="update", memmap=True) as hdus:
         header = hdus[0].header
+        if spectral_frame and header.get("SPECSYS") != spectral_frame:
+            header["SPECSYS"] = (spectral_frame, "frame of the imaged visibilities")
         if VERSION_KEY in header:
             return False
         copy_provenance(provenance, header)
