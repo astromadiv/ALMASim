@@ -712,7 +712,13 @@ the fast screen too (its decorrelation also scatters the antennas'
 amplitudes).
 
 **How it becomes the model's value.** The median of `gain_amp_rms` over the
-fitted windows. The phase error is not fitted, so `phase_rms_deg` keeps the
+fitted windows whose cleaned continuum S/N (`continuum_snr` in `fit.json`,
+the imaging task's `quality.json`) is at least 250 (`--bright-snr`). The
+fit reads the errors off the data over the clean model, so on a faint
+continuum the model's own errors and the solve's noise add to the antennas'
+scatter: the fitted value is a few percent above an S/N of 250 and 10 to 50%
+below 50, while the amplitude solutions of self-calibration on the bright
+windows are 0.5 to 2%. The phase error is not fitted, so `phase_rms_deg` keeps the
 base model's.
 
 **How the simulator applies it.** For each run of an array configuration
@@ -1000,6 +1006,10 @@ instrumental^2 = (line^2 - f^2 x window^2) / (1 - f^2)
 
 for amplitude and phase alike. Above a share of 0.7 the two cannot be told
 apart and the instrumental values are left out. `noise aggregate` takes the
+windows' median `amp_rms` and `phase_rms_deg` over the windows whose cleaned
+continuum S/N is at least 250 (`--bright-snr`): like the gain amplitude
+error, the non-closing error of a fainter window holds its clean model's
+errors. It takes the
 median share `s` of each window's error that is the instrument's
 (instrumental over the window's, at most 1) over the windows that tell it
 apart and whose line channels hold at least 5% continuum (with less, the
@@ -1220,6 +1230,7 @@ This is a band 7 window at 356 GHz with a line, shortened:
 ```
 {
   "bright_groups": 7349,             // (baseline, scan) groups with S/N above 10
+  "continuum_snr": 320.0,            // the imaging task's cleaned continuum peak over its noise
   "kappa": 2.66,                     // Hanning-correlated channels: 1 + 2 x 2/3 + 2 x 1/6
   "bins": [
     {"baseline_m": 13.9, "groups": 95,
@@ -1255,7 +1266,10 @@ windows measure replaced by their median. It prints, for each value, the
 median, the 16th-84th percentile range and how many windows it comes from,
 and records the same in the candidate's `provenance.values`. A value fewer
 than 3 windows measure (`--min-windows`) keeps `alma`'s, and
-`provenance.notes` says so. The candidate is named `alma-candidate`, version
+`provenance.notes` says so. The antenna amplitude error and the baseline
+errors come from the windows with a cleaned continuum S/N of at least 250
+(`--bright-snr`); a `fit.json` without `continuum_snr` does not count for
+them. The candidate is named `alma-candidate`, version
 `alma`'s + 1 (`--name`, `--version` to choose).
 
 ### Step 4: try the candidate

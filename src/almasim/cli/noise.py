@@ -684,6 +684,14 @@ def aggregate(
         help="Windows a value needs; fewer keep the base's.",
         rich_help_panel="Inputs",
     ),
+    bright_snr: float = typer.Option(
+        250.0,
+        "--bright-snr",
+        min=0.0,
+        help="Cleaned continuum S/N from which a window's fit counts for the antenna "
+        "amplitude and baseline errors.",
+        rich_help_panel="Inputs",
+    ),
 ) -> None:
     """Reduce the windows' measurements into a candidate noise model: each value
     they measure is their median, with its window count and spread recorded."""
@@ -714,7 +722,13 @@ def aggregate(
     if not measured:
         usage_error(f"--out: no windows/*/{WINDOW_FILE} under {out}; run noise extract first")
     candidate = reduce_windows(
-        measured, model, name=name, version=version, data=str(out), min_windows=min_windows
+        measured,
+        model,
+        name=name,
+        version=version,
+        data=str(out),
+        min_windows=min_windows,
+        bright_snr=bright_snr,
     )
     target = (output or out / "candidate.json").expanduser()
     target.write_text(candidate.model_dump_json(indent=2) + "\n")

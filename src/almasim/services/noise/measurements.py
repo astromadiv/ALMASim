@@ -385,6 +385,10 @@ class WindowFit(_Record):
     schema_version: Literal[1] = 1
     name: str
     bright_groups: int = Field(description="(baseline, scan) groups with S/N above 10.")
+    continuum_snr: float | None = Field(
+        default=None,
+        description="The imaging task's cleaned continuum peak over its noise (quality.json).",
+    )
     realizations: int
     kappa: float = Field(description="1 + 2 rho1 + 2 rho2: the channel-summed noise's excess.")
     bins: list[FitBin]

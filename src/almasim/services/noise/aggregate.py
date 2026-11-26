@@ -24,7 +24,12 @@ how:
   where they depart from FDM windows of the same dish and band
   (tdm_efficiency), and a factor per dish and band where the band's windows
   depart from that curve (efficiency_scale);
-- slow_phase, fast_phase, antenna_gains, baseline_errors: the fits; the in-scan
+- antenna_gains.amp_rms, baseline_errors: the fits of the windows whose
+  continuum is bright (a cleaned continuum S/N of ``bright_snr`` or more).
+  Both are read off the data over the clean model; on a faint continuum the
+  model's own errors and the solve's noise read as errors of the instrument,
+  several times the bright windows';
+- slow_phase, fast_phase: the fits; the in-scan
   screen's strengths at the windows' median coherence time, each keeping
   its phase change over one simulated sample, with a median per dish size
   (fast_phase.dishes) and the windows' log scatter about it
@@ -68,6 +73,10 @@ TRX_SLOPE_CONFIDENCE = 0.95
 # error to be told into the instrument's and the continuum's: below it, the
 # window's signal may be the line itself, and the two errors are one.
 MIN_CONTINUUM_SHARE = 0.05
+# A window measures its antennas' amplitude errors and its baselines' errors
+# when its cleaned continuum has this S/N: the fitted values of fainter
+# windows rise as the S/N falls.
+BRIGHT_CONTINUUM_SNR = 250.0
 C_M_S = 299_792_458.0
 
 
@@ -87,9 +96,12 @@ def aggregate(
     version: int | None = None,
     data: str | None = None,
     min_windows: int = 3,
+    bright_snr: float = BRIGHT_CONTINUUM_SNR,
 ) -> NoiseModel:
     """The candidate: ``base`` with every value the windows measure replaced
-    by their median (see the module's description)."""
+    by their median (see the module's description). ``bright_snr``: the
+    cleaned continuum S/N from which a window's fit counts for the antenna
+    amplitude and baseline errors."""
     from almasim.__version__ import __version__
 
     stats: dict[str, ValueStats] = {}
@@ -185,17 +197,20 @@ def aggregate(
             notes,
             min_windows,
         )
+    bright = [f for f in fits if f.continuum_snr is not None and f.continuum_snr >= bright_snr]
     reduce(
-        "antenna_gains.amp_rms", [f.gain_amp_rms for f in fits], setter("antenna_gains", "amp_rms")
+        "antenna_gains.amp_rms",
+        [f.gain_amp_rms for f in bright],
+        setter("antenna_gains", "amp_rms"),
     )
     reduce(
         "baseline_errors.amp_rms",
-        [f.baseline_amp_rms for f in fits],
+        [f.baseline_amp_rms for f in bright],
         setter("baseline_errors", "amp_rms"),
     )
     reduce(
         "baseline_errors.phase_rms_deg",
-        [f.baseline_phase_rms_deg for f in fits],
+        [f.baseline_phase_rms_deg for f in bright],
         setter("baseline_errors", "phase_rms_deg"),
     )
     if "baseline_errors" in components:
