@@ -142,6 +142,118 @@ the CSV has that column, and `-mem` set to its share of the node
 against a threaded OpenBLAS. `--backend sync` runs the tasks one at a time in
 the current process, which is handy for a smoke test on one MS.
 
+### Imaging on the grid of the pipeline's images
+
+`compute-parameters` derives each window's grid from the MeasurementSet. The
+images the ALMA pipeline delivered carry the grid tclean imaged them on.
+`image fetch-headers` saves each delivered image's header and writes its
+imaging parameters beside it, inside the image's own member, so that
+`image-from-ms` makes images on the delivered ones' grid:
+
+```bash
+# 1. a header and a parameter CSV per delivered image, in its member's folder
+almasim image fetch-headers /data/deliveries
+
+# 2. image from them: the tree stands for the parameter CSV
+almasim image image-from-ms /data/deliveries /data/deliveries --by-member --cube
+```
+
+The delivery tree is the only folder to name. Each image of a member's
+`product/` folder gets two files in the member's `images/headers/` folder,
+next to the images ALMASim makes:
+
+```text
+<member>/product/<image>.pbcor.fits            the pipeline's image
+<member>/images/headers/<image>.pbcor.fits.hdr its FITS header
+<member>/images/headers/<image>.pbcor.fits.csv its imaging parameters
+```
+
+**fetch-headers** finds, for each row `compute-parameters` would write, the
+member's `mfs` and `cube` science images of that window (`--kinds`). It
+needs the delivery tree's `ous_index.csv`, which names each MS's member
+(`--ous-index`, or the one at `--delivery-root`, or the nearest above the
+MSs). The images are those in the member's `product/` folder (`--source
+local`), those of the archive (`archive`), or the archive's where the folder
+has none (`auto`, the default). Only the header is read, a 2880-byte block at
+a time up to its `END` card, a few tens of kilobytes of a cube of gigabytes.
+The archive is asked once per member for its list of images.
+
+- An image is of a window when its name lists it (`spw25`, or
+  `spw13_15_17_19` for an image of several windows), and of a field when its
+  `OBJECT` card is the field's name: the file name truncates long names. An
+  archive image is matched on its name alone, since its header is not on disk.
+- Of several images of one window and field, the self-calibrated one
+  (`.selfcal.`) is taken before the `.regcal.` one, and a Stokes I image
+  before any other.
+- An image's CSV has one row per (MS, window, field) the image is of: an
+  image of a member with three execution blocks has three rows, and an image
+  of several windows a row for each. A row holds the columns of
+  `compute-parameters`, those of the header, the MS-derived size and cell
+  (`ms_n_pixels`, `ms_cell_arcsec`), and in `image_check` where the image's
+  size or cell is more than 2 % from them.
+- A header already saved is not read again (`--overwrite` reads it again),
+  and a rerun skips an MS its member's CSVs already list (`--no-resume`
+  writes its rows again).
+- A row with no image, or an MS that cannot be read, is listed in
+  `headers.failed.tsv` at the tree's root and the command exits 1 after the
+  scan (`--fail-fast` stops at the first unreadable MS instead).
+- `--output <folder>` writes to `<folder>/<member>/` instead of the members'
+  own folders. MSs outside a delivery tree need it.
+
+**image-from-ms** given a folder in place of a parameter CSV reads the
+per-image CSVs under it: every member's in a delivery tree, one member's in
+a member folder, or those of an `--output` folder. Each (MS, window, field)
+takes the row of its cube image, or of its `mfs` image when the member has no
+cube. `pb-correct` reads a folder the same way.
+
+**parse-headers** reads the saved headers again and rewrites the image
+columns and the check of each CSV, without opening an MS or the archive:
+`almasim image parse-headers /data/deliveries`. It serves after a change of
+`--fov-fraction`, `--beam-sampling` or `--min-beams-across`, which set the
+MS-derived size and cell the check compares with.
+
+| column | from | `image-from-ms` uses it as |
+|---|---|---|
+| `image_n_pixels` | `NAXIS1`, `NAXIS2` (the longer side) | `-size` |
+| `image_cell_arcsec` | `CDELT2` | `-scale` |
+| `image_weighting`, `image_robust` | tclean's `weighting`, `robust` | `-weight` |
+| `image_niter` | tclean's `niter` | `-niter` |
+| `image_threshold_jy` | tclean's `threshold` | `-abs-threshold` |
+| `phasecenter_ra_deg`, `phasecenter_dec_deg` | tclean's `phasecenter` (the `CRVAL` cards without one) | `-shift` |
+| `ms_phasecenter_ra_deg`, `ms_phasecenter_dec_deg` | the field's `PHASE_DIR` in the MS | `-shift` |
+| `image_n_channels`, `image_specmode` | `NAXIS3`, tclean's `specmode` | `-channels-out` of a cube |
+
+The other `image_*` columns (`image_stokes`, `image_deconvolver`,
+`image_imsize`, `image_cell`, `image_phasecenter`, `image_threshold`,
+`image_channel_width_hz`, `image_reference_frequency`) record tclean's values
+and the header's spectral axis; `image-from-ms` does not read them.
+
+**image-from-ms** takes each of these columns in place of the MS-derived
+value where the row has it, and the MS-derived value where it is empty, so a
+window with no delivered image is imaged as from a `compute-parameters` CSV:
+
+- **Weighting.** tclean's `briggs` and `briggsbwtaper` are WSClean's
+  `briggs <robust>`; `natural` and `uniform` are WSClean's own. Any other
+  scheme images with `briggs 0.5`.
+- **Iterations.** An image the pipeline found nothing to clean in has
+  `niter = 0`. That is not a limit on the clean, so `-niter` is then 100000,
+  as it is without a header.
+- **Phase centre.** `-shift` is added when the image's centre is more than
+  1 arcsec from the field's in the MS (a mosaic, an offset centre). A moving
+  target's image (`phasecenter = 'TRACKFIELD'`) has no fixed centre and is
+  not shifted.
+- **Cube channels.** tclean regrids a window to LSRK, so its cube often has a
+  few channels fewer than the window; WSClean images the window's own
+  channels. The cube takes tclean's channel averaging, not its count: the
+  window's channels over the whole number of them per tclean channel (a
+  1917-channel cube of a 1920-channel window gives 1920; a 958-channel one
+  gives 960). This replaces `--spectral-sampling` and
+  `--velocity-resolution`; `--max-cube-gb` caps the count as it does
+  without a header.
+
+`--fov-fraction`, `--beam-sampling` and `--min-beams-across` do not change a
+row that has `image_n_pixels` and `image_cell_arcsec`.
+
 ### Cubes, self-calibration and primary-beam correction
 
 `image-from-ms` makes the continuum image of every window by default. Other

@@ -16,7 +16,11 @@ import numpy as np
 import pandas as pd
 
 from almasim.services.imaging.member_plan import is_member_row, member_task_name, member_windows
-from almasim.services.imaging.ms_geometry import SPECTRAL_COLUMNS, image_pixels
+from almasim.services.imaging.ms_geometry import (
+    SPECTRAL_COLUMNS,
+    image_override,
+    image_pixels,
+)
 from almasim.services.imaging.provenance import Provenance, find_ous_index
 from almasim.services.instrument.constants import SPEED_OF_LIGHT_M_S
 
@@ -57,6 +61,14 @@ def cube_channels(row: pd.Series, n_pixels: int, options: CubeOptions) -> int:
     rounded down to a divisor of the native channel count, so every output
     channel averages the same number of native channels and the cube has one
     channel width.
+
+    A row with the pipeline's cube header (``image_n_channels`` of an
+    ``image_specmode`` ``cube``, from ``image fetch-headers``) takes the
+    channel averaging tclean imaged with instead of the one the options give:
+    the native count over the whole number of native channels per tclean
+    channel. tclean regrids the window (its cube often has a few channels
+    fewer than the window), which WSClean does not, so the count itself is not
+    taken. The size cap and the divisor rule hold as they do without a header.
     """
     missing = [column for column in SPECTRAL_COLUMNS if column not in row.index]
     if missing:
@@ -74,6 +86,9 @@ def cube_channels(row: pd.Series, n_pixels: int, options: CubeOptions) -> int:
         )
         target_width = max(target_width, velocity_width)
     wanted = max(int(math.floor(n_native * width / target_width + 1e-9)), 1)
+    image_channels = _image_cube_channels(row)
+    if image_channels is not None:
+        wanted = max(n_native // max(round(n_native / image_channels), 1), 1)
     plane_bytes = 4 * n_pixels * n_pixels
     affordable = (
         wanted
@@ -81,6 +96,32 @@ def cube_channels(row: pd.Series, n_pixels: int, options: CubeOptions) -> int:
         else max(int(options.max_cube_gb * 1e9 // plane_bytes), 1)
     )
     return _largest_divisor_at_most(n_native, min(wanted, affordable))
+
+
+def _image_niter(row: pd.Series) -> int:
+    """WSClean's ``-niter``: tclean's iteration limit of the image, or 100000.
+
+    The pipeline delivers an image it found nothing to clean in with
+    ``niter = 0``; that is its finding on its own image, not a limit, so the
+    default applies and the thresholds decide where the clean stops.
+    """
+    try:
+        niter = int(float(image_override(row, "image_niter")))  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 100000
+    return niter if niter > 0 else 100000
+
+
+def _image_cube_channels(row: pd.Series) -> int | None:
+    """The channels of the pipeline's cube of this window, when the row has them."""
+    if str(image_override(row, "image_specmode") or "").strip().lower() != "cube":
+        return None
+    channels = image_override(row, "image_n_channels")
+    try:
+        count = int(float(channels)) if channels is not None else 0
+    except (TypeError, ValueError):
+        return None
+    return count if count > 0 else None
 
 
 def imaging_parameter_to_command_arg(
@@ -109,11 +150,19 @@ def imaging_parameter_to_command_arg(
     channel, so emission too faint to clean in one channel is still cleaned.
     """
     spw = imaging_parameters["spectral_window_id"]
-    synthetized_beam_size = imaging_parameters["synthetized_beam_size"] / beam_sampling
     n_pixels = image_pixels(imaging_parameters, fov_fraction, beam_sampling, min_beams_across)
+    # An image-derived cell (image fetch-headers) replaces the MS-derived one.
+    cell = image_override(imaging_parameters, "image_cell_arcsec")
+    cell_arcsec = (
+        float(cell)
+        if cell is not None
+        else float(imaging_parameters["synthetized_beam_size"]) / beam_sampling
+    )
+    niter = _image_niter(imaging_parameters)
+    threshold_jy = image_override(imaging_parameters, "image_threshold_jy")
     cmd_args = [
         "-scale",
-        f"{synthetized_beam_size}asec",
+        f"{cell_arcsec}asec",
         "-size",
         str(n_pixels),
         str(n_pixels),
@@ -122,14 +171,17 @@ def imaging_parameter_to_command_arg(
         "-mgain",
         "0.85",
         "-niter",
-        "100000",
+        str(niter),
         "-pol",
         "I",
         "-make-psf",
         "-weight",
-        "briggs",
-        "0.5",
+        *_weight_arguments(imaging_parameters),
     ]
+    cmd_args += _abs_threshold_arg(threshold_jy)
+    phasecenter = _phasecenter_arguments(imaging_parameters)
+    if phasecenter is not None:
+        cmd_args += ["-shift", *phasecenter]
     if auto_mask is not None and auto_mask > 0:
         cmd_args += ["-auto-mask", str(auto_mask)]
     if auto_threshold is not None and auto_threshold > 0:
@@ -143,6 +195,78 @@ def imaging_parameter_to_command_arg(
             if join_channels:
                 cmd_args.append("-join-channels")
     return cmd_args
+
+
+def _weight_arguments(row: pd.Series) -> list[str]:
+    """WSClean's ``-weight`` values: the image's tclean weighting, or Briggs 0.5.
+
+    tclean's ``briggs`` and ``briggsbwtaper`` are WSClean's ``briggs <robust>``;
+    ``natural`` and ``uniform`` take no robust value. Any other tclean scheme
+    has no WSClean counterpart and images with the default.
+    """
+    weighting = str(image_override(row, "image_weighting") or "briggs").strip().lower()
+    if weighting in {"natural", "uniform"}:
+        return [weighting]
+    robust = image_override(row, "image_robust") if weighting.startswith("briggs") else None
+    try:
+        value = float(robust) if robust is not None else 0.5
+    except (TypeError, ValueError):
+        value = 0.5
+    return ["briggs", str(value)]
+
+
+def _abs_threshold_arg(threshold_jy: object) -> list[str]:
+    """``-abs-threshold`` flag from an image-derived threshold, or ``[]``."""
+    try:
+        value = float(threshold_jy)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return []
+    # NaN is not above zero either.
+    return ["-abs-threshold", f"{value:g}Jy"] if value > 0 else []
+
+
+def _phasecenter_arguments(row: pd.Series) -> tuple[str, str] | None:
+    """``-shift`` arguments when the image's phase centre differs from the MS's.
+
+    WSClean images at the MeasurementSet's phase centre; the pipeline's image
+    header records the one tclean used. When they differ (a mosaic, say), the
+    shift aligns the two. Both are read as degrees and formatted as WSClean's
+    ``-shift`` expects.
+    """
+    image_ra = image_override(row, "phasecenter_ra_deg")
+    image_dec = image_override(row, "phasecenter_dec_deg")
+    ms_ra = image_override(row, "ms_phasecenter_ra_deg")
+    ms_dec = image_override(row, "ms_phasecenter_dec_deg")
+    if image_ra is None or image_dec is None or ms_ra is None or ms_dec is None:
+        return None
+    # The shorter way round in RA: 359.999 and 0.001 degrees are 7 arcsec apart.
+    delta_ra = (float(image_ra) - float(ms_ra) + 180.0) % 360.0 - 180.0
+    separation = math.hypot(
+        delta_ra * math.cos(math.radians(float(image_dec))),
+        float(image_dec) - float(ms_dec),
+    )
+    if separation * 3600.0 < 1.0:  # below an arcsecond: the MS centre is the same
+        return None
+    return _format_ra(float(image_ra)), _format_dec(float(image_dec))
+
+
+def _format_ra(ra_deg: float) -> str:
+    """``213.2914`` as ``14:13:09.936`` (WSClean's ``-shift`` RA format)."""
+    # Whole milliseconds first, so that 59.9996 s carries into the minutes.
+    milliseconds = round((ra_deg % 360.0) / 15.0 * 3_600_000) % (24 * 3_600_000)
+    minutes, milliseconds = divmod(milliseconds, 60_000)
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours:02d}:{minutes:02d}:{milliseconds / 1000:06.3f}"
+
+
+def _format_dec(dec_deg: float) -> str:
+    """``-65.3392`` as ``-65.20.21.12`` (WSClean's ``-shift`` Dec format)."""
+    sign = "-" if dec_deg < 0 else "+"
+    # Whole hundredths of an arcsecond first, so that 59.996" carries.
+    centiarcsec = round(abs(dec_deg) * 360_000)
+    minutes, centiarcsec = divmod(centiarcsec, 6_000)
+    degrees, minutes = divmod(minutes, 60)
+    return f"{sign}{degrees:02d}.{minutes:02d}.{centiarcsec / 100:05.2f}"
 
 
 @dataclass(frozen=True)
