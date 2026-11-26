@@ -310,3 +310,15 @@ def test_noise_fit_runs_after_extract_and_resumes(window_ms, tmp_path):
     ):
         result = runner.invoke(noise_app, bad)
         assert result.exit_code == 2 and message in result.output, result.output
+
+
+@pytest.mark.unit
+def test_a_task_without_a_continuum_snr_gives_none(tmp_path):
+    assert fit._continuum_snr(tmp_path) is None  # no quality.json
+    quality = tmp_path / "quality.json"
+    quality.write_text("{}")
+    assert fit._continuum_snr(tmp_path) is None  # no continuum section
+    quality.write_text(json.dumps({"continuum": {"snr": None}}))
+    assert fit._continuum_snr(tmp_path) is None
+    quality.write_text(json.dumps({"continuum": {"snr": 41.5}}))
+    assert fit._continuum_snr(tmp_path) == 41.5
