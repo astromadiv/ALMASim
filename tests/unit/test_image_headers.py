@@ -251,6 +251,37 @@ def test_an_uncleaned_image_does_not_stop_the_clean() -> None:
     assert args[args.index("-niter") + 1] == "100000"
 
 
+def test_a_continuum_image_takes_the_limits_of_the_mfs_image() -> None:
+    row = _row(
+        image_specmode="cube",
+        image_n_channels=1917.0,
+        image_niter=799999.0,
+        image_threshold_jy=0.007,
+        image_weighting="briggsbwtaper",
+        image_robust=0.5,
+        continuum_niter=300000.0,
+        continuum_threshold_jy=0.000195,
+        continuum_weighting="briggs",
+        continuum_robust=2.0,
+    )
+    continuum = imaging_parameter_to_command_arg(row, 1.0, 4.0)
+    assert continuum[continuum.index("-niter") + 1] == "300000"
+    assert continuum[continuum.index("-abs-threshold") + 1] == "0.000195Jy"
+    assert continuum[continuum.index("-weight") + 1 :][:2] == ["briggs", "2.0"]
+    # The cube keeps the limits of its own header.
+    cube = imaging_parameter_to_command_arg(row, 1.0, 4.0, cube=CubeOptions())
+    assert cube[cube.index("-niter") + 1] == "799999"
+    assert cube[cube.index("-abs-threshold") + 1] == "0.007Jy"
+    assert cube[cube.index("-weight") + 1 :][:2] == ["briggs", "0.5"]
+    # Without an mfs image the continuum has the row's own limits.
+    alone = row.copy()
+    for column in ("niter", "threshold_jy", "weighting", "robust"):
+        alone[f"continuum_{column}"] = math.nan
+    args = imaging_parameter_to_command_arg(alone, 1.0, 4.0)
+    assert args[args.index("-abs-threshold") + 1] == "0.007Jy"
+    assert args[args.index("-niter") + 1] == "799999"
+
+
 def test_no_shift_for_the_same_centre_across_the_ra_wrap() -> None:
     centre = {"phasecenter_dec_deg": 0.0, "ms_phasecenter_dec_deg": 0.0}
     same = _row(phasecenter_ra_deg=359.9999, ms_phasecenter_ra_deg=-0.0001, **centre)

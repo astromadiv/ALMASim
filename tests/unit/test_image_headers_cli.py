@@ -50,8 +50,8 @@ def _header_bytes(kind: str, obj: str = "NGC1", pixels: int = 128) -> bytes:
         f"specmode    = '{kind}'",
         "weighting   = 'briggsbwtaper'",
         "robust      = 0.5",
-        "niter       = 30000",
-        "threshold   = '1.2mJy'",
+        f"niter       = {30000 if kind == 'cube' else 9000}",
+        f"threshold   = '{'1.2mJy' if kind == 'cube' else '0.04mJy'}'",
     ):
         header.add_history(line)
     return header.tostring(padding=True).encode("ascii")
@@ -145,6 +145,11 @@ def test_each_image_gets_its_header_and_parameter_csv_in_its_member(
     for place in (root, root / MEMBER_FOLDER):
         rows = cli.image._read_parameters(place)
         assert rows["image_kind"].tolist() == ["cube"]
+        # ... with the clean limits of the window's mfs image beside the cube's.
+        assert rows["image_niter"].tolist() == [30000]
+        assert rows["continuum_niter"].tolist() == [9000]
+        assert rows["continuum_threshold_jy"].tolist() == [pytest.approx(4.0e-5)]
+        assert rows["continuum_weighting"].tolist() == ["briggsbwtaper"]
     assert len(cli.image._read_parameters(folder / f"{MFS}.csv")) == 1
 
 

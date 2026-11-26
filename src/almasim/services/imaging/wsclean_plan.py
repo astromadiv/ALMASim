@@ -113,6 +113,36 @@ def _image_niter(row: pd.Series) -> int:
     return niter if niter > 0 else 100000
 
 
+# The clean limits of the window's mfs image, beside those of its cube
+# (image_headers.CONTINUUM_COLUMNS, which that module's reader fills).
+_CONTINUUM_LIMITS = {
+    "continuum_niter": "image_niter",
+    "continuum_threshold_jy": "image_threshold_jy",
+    "continuum_weighting": "image_weighting",
+    "continuum_robust": "image_robust",
+}
+
+
+def _continuum_limits(row: pd.Series) -> pd.Series:
+    """``row`` with the clean limits a continuum image takes.
+
+    A row from a pipeline cube's header carries the limits tclean gave one
+    channel of the cube, a threshold tens of times the continuum's. Where the
+    row also has those of the window's ``mfs`` image (``continuum_*``), they
+    replace the cube's for the continuum image; the cube keeps its own.
+    """
+    limits = {
+        image: image_override(row, continuum) for continuum, image in _CONTINUUM_LIMITS.items()
+    }
+    limits = {image: value for image, value in limits.items() if value is not None}
+    if not limits:
+        return row
+    row = row.copy()
+    for image, value in limits.items():
+        row[image] = value
+    return row
+
+
 def _image_cube_channels(row: pd.Series) -> int | None:
     """The channels of the pipeline's cube of this window, when the row has them."""
     if str(image_override(row, "image_specmode") or "").strip().lower() != "cube":
@@ -159,6 +189,8 @@ def imaging_parameter_to_command_arg(
         if cell is not None
         else float(imaging_parameters["synthetized_beam_size"]) / beam_sampling
     )
+    if cube is None:
+        imaging_parameters = _continuum_limits(imaging_parameters)
     niter = _image_niter(imaging_parameters)
     threshold_jy = image_override(imaging_parameters, "image_threshold_jy")
     cmd_args = [

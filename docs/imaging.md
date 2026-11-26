@@ -206,6 +206,14 @@ a member folder, or those of an `--output` folder. Each (MS, window, field)
 takes the row of its cube image, or of its `mfs` image when the member has no
 cube. `pb-correct` reads a folder the same way.
 
+A cube's row carries the clean limits tclean gave one channel of the cube,
+whose threshold is tens of times the continuum's. The row therefore also
+holds the limits of the window's `mfs` image, as `continuum_niter`,
+`continuum_threshold_jy`, `continuum_weighting` and `continuum_robust`. The
+continuum image is cleaned to those and the cube to the `image_*` ones. A
+window with no `mfs` image has them empty, and its continuum image takes the
+`image_*` limits. A parameter CSV may carry the `continuum_*` columns too.
+
 **parse-headers** reads the saved headers again and rewrites the image
 columns and the check of each CSV, without opening an MS or the archive:
 `almasim image parse-headers /data/deliveries`. It serves after a change of
@@ -219,6 +227,9 @@ MS-derived size and cell the check compares with.
 | `image_weighting`, `image_robust` | tclean's `weighting`, `robust` | `-weight` |
 | `image_niter` | tclean's `niter` | `-niter` |
 | `image_threshold_jy` | tclean's `threshold` | `-abs-threshold` |
+| `continuum_weighting`, `continuum_robust` | the `mfs` image's `weighting`, `robust` | `-weight` of the continuum image |
+| `continuum_niter` | the `mfs` image's `niter` | `-niter` of the continuum image |
+| `continuum_threshold_jy` | the `mfs` image's `threshold` | `-abs-threshold` of the continuum image |
 | `phasecenter_ra_deg`, `phasecenter_dec_deg` | tclean's `phasecenter` (the `CRVAL` cards without one) | `-shift` |
 | `ms_phasecenter_ra_deg`, `ms_phasecenter_dec_deg` | the field's `PHASE_DIR` in the MS | `-shift` |
 | `image_n_channels`, `image_specmode` | `NAXIS3`, tclean's `specmode` | `-channels-out` of a cube |
