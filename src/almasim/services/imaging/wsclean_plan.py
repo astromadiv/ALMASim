@@ -120,6 +120,9 @@ _CONTINUUM_LIMITS = {
     "continuum_threshold_jy": "image_threshold_jy",
     "continuum_weighting": "image_weighting",
     "continuum_robust": "image_robust",
+    "continuum_bmaj_arcsec": "image_bmaj_arcsec",
+    "continuum_bmin_arcsec": "image_bmin_arcsec",
+    "continuum_bpa_deg": "image_bpa_deg",
 }
 
 
@@ -165,6 +168,7 @@ def imaging_parameter_to_command_arg(
     min_beams_across: float = 0.0,
     multiscale: bool = False,
     join_channels: bool = False,
+    header_beam: bool = False,
 ) -> list[str]:
     """WSClean geometry and deconvolution flags for one spectral window.
 
@@ -179,6 +183,9 @@ def imaging_parameter_to_command_arg(
     in the residual. ``join_channels`` makes a cube find its components on
     the sum of the channels (WSClean ``-join-channels``) and fit them per
     channel, so emission too faint to clean in one channel is still cleaned.
+    ``header_beam`` restores with the delivered image's beam where the row
+    has one (``beam_arguments``): the cube with its cube's, the continuum
+    with its ``mfs`` image's.
     """
     spw = imaging_parameters["spectral_window_id"]
     n_pixels = image_pixels(imaging_parameters, fov_fraction, beam_sampling, min_beams_across)
@@ -215,6 +222,8 @@ def imaging_parameter_to_command_arg(
     phasecenter = _phasecenter_arguments(imaging_parameters)
     if phasecenter is not None:
         cmd_args += ["-shift", *phasecenter]
+    if header_beam:
+        cmd_args += beam_arguments(imaging_parameters)
     if auto_mask is not None and auto_mask > 0:
         cmd_args += ["-auto-mask", str(auto_mask)]
     if auto_threshold is not None and auto_threshold > 0:
@@ -246,6 +255,27 @@ def _weight_arguments(row: pd.Series) -> list[str]:
     except (TypeError, ValueError):
         value = 0.5
     return ["briggs", str(value)]
+
+
+def beam_arguments(row: pd.Series, prefix: str = "image") -> list[str]:
+    """WSClean's ``-beam-shape`` from a row's ``<prefix>_bmaj_arcsec``,
+    ``<prefix>_bmin_arcsec`` and ``<prefix>_bpa_deg``, or ``[]`` without them.
+
+    WSClean then restores with that Gaussian instead of the one it fits to
+    its own PSF, so the image has the delivered image's resolution and flux
+    scale per beam.
+    """
+    values = [
+        image_override(row, f"{prefix}_{name}")
+        for name in ("bmaj_arcsec", "bmin_arcsec", "bpa_deg")
+    ]
+    try:
+        major, minor, angle = (float(value) for value in values)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return []
+    if not (major > 0 and minor > 0 and math.isfinite(angle)):
+        return []
+    return ["-beam-shape", f"{major:g}asec", f"{minor:g}asec", f"{angle:g}deg"]
 
 
 def _abs_threshold_arg(threshold_jy: object) -> list[str]:
@@ -502,6 +532,7 @@ def build_imaging_tasks(  # noqa: C901
     join_channels: bool = False,
     ous_index_csv: str | Path | None = None,
     aggregate_continuum: bool = False,
+    header_beam: bool = False,
 ) -> tuple[list[ImagingTask], int]:
     """Turn parameter rows into WSClean tasks, skipping the ones already done.
 
@@ -530,6 +561,12 @@ def build_imaging_tasks(  # noqa: C901
     ``CONT[_<field>]`` beside the windows' ``SPW-<n>[_<field>]``: on the
     finest of the windows' cells, over the widest of their fields. It is done
     when its marker and its image exist, whatever its windows' tasks are.
+
+    With ``header_beam`` every image is restored with its delivered image's
+    beam where the row has one (``beam_arguments``): a cube with its cube's,
+    a window's continuum with its ``mfs`` image's, and the aggregate continuum
+    with that of the image of the windows together (``aggregate_*``), or the
+    first window's ``mfs`` beam without one.
 
     Each task carries its data's provenance (``row_provenance``) for the
     products' FITS headers: the OUSs from ``ous_index_csv``, or from the
@@ -584,6 +621,7 @@ def build_imaging_tasks(  # noqa: C901
                 min_beams_across=min_beams_across,
                 multiscale=multiscale,
                 join_channels=join_channels,
+                header_beam=header_beam,
             )
             if with_cube and cube_products is not None and "dirty" not in cube_products:
                 command_args.append("-no-dirty")
@@ -671,16 +709,21 @@ def build_imaging_tasks(  # noqa: C901
         if not overwrite_outputs and is_imaging_complete(outdir, (IMAGE_FILENAME,)):
             skipped += 1
             continue
-        tasks.append(_aggregate_task(outdir, [window_task(row) for row in rows], rows))
+        tasks.append(_aggregate_task(outdir, [window_task(row) for row in rows], rows, header_beam))
     return tasks, skipped
 
 
 def _aggregate_task(
-    outdir: Path, windows: Sequence[ImagingTask], rows: Sequence[pd.Series]
+    outdir: Path,
+    windows: Sequence[ImagingTask],
+    rows: Sequence[pd.Series],
+    header_beam: bool = False,
 ) -> ImagingTask:
     """The task imaging ``windows`` (one field's) together into ``outdir``: the
     first window's continuum command on the finest cell of them all, wide
-    enough for the widest of their images."""
+    enough for the widest of their images. With ``header_beam`` it restores
+    with the beam of the delivered image of the windows together, where a row
+    has it."""
     from almasim.services.imaging.wsclean.command import WSCleanCommand
 
     grids = []
@@ -698,6 +741,10 @@ def _aggregate_task(
     options[at + 1 : at + 3] = [str(pixels), str(pixels)]
     joint = replace(joint, options=tuple(options))
     joint = joint.with_option("-scale", f"{cell}asec").with_option("-name", outdir / "wsclean")
+    if header_beam:
+        beams = [beam for beam in (beam_arguments(row, "aggregate") for row in rows) if beam]
+        if beams:
+            joint = joint.with_option(*beams[0])
     diameters = [w.dish_diameter for w in windows if w.dish_diameter]
     return ImagingTask(
         label=_task_label(outdir, first.ms_path, first.spw, None, True)

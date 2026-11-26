@@ -486,7 +486,7 @@ $ almasim image fetch-headers [OPTIONS] [archive_folder]
 * `--delivery-root <path>`: Root of the ALMA delivery tree holding the member product folders.
 * `--ous-index <path>`: The delivery tree's ous_index.csv (default: nearest above the MSs).
 * `--source <str>`: Where the tclean images are read: local, archive, or auto (local first).  [default: auto]
-* `--kinds <str>`: Image kinds to read, comma-separated (mfs, cube).  [default: mfs,cube]
+* `--kinds <str>`: Image kinds to read, comma-separated: mfs and cube (a window's own images), cont (the image of a field's windows together, whose beam --aggregate-continuum with --header-beam restores with).  [default: mfs,cube]
 * `--include <str>`: Glob picking image files, e.g. '*_sci.*.pbcor.fits'. Repeatable.
 * `--exclude <str>`: Glob dropping image files. Repeatable.
 * `--require-done-marker / --no-require-done-marker`: Skip an MS whose <ms>.done calibration marker is missing.  [default: require-done-marker]
@@ -599,6 +599,7 @@ $ almasim image image-from-ms [OPTIONS] {imaging_parameters} {output_directory}
 * `--by-member / --by-ms`: Image each member OUS from all its execution blocks: one task per window and field, the EBs' visibilities regridded onto one LSRK grid (CASA mstransform) and combined. Only complete members are imaged: every EB ALMA calibrated for the member has a calibrated MS (the ous_index.csv) and a row in the CSV. Needs --single-window-ms. Default --by-ms: one task per MS.  [default: by-ms]
 * `--aggregate-continuum / --no-aggregate-continuum`: Also image the continuum of all the windows of each field together, in CONT[_<field>] beside the windows' SPW-<n>[_<field>]: one multi-frequency image, one output channel per window, a spectral slope fitted per component. Needs the continuum and --single-window-ms. Off by default.  [default: no-aggregate-continuum]
 * `--aggregate-line-free / --aggregate-all-channels`: Make the --aggregate-continuum image from each window's continuum fitted over its line-free channels (order --contsub-order), so the windows' lines stay out of it; a window with too few line-free channels is left out. --aggregate-all-channels images every channel, lines included.  [default: aggregate-line-free]
+* `--header-beam / --fitted-beam`: Restore every image with the beam of its delivered image (BMAJ, BMIN and BPA of the header image fetch-headers saved; WSClean -beam-shape): a cube with its cube's, a continuum with its mfs image's, an aggregate continuum with that of the image of the windows together. A row without a beam keeps the fitted one. Default --fitted-beam: the Gaussian WSClean fits to its own PSF.  [default: fitted-beam]
 * `--help`: Show this message and exit.
 
 ### `almasim image clean-quality`

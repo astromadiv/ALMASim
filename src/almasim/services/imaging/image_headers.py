@@ -75,6 +75,19 @@ CONTINUUM_COLUMNS = {
     "image_threshold_jy": "continuum_threshold_jy",
     "image_weighting": "continuum_weighting",
     "image_robust": "continuum_robust",
+    "image_bmaj_arcsec": "continuum_bmaj_arcsec",
+    "image_bmin_arcsec": "continuum_bmin_arcsec",
+    "image_bpa_deg": "continuum_bpa_deg",
+}
+
+# The restoring beam of the member's image of all the windows of a field
+# together (``cont``), which ``read_parameters`` puts in every row of that
+# field: the aggregate continuum image is restored with it.
+AGGREGATE_KIND = "cont"
+AGGREGATE_COLUMNS = {
+    "image_bmaj_arcsec": "aggregate_bmaj_arcsec",
+    "image_bmin_arcsec": "aggregate_bmin_arcsec",
+    "image_bpa_deg": "aggregate_bpa_deg",
 }
 
 # The parameter columns ``collect_headers`` adds to the MS-derived rows. The
@@ -82,6 +95,9 @@ CONTINUUM_COLUMNS = {
 IMAGE_COLUMNS = (
     "image_n_pixels",
     "image_cell_arcsec",
+    "image_bmaj_arcsec",
+    "image_bmin_arcsec",
+    "image_bpa_deg",
     "image_n_channels",
     "image_channel_width_hz",
     "image_reference_frequency",
@@ -107,6 +123,9 @@ IMAGE_COLUMNS = (
 )
 
 _IMAGE_KINDS = ("mfs", "cube")
+# Every kind ``collect_headers`` can read: a window's own images, and the
+# image of several windows together.
+IMAGE_KINDS = (*_IMAGE_KINDS, AGGREGATE_KIND)
 
 
 def _block_has_end(block: bytes) -> bool:
@@ -279,8 +298,10 @@ def image_geometry(header: fits.Header) -> dict[str, object]:
 
     ``image_n_pixels`` and ``image_cell_arcsec`` are the ``-size``/``-scale``
     tclean imaged with; ``image_n_channels`` is the cube's ``NAXIS3`` (1 for an
-    mfs image). The ``image_*`` strings are tclean's own values, kept for the
-    report.
+    mfs image). ``image_bmaj_arcsec``, ``image_bmin_arcsec`` and
+    ``image_bpa_deg`` are the restoring beam (``BMAJ``, ``BMIN``, ``BPA``;
+    unset for a cube with a beam per channel, which has no such cards). The
+    ``image_*`` strings are tclean's own values, kept for the report.
     """
     parameters = parse_tclean_parameters(header)
     naxis1 = int(header.get("NAXIS1", 0) or 0)
@@ -301,6 +322,7 @@ def image_geometry(header: fits.Header) -> dict[str, object]:
         # A header without the grid leaves both unset: the MS-derived ones apply.
         "image_n_pixels": max(naxis1, naxis2) or math.nan,
         "image_cell_arcsec": round(cell * 3600.0, 6) or math.nan,
+        **_restoring_beam(header),
         "image_n_channels": n_channels,
         "image_channel_width_hz": float(channel_width) if channel_width is not None else math.nan,
         "image_reference_frequency": float(reference) if reference is not None else math.nan,
@@ -321,6 +343,26 @@ def image_geometry(header: fits.Header) -> dict[str, object]:
         "image_imsize": imsize if isinstance(imsize, str) else _format_value(imsize),
         "image_cell": tclean_cell if isinstance(tclean_cell, str) else _format_value(tclean_cell),
         "image_phasecenter": parameters.get("phasecenter", ""),
+    }
+
+
+def _restoring_beam(header: fits.Header) -> dict[str, float]:
+    """The header's restoring beam: axes in arcsec, position angle in degrees.
+
+    All three are unset unless the header has a beam with both axes above zero.
+    """
+    try:
+        major = float(header.get("BMAJ", 0.0) or 0.0) * 3600.0
+        minor = float(header.get("BMIN", 0.0) or 0.0) * 3600.0
+        angle = float(header.get("BPA", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        major = minor = angle = math.nan
+    if not (major > 0 and minor > 0 and math.isfinite(angle)):
+        major = minor = angle = math.nan
+    return {
+        "image_bmaj_arcsec": round(major, 6),
+        "image_bmin_arcsec": round(minor, 6),
+        "image_bpa_deg": round(angle, 4),
     }
 
 
@@ -769,8 +811,10 @@ def parse_headers(
 def read_parameters(root: Path) -> pd.DataFrame:
     """The imaging parameter rows of the per-image CSVs under ``root``: one
     per (MS, window, field), from its cube image's CSV, or its ``mfs``
-    image's when there is no cube. The clean limits of its ``mfs`` image are
-    in the ``CONTINUUM_COLUMNS`` of the row (empty without an ``mfs`` image)."""
+    image's when there is no cube. The clean limits and the beam of its
+    ``mfs`` image are in the ``CONTINUUM_COLUMNS`` of the row (empty without
+    an ``mfs`` image), and the beam of the image of its field's windows
+    together (``cont``) in the ``AGGREGATE_COLUMNS`` (empty without one)."""
     paths = parameter_csvs(root)
     if not paths:
         raise ValueError(f"{root}: no per-image parameter CSV; run image fetch-headers first")
@@ -784,11 +828,22 @@ def read_parameters(root: Path) -> pd.DataFrame:
         .reindex(columns=[*key, *CONTINUUM_COLUMNS])
         .rename(columns=CONTINUUM_COLUMNS)
     )
+    aggregate = (
+        frame[frame["image_kind"] == AGGREGATE_KIND]
+        .drop_duplicates(key, keep="first")
+        .reindex(columns=[*key, *AGGREGATE_COLUMNS])
+        .rename(columns=AGGREGATE_COLUMNS)
+    )
+    # A window is imaged from its own image's row, never the aggregate's.
+    frame = frame[frame["image_kind"] != AGGREGATE_KIND]
+    if frame.empty:
+        raise ValueError(f"{root}: no parameter row of a window's own image (mfs or cube)")
     cube_first = (frame["image_kind"] != "cube").astype(int)
     frame = frame.assign(_order=cube_first).sort_values("_order", kind="stable")
     frame = frame.drop_duplicates(key, keep="first").drop(columns="_order")
-    frame = frame.drop(columns=list(CONTINUUM_COLUMNS.values()), errors="ignore")
-    frame = frame.merge(continuum, on=key, how="left")
+    derived = [*CONTINUUM_COLUMNS.values(), *AGGREGATE_COLUMNS.values()]
+    frame = frame.drop(columns=derived, errors="ignore")
+    frame = frame.merge(continuum, on=key, how="left").merge(aggregate, on=key, how="left")
     return frame.sort_values(key, kind="stable").reset_index(drop=True)
 
 
