@@ -374,6 +374,9 @@ def run_wsclean_task(  # noqa: C901
             cube_line_mask=bool(cube_line_mask and cube_command),
             after_images=after_images,
             pb_dish_diameter=pb_dish_diameter,
+            # A member's window is regridded onto an LSRK grid; one EB's own
+            # MS keeps its topocentric channels, which is what WSClean writes.
+            spectral_frame="LSRK" if member_windows else None,
         )
     finally:
         if scratch_dir is not None:
@@ -393,6 +396,7 @@ def _run_and_mark(  # noqa: C901
     cube_line_mask: bool = False,
     after_images: Callable[[], None] | None = None,
     pb_dish_diameter: float | None = None,
+    spectral_frame: str | None = None,
 ) -> dict[str, object]:
     out, log_path, fail = task.out, task.log_path, task.fail
     attempts = 0
@@ -441,11 +445,12 @@ def _run_and_mark(  # noqa: C901
         raise fail(f"WSClean exited 0 but wrote no {', '.join(missing)} under {out}", 0)
     # The cubes got the cards as they were stacked, and what was made from them
     # copied them; WSClean's own images (the continuum's) get them here, before
-    # the primary-beam correction copies them on.
+    # the primary-beam correction copies them on. ``spectral_frame`` corrects
+    # WSClean's SPECSYS on every image, the cubes included.
     provenance = task.header()
     for path in sorted(out.glob("*.fits")):
         try:
-            stamp_fits(path, provenance)
+            stamp_fits(path, provenance, spectral_frame=spectral_frame)
         except (OSError, ValueError) as exc:  # the images stand without it
             with log_path.open("a", encoding="utf-8") as log:
                 log.write(f"# provenance NOT written into {path.name}: {exc}\n")

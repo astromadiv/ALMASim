@@ -105,6 +105,19 @@ def test_stamping_adds_the_cards_once_and_derived_images_copy_them(tmp_path):
 
 
 @pytest.mark.unit
+def test_stamping_relabels_the_spectral_frame_wsclean_wrote(tmp_path):
+    image = _image(tmp_path / "wsclean-image.fits", SPECSYS="TOPOCENT")
+    provenance = provenance_header(Provenance.for_ms([f"{EB}.ms"], {EB: ROW}), ["wsclean"])
+
+    stamp_fits(image, provenance)
+    assert fits.getheader(image)["SPECSYS"] == "TOPOCENT", "one EB's MS is topocentric"
+
+    # An already stamped file (a stacked cube) is relabelled too.
+    assert not stamp_fits(image, provenance, spectral_frame="LSRK")
+    assert fits.getheader(image)["SPECSYS"] == "LSRK"
+
+
+@pytest.mark.unit
 def test_a_parameter_row_finds_the_index_above_its_ms(tmp_path):
     index = _index(tmp_path / "downloads" / "ous_index.csv")
     ms = tmp_path / "downloads" / "archive_ms" / "calibrated_ms" / f"{EB}.ms.split.cal"
