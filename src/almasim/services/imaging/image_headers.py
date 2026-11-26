@@ -40,6 +40,7 @@ from almasim.services.imaging.provenance import eb_uid_from_ms
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "CONTINUUM_COLUMNS",
     "IMAGE_COLUMNS",
     "MemberImage",
     "collect_headers",
@@ -65,6 +66,16 @@ HEADERS_FOLDER = "headers"
 FAILED_FILENAME = "headers.failed.tsv"
 # One parameter row is of one MS, window and field.
 _ROW_KEY = ("filename", "spectral_window_id", "field_name")
+
+# The clean limits of a window's ``mfs`` image, which ``read_parameters`` puts
+# beside its cube's row under these names: a continuum image is cleaned to
+# them, not to the limits tclean gave one channel of the cube.
+CONTINUUM_COLUMNS = {
+    "image_niter": "continuum_niter",
+    "image_threshold_jy": "continuum_threshold_jy",
+    "image_weighting": "continuum_weighting",
+    "image_robust": "continuum_robust",
+}
 
 # The parameter columns ``collect_headers`` adds to the MS-derived rows. The
 # command builder prefers them over the MS-derived geometry when they are set.
@@ -758,15 +769,27 @@ def parse_headers(
 def read_parameters(root: Path) -> pd.DataFrame:
     """The imaging parameter rows of the per-image CSVs under ``root``: one
     per (MS, window, field), from its cube image's CSV, or its ``mfs``
-    image's when there is no cube."""
+    image's when there is no cube. The clean limits of its ``mfs`` image are
+    in the ``CONTINUUM_COLUMNS`` of the row (empty without an ``mfs`` image)."""
     paths = parameter_csvs(root)
     if not paths:
         raise ValueError(f"{root}: no per-image parameter CSV; run image fetch-headers first")
     frame = pd.concat([pd.read_csv(path) for path in paths], ignore_index=True)
+    key = list(_ROW_KEY)
+    # The first mfs row of each key, reduced to its clean limits under their
+    # continuum names (a CSV without one of the columns leaves it empty).
+    continuum = (
+        frame[frame["image_kind"] == "mfs"]
+        .drop_duplicates(key, keep="first")
+        .reindex(columns=[*key, *CONTINUUM_COLUMNS])
+        .rename(columns=CONTINUUM_COLUMNS)
+    )
     cube_first = (frame["image_kind"] != "cube").astype(int)
     frame = frame.assign(_order=cube_first).sort_values("_order", kind="stable")
-    frame = frame.drop_duplicates(list(_ROW_KEY), keep="first").drop(columns="_order")
-    return frame.sort_values(list(_ROW_KEY), kind="stable").reset_index(drop=True)
+    frame = frame.drop_duplicates(key, keep="first").drop(columns="_order")
+    frame = frame.drop(columns=list(CONTINUUM_COLUMNS.values()), errors="ignore")
+    frame = frame.merge(continuum, on=key, how="left")
+    return frame.sort_values(key, kind="stable").reset_index(drop=True)
 
 
 def ms_phase_center(ms: str | Path, field_id: object) -> tuple[float | None, float | None]:
