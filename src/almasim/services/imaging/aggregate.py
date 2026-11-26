@@ -166,6 +166,7 @@ def run_aggregate_continuum_task(  # noqa: C901
     retries: int = 3,
     max_weight: float | None = DEFAULT_MAX_WEIGHT,
     uv_contsub_order: int | None = None,
+    fit_order: int | None = None,
     pipeline_line_free: bool = False,
     ous_index: str | None = None,
     selfcal_solints: Sequence[str] | None = None,
@@ -188,8 +189,10 @@ def run_aggregate_continuum_task(  # noqa: C901
 
     Each window's single-window MS is built as in its own task, then, with
     ``selfcal_solints``, self-calibrated on its own continuum, and, with
-    ``uv_contsub_order``, its continuum is fitted to its visibilities. With
-    the fit, the joint image is made from the fitted continua, and a window
+    ``fit_order`` (or a window task's ``uv_contsub_order``), its continuum is
+    fitted to its visibilities over its line-free channels
+    (``subtract_uv_continuum``). With the fit, the joint image is made from
+    the fitted continua, so the windows' lines stay out of it, and a window
     whose fit is skipped (too few line-free channels) is left out. Without
     it, every channel of every window is imaged. The other keyword arguments
     of a window task are accepted and ignored (cubes, noise products).
@@ -202,6 +205,7 @@ def run_aggregate_continuum_task(  # noqa: C901
 
     out = Path(output_dir)
     log_path = imaging_log_path(out)
+    order = uv_contsub_order if uv_contsub_order is not None else fit_order
     if len(windows) < 2:
         raise ValueError("an aggregate continuum needs at least two windows")
     if any(w.get("member_windows") for w in windows) and not casa_data:
@@ -300,11 +304,11 @@ def run_aggregate_continuum_task(  # noqa: C901
                         pipeline_ms=pipeline_ms,
                         ous_index=ous_index,
                     )
-                if uv_contsub_order is not None:
+                if order is not None:
                     try:
                         fit = subtract_uv_continuum_subprocess(
                             ms,
-                            order=uv_contsub_order,
+                            order=order,
                             timeout=timeout,
                             log_path=log_path,
                             pipeline_ms=pipeline_ms,
@@ -332,7 +336,7 @@ def run_aggregate_continuum_task(  # noqa: C901
             if not kept:
                 raise task.fail("No window has a continuum to image: every fit was skipped")
             ms_paths = [ms for _, ms in kept]
-            data_column = CONTINUUM_COLUMN if uv_contsub_order is not None else None
+            data_column = CONTINUUM_COLUMN if order is not None else None
             if data_column is None:
                 corrected = [has_corrected_data(ms) for ms in ms_paths]
                 if any(corrected) and not all(corrected):

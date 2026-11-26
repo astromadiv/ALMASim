@@ -95,7 +95,12 @@ def _task_call(
         **shared,
     }
     if task.aggregate:
-        return run_aggregate_continuum_task, {"windows": list(task.aggregate), **common}
+        fit_order = imaging.contsub_order if imaging.aggregate_line_free else None
+        return run_aggregate_continuum_task, {
+            "windows": list(task.aggregate),
+            "fit_order": fit_order,
+            **common,
+        }
     return run_wsclean_task, {
         "ms_path": str(task.ms_path),
         "spw": task.spw,

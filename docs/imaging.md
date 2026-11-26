@@ -324,11 +324,16 @@ continuum.
 - **The data.** The task builds each window's single-window MS as the
   window's own task does (with `--by-member`, from all the execution
   blocks), and removes them when it ends. With `--selfcal` each window is
-  self-calibrated on its own continuum first. With `--uv-contsub` each
-  window's continuum is fitted to its visibilities and the image is made
-  from the fitted continua; a window with too few line-free channels for
-  the fit is left out, and the log names it. Without `--uv-contsub` every
-  channel of every window is imaged, lines included.
+  self-calibrated on its own continuum first. Each window's continuum is
+  then fitted to its visibilities over its line-free channels (a polynomial
+  of order `--contsub-order` per visibility, the fit `--uv-contsub` makes
+  for a window's cube; with `--pipeline-line-free` the pipeline's `cont.dat`
+  line channels are left out too), and the image is made from the fitted
+  continua, so the windows' lines stay out of it. A window with too few
+  line-free channels for the fit is left out, and the log names it.
+  `--aggregate-all-channels` images every channel of every window instead,
+  lines included, as a window's own continuum image without `--uv-contsub`
+  is.
 - **The image.** WSClean takes all the MSs in one run. It makes one output
   channel per window (`-channels-out`, split in the middle of the gaps
   between the windows with `-channel-division-frequencies`; windows that
@@ -343,8 +348,11 @@ continuum.
   `HISTORY` names the windows imaged and any left out.
 
 `--aggregate-continuum` needs the continuum (not `--no-continuum`) and
-`--single-window-ms`. `pb-correct`, `clean-quality` and the noise commands
-work on the windows' tasks and do not read the `CONT` folders.
+`--single-window-ms`. `clean-quality` assesses a `CONT` folder like any
+task's: its `quality.json` and its row of `clean-quality.csv` hold the
+continuum statistics. `pb-correct` and the noise commands work on the
+windows' tasks and do not read the `CONT` folders; `--pbcor` corrects the
+aggregate image in its own task.
 
 ### Imaging a member from all its execution blocks
 

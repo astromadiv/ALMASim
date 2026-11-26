@@ -112,6 +112,41 @@ def test_one_window_or_no_flag_gives_no_aggregate_task(tmp_path):
     with pytest.raises(ValueError, match="--aggregate-continuum needs"):
         ImagingOptions(aggregate_continuum=True, single_window=False).validate()
     ImagingOptions(aggregate_continuum=True).validate()
+    # The aggregate's own continuum fit can take the pipeline's line channels.
+    ImagingOptions(aggregate_continuum=True, pipeline_line_free=True).validate()
+    with pytest.raises(ValueError, match="--pipeline-line-free needs"):
+        ImagingOptions(
+            aggregate_continuum=True, aggregate_line_free=False, pipeline_line_free=True
+        ).validate()
+
+
+def test_the_aggregate_task_fits_the_continuum_unless_told_not_to(tmp_path):
+    from almasim.services.imaging.batch_runner import _task_call
+
+    parameters = _parameters({13: (0.60, 17.0), 19: (0.56, 16.5)})
+    *windows, joint = build_imaging_tasks(parameters, tmp_path, aggregate_continuum=True, **COMMON)[
+        0
+    ]
+    shared = {"threads": 2}
+    run, kwargs = _task_call(joint, ImagingOptions(aggregate_continuum=True), shared)
+    assert run is aggregate.run_aggregate_continuum_task
+    assert kwargs["fit_order"] == 1 and len(kwargs["windows"]) == 2
+    assert "ms_path" not in kwargs and kwargs["threads"] == 2
+    _, kwargs = _task_call(
+        joint, ImagingOptions(aggregate_continuum=True, aggregate_line_free=False), shared
+    )
+    assert kwargs["fit_order"] is None
+    run, kwargs = _task_call(windows[0], ImagingOptions(aggregate_continuum=True), shared)
+    assert run.__name__ == "run_wsclean_task" and "fit_order" not in kwargs
+
+
+def test_clean_quality_finds_the_aggregate_folder(tmp_path):
+    from almasim.services.imaging.quality.report import find_task_dirs
+
+    for name in ("SPW-13_FIELD-4", "CONT_FIELD-4"):
+        (tmp_path / "ms" / name).mkdir(parents=True)
+        (tmp_path / "ms" / name / IMAGE_FILENAME).write_bytes(b"")
+    assert [p.name for p in find_task_dirs(tmp_path)] == ["CONT_FIELD-4", "SPW-13_FIELD-4"]
 
 
 @pytest.fixture
@@ -212,7 +247,7 @@ def test_a_window_without_a_continuum_fit_is_left_out(tmp_path, stubbed):
     ran, state = stubbed
     state["skipped"] = {15}
     out = tmp_path / "CONT"
-    result = _run(out, _windows(13, 15, 19), uv_contsub_order=1, continuum_restart=True)
+    result = _run(out, _windows(13, 15, 19), fit_order=1, continuum_restart=True)
     first, second = ran
     assert [Path(ms).name for ms in first[-2:]] == ["w0.spw13.single.ms", "w2.spw19.single.ms"]
     assert first[first.index("-data-column") + 1] == CONTINUUM_COLUMN and "-continue" in second
@@ -247,3 +282,145 @@ def test_the_task_refuses_what_it_cannot_do(tmp_path, stubbed):
     assert not out.exists(), "a refused call leaves no folder"
     assert aggregate.aggregate_directory(Path("/x/SPW-13_NGC1"), 13) == Path("/x/CONT_NGC1")
     assert aggregate.aggregate_directory(Path("/x/SPW-3"), 3) == Path("/x/CONT")
+
+
+def test_selfcal_members_scratch_and_the_primary_beam_are_the_window_tasks(
+    tmp_path, stubbed, monkeypatch
+):
+    ran, state = stubbed
+    calibrated: list[tuple[str, list[str]]] = []
+    built: list[list] = []
+
+    def selfcal(ms, command, **kwargs):
+        assert kwargs["keep_gains"] is False and kwargs["solints"] == ["inf"]
+        calibrated.append((Path(ms).name, list(command)))
+        return {"applied": True}
+
+    def member_ms(members, out_path, **kwargs):
+        built.append(list(members))
+        Path(out_path).mkdir(parents=True)
+        return {"rows": 5}
+
+    from almasim.services.imaging import task as imaging_task
+
+    monkeypatch.setattr(aggregate, "self_calibrate", selfcal)
+    monkeypatch.setattr(aggregate, "build_member_window_ms", member_ms)
+    monkeypatch.setattr(
+        imaging_task, "pb_correct_task", lambda out, diameter: {IMAGE_FILENAME: {"d": diameter}}
+    )
+    monkeypatch.setattr(imaging_task, "pb_note", lambda info: f"dish {info['d']} m")
+    windows = _windows(13, 19)
+    windows[0]["member_windows"] = [("/data/a.ms", 13, [4]), ("/data/b.ms", 21, [2])]
+    windows[0]["command"] = ["wsclean", "-temp-dir", "__SCRATCH__", SINGLE_WINDOW_PLACEHOLDER]
+    out = tmp_path / "CONT_NGC1"
+    command = [
+        "wsclean", "-name", str(out / "wsclean"), "-temp-dir", "__SCRATCH__",
+        SINGLE_WINDOW_PLACEHOLDER,
+    ]  # fmt: skip
+    from almasim.services.imaging.provenance import Provenance
+
+    aggregate.run_aggregate_continuum_task(
+        command=command,
+        output_dir=str(out),
+        windows=windows,
+        threads=2,
+        scratch_root=str(tmp_path / "scratch"),
+        selfcal_solints=["inf"],
+        casa_data="/casa",
+        pipeline_line_free=True,
+        pb_dish_diameter=12.0,
+        provenance=Provenance(spw=13, field="NGC1"),
+    )
+    assert built == [windows[0]["member_windows"]]
+    assert [name for name, _ in calibrated] == ["w0.spw13.single.ms", "w1.spw19.single.ms"]
+    scratch = calibrated[0][1][calibrated[0][1].index("-temp-dir") + 1]
+    assert Path(scratch).parent == tmp_path / "scratch" and calibrated[0][1][-1].endswith(
+        "w0.spw13.single.ms"
+    )
+    assert not list((tmp_path / "scratch").iterdir()), "the scratch folder is removed"
+    (cmd,) = ran
+    assert cmd[cmd.index("-temp-dir") + 1] == scratch
+    log = markers.imaging_log_path(out).read_text()
+    assert "primary-beam corrected wsclean-image.fits: dish 12.0 m" in log
+    assert "window 13: self-calibration on its own continuum" in log
+
+
+class _Table:
+    """A casacore table stand-in with the calls the column helpers make."""
+
+    def __init__(self, columns):
+        self.columns = columns
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def colnames(self):
+        return list(self.columns)
+
+    def nrows(self):
+        return len(self.columns["DATA"])
+
+    def getcell(self, name, row):
+        return self.columns[name][row]
+
+    def getcoldesc(self, name):
+        return {"of": name}
+
+    def addcols(self, description):
+        self.columns[description["name"]] = [None] * self.nrows()
+
+    def getcol(self, name, start, count):
+        return self.columns[name][start : start + count]
+
+    def putcol(self, name, values, start, count):
+        self.columns[name][start : start + count] = values
+
+    def close(self):
+        self.closed = True
+
+
+def test_the_column_helpers_read_and_fill_the_ms(monkeypatch):
+    import sys
+    from types import ModuleType
+
+    import numpy as np
+
+    from almasim.services.imaging import ms_geometry
+
+    data = _Table({"DATA": list(range(5))})
+    window = _Table(
+        {"CHAN_FREQ": [np.array([100.0, 102.0, 104.0])], "CHAN_WIDTH": [np.array([-2.0] * 3)]}
+    )
+    tables = {"x.ms": data, "x.ms::SPECTRAL_WINDOW": window}
+    module = ModuleType("casacore.tables")
+    module.table = lambda path, **kwargs: tables[str(path)]
+    module.makecoldesc = lambda name, desc: {"name": name, **desc}
+    package = ModuleType("casacore")
+    package.tables = module
+    monkeypatch.setitem(sys.modules, "casacore", package)
+    monkeypatch.setitem(sys.modules, "casacore.tables", module)
+    monkeypatch.setattr(ms_geometry, "import_casacore_tables", lambda: module.table)
+
+    assert aggregate.band_edges("x.ms") == (99.0, 105.0)
+    assert aggregate.has_corrected_data("x.ms") is False
+    assert aggregate.copy_data_to_corrected("x.ms", rows_per_chunk=2) == {"copied": True, "rows": 5}
+    assert data.columns["CORRECTED_DATA"] == data.columns["DATA"] and data.closed
+    assert aggregate.has_corrected_data("x.ms") is True
+    assert aggregate.copy_data_to_corrected("x.ms") == {"copied": False}
+
+
+def test_a_window_that_cannot_be_built_or_fitted_fails_the_task(tmp_path, stubbed, monkeypatch):
+    def broken(*args, **kwargs):
+        raise OSError("disk full")
+
+    out = tmp_path / "CONT"
+    monkeypatch.setattr(aggregate, "subtract_uv_continuum_subprocess", broken)
+    with pytest.raises(RuntimeError, match="Could not fit the continuum of window 13"):
+        _run(out, _windows(13, 19), fit_order=1)
+    monkeypatch.setattr(aggregate, "extract_single_window_ms_subprocess", broken)
+    with pytest.raises(RuntimeError, match="Could not build the MS of window 13: disk full"):
+        _run(out, _windows(13, 19))
+    assert markers.imaging_failure_marker_path(out).is_file()

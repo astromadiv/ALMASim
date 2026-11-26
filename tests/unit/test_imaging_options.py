@@ -71,7 +71,7 @@ def test_task_kwargs_apply_the_switches():
 
 
 def test_pipeline_line_free_needs_a_line_free_selection():
-    with pytest.raises(ValueError, match="--pipeline-line-free needs --uv-contsub or --selfcal"):
+    with pytest.raises(ValueError, match="--pipeline-line-free needs --uv-contsub, --selfcal or"):
         ImagingOptions(pipeline_line_free=True).validate()
     options = ImagingOptions(
         cube=CubeOptions(),

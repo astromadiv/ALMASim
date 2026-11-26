@@ -703,6 +703,7 @@ class ImageFromMsOptions:
     ous_index: Path | None
     by_member: bool
     aggregate_continuum: bool = False
+    aggregate_line_free: bool = True
 
 
 @image_app.command("image-from-ms")
@@ -1122,6 +1123,17 @@ def image_from_ms(
         ),
         rich_help_panel="Imaging",
     ),
+    aggregate_line_free: bool = typer.Option(
+        True,
+        "--aggregate-line-free/--aggregate-all-channels",
+        help=(
+            "Make the --aggregate-continuum image from each window's continuum fitted over "
+            "its line-free channels (order --contsub-order), so the windows' lines stay out "
+            "of it; a window with too few line-free channels is left out. "
+            "--aggregate-all-channels images every channel, lines included."
+        ),
+        rich_help_panel="Imaging",
+    ),
 ):
     """Image every (MS, spectral window) row of a parameter CSV with WSClean.
 
@@ -1182,6 +1194,7 @@ def _image_from_ms_options(o: ImageFromMsOptions) -> tuple[ImagingOptions, ExecO
         cube_line_mask=o.cube_line_mask,
         pbcor=o.pbcor,
         aggregate_continuum=o.aggregate_continuum,
+        aggregate_line_free=o.aggregate_line_free,
         selfcal=SelfcalOptions(
             solints=tuple(part.strip() for part in o.selfcal.split(",") if part.strip()),
             min_snr=o.selfcal_min_snr,
@@ -1538,6 +1551,7 @@ def image_set(
         ous_index=None,
         by_member=False,
         aggregate_continuum=False,
+        aggregate_line_free=True,
         postprocess_backend=postprocess_backend,
         slurm_queue=slurm_queue,
         slurm_project=slurm_project,
