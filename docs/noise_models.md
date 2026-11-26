@@ -245,6 +245,10 @@ error in amplitude and phase, the continuum term keeping the rest in
 quadrature), and its values come from 248 windows: `alma@6`'s 148 and 100
 more in bands 1 to 9, 41 of them 7 m, which set a 7 m efficiency scale in
 every band from 2 to 10.
+`alma@8` has `alma@7`'s values but for the antenna gains' amplitude
+(`antenna_gains.amp_rms`, 0.050) and the baseline errors (`baseline_errors`'
+four values), which come from the 14 of those 248 windows whose continuum
+S/N is at least 250 (`noise aggregate --bright-snr 250`).
 
 Every component also takes `"enabled": false`, which keeps it in the file but
 does not apply it. Parameters have bounds (a correlation between 0 and 1, an
@@ -445,14 +449,14 @@ Without `radiometer`, the noise is instead scaled to the run's target S/N
 [Noise](noise.md#without-a-noise-model)), and only its shape across the
 window follows Tsys.
 
-| Parameter | Meaning | alma@1 | alma@2 | alma@3 | alma@4 | alma@5 | alma@6 | alma@7 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `receiver_temperature_k` | Trx by frequency: rows of `upper_ghz` (the row's upper edge, GHz; null for the last), `trx_k` (K) and `bands`, edges rising; a row may add `slope_k_per_ghz` and `center_ghz`, its temperature then being `trx_k + slope_k_per_ghz (nu - center_ghz)` across the row (no released model sets them) | 32 (band 1), 39 (2-3), 37 (4), 50 (5), 46 (6), 63 (7), 110 (8), 160 (9-10) | 17 (band 1), 33 (2-3), 34 (4), 47 (5), 42 (6), 65 (7), 122 (8), 105 (9), 230 (10) | 17 (band 1), 33 (2-3), 34 (4), 47 (5), 42 (6), 65 (7), 122 (8), 105 (9), 230 (10) | 17 (band 1), 33 (2-3), 34 (4), 47 (5), 42 (6), 65 (7), 122 (8), 105 (9), 230 (10) | 17 (band 1), 33 (2-3), 34 (4), 47 (5), 42 (6), 65 (7), 129 (8), 113 (9), 204 (10) | 17 (band 1), 33 (2-3), 34 (4), 47 (5), 42 (6), 65 (7), 129 (8), 113 (9), 204 (10) | 17 (band 1), 33 (2-3), 33 (4), 43 (5), 42 (6), 68 (7), 133 (8), 112 (9), 204 (10) |
-| `aperture` | Ruze parameters per dish: rows of `diameter_m`, `eta0` and `surface_rms_m` (another diameter takes the 12 m dish's) | 12 m: 0.76, 27 um; 7 m: 0.72, 24 um | 12 m: 0.744, 30 um; 7 m: 0.738, 24 um | 12 m: 0.735, 29 um; 7 m: 0.728, 25 um | 12 m: 0.735, 29 um; 7 m: 0.728, 25 um | 12 m: 0.734, 28 um; 7 m: 0.732, 26 um | 12 m: 0.734, 28 um; 7 m: 0.727, 15 um | 12 m: 0.731, 28 um; 7 m: 0.715, 16 um |
-| `efficiency_scale` | factors on a dish's Ruze efficiency by frequency: rows of `diameter_m`, `upper_ghz` (as in `receiver_temperature_k`), `scale` and `bands`, edges rising per dish; a dish or frequency without a row takes 1 | not set | not set | 12 m: 0.935 (band 1), 0.995 (2-3), 1.024 (4), 0.995 (5), 1.006 (6), 1.007 (7), 1.002 (8), 1 (9-10); 7 m: 0.998 (2-3), 0.991 (6), 1 (others) | 12 m: 0.913 (band 1), 0.995 (2-3), 0.976 (4), 0.995 (5), 0.998 (6), 0.994 (7), 1.002 (8), 1 (9-10); 7 m: 0.998 (2-3), 0.991 (6), 1 (others) | 12 m: 0.914 (band 1), 0.995 (2-3), 0.976 (4), 0.993 (5), 0.995 (6), 0.988 (7), 1.043 (8), 0.955 (9), 0.988 (10); 7 m: 0.994 (2-3), 0.990 (6), 1 (others) | 12 m: 0.913 (band 1), 0.994 (2-3), 0.969 (4), 0.993 (5), 0.994 (6), 0.988 (7), 1.033 (8), 0.936 (9), 0.988 (10); 7 m: 0.992 (2-3), 0.949 (6), 1.026 (9), 0.644 (10), 1 (others) | 12 m: 0.933 (band 1), 0.999 (2-3), 0.977 (4), 0.990 (5), 0.996 (6), 0.988 (7), 1.035 (8), 0.925 (9), 0.988 (10); 7 m: 1 (band 1), 1.002 (2-3), 0.964 (4), 0.931 (5), 0.972 (6), 0.986 (7), 0.892 (8), 1.053 (9), 0.665 (10) |
-| `quantisation_efficiency`, `correlator_efficiency` | eta_c = their product | 0.96 x 0.88 | 0.96 x 0.88 | 0.96 x 0.88 | 0.96 x 0.88 | 0.96 x 0.88 | 0.96 x 0.88 | 0.96 x 0.88 |
-| `tdm_efficiency` | a factor on eta_c for TDM windows (native channels of 7.8125 MHz or wider) | not set | not set | not set | 1.049 | 1.049 | 1.070 | 1.070 |
-| `forward_efficiency` | eta_f, the fraction of the beam on the sky; set, Tsys follows the ALMA Technical Handbook's equations (see `atmospheric_tsys`), the receiver temperatures of bands 9 and 10 being double sideband | not set | 0.95 | 0.95 | 0.95 | 0.95 | 0.95 | 0.95 |
+| Parameter | Meaning | alma@1 | alma@2 | alma@3 | alma@4 | alma@5 | alma@6 | alma@7 | alma@8 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `receiver_temperature_k` | Trx by frequency: rows of `upper_ghz` (the row's upper edge, GHz; null for the last), `trx_k` (K) and `bands`, edges rising; a row may add `slope_k_per_ghz` and `center_ghz`, its temperature then being `trx_k + slope_k_per_ghz (nu - center_ghz)` across the row (no released model sets them) | 32 (band 1), 39 (2-3), 37 (4), 50 (5), 46 (6), 63 (7), 110 (8), 160 (9-10) | 17 (band 1), 33 (2-3), 34 (4), 47 (5), 42 (6), 65 (7), 122 (8), 105 (9), 230 (10) | 17 (band 1), 33 (2-3), 34 (4), 47 (5), 42 (6), 65 (7), 122 (8), 105 (9), 230 (10) | 17 (band 1), 33 (2-3), 34 (4), 47 (5), 42 (6), 65 (7), 122 (8), 105 (9), 230 (10) | 17 (band 1), 33 (2-3), 34 (4), 47 (5), 42 (6), 65 (7), 129 (8), 113 (9), 204 (10) | 17 (band 1), 33 (2-3), 34 (4), 47 (5), 42 (6), 65 (7), 129 (8), 113 (9), 204 (10) | 17 (band 1), 33 (2-3), 33 (4), 43 (5), 42 (6), 68 (7), 133 (8), 112 (9), 204 (10) | 17 (band 1), 33 (2-3), 33 (4), 43 (5), 42 (6), 68 (7), 133 (8), 112 (9), 204 (10) |
+| `aperture` | Ruze parameters per dish: rows of `diameter_m`, `eta0` and `surface_rms_m` (another diameter takes the 12 m dish's) | 12 m: 0.76, 27 um; 7 m: 0.72, 24 um | 12 m: 0.744, 30 um; 7 m: 0.738, 24 um | 12 m: 0.735, 29 um; 7 m: 0.728, 25 um | 12 m: 0.735, 29 um; 7 m: 0.728, 25 um | 12 m: 0.734, 28 um; 7 m: 0.732, 26 um | 12 m: 0.734, 28 um; 7 m: 0.727, 15 um | 12 m: 0.731, 28 um; 7 m: 0.715, 16 um | 12 m: 0.731, 28 um; 7 m: 0.715, 16 um |
+| `efficiency_scale` | factors on a dish's Ruze efficiency by frequency: rows of `diameter_m`, `upper_ghz` (as in `receiver_temperature_k`), `scale` and `bands`, edges rising per dish; a dish or frequency without a row takes 1 | not set | not set | 12 m: 0.935 (band 1), 0.995 (2-3), 1.024 (4), 0.995 (5), 1.006 (6), 1.007 (7), 1.002 (8), 1 (9-10); 7 m: 0.998 (2-3), 0.991 (6), 1 (others) | 12 m: 0.913 (band 1), 0.995 (2-3), 0.976 (4), 0.995 (5), 0.998 (6), 0.994 (7), 1.002 (8), 1 (9-10); 7 m: 0.998 (2-3), 0.991 (6), 1 (others) | 12 m: 0.914 (band 1), 0.995 (2-3), 0.976 (4), 0.993 (5), 0.995 (6), 0.988 (7), 1.043 (8), 0.955 (9), 0.988 (10); 7 m: 0.994 (2-3), 0.990 (6), 1 (others) | 12 m: 0.913 (band 1), 0.994 (2-3), 0.969 (4), 0.993 (5), 0.994 (6), 0.988 (7), 1.033 (8), 0.936 (9), 0.988 (10); 7 m: 0.992 (2-3), 0.949 (6), 1.026 (9), 0.644 (10), 1 (others) | 12 m: 0.933 (band 1), 0.999 (2-3), 0.977 (4), 0.990 (5), 0.996 (6), 0.988 (7), 1.035 (8), 0.925 (9), 0.988 (10); 7 m: 1 (band 1), 1.002 (2-3), 0.964 (4), 0.931 (5), 0.972 (6), 0.986 (7), 0.892 (8), 1.053 (9), 0.665 (10) | 12 m: 0.933 (band 1), 0.999 (2-3), 0.977 (4), 0.990 (5), 0.996 (6), 0.988 (7), 1.035 (8), 0.925 (9), 0.988 (10); 7 m: 1 (band 1), 1.002 (2-3), 0.964 (4), 0.931 (5), 0.972 (6), 0.986 (7), 0.892 (8), 1.053 (9), 0.665 (10) |
+| `quantisation_efficiency`, `correlator_efficiency` | eta_c = their product | 0.96 x 0.88 | 0.96 x 0.88 | 0.96 x 0.88 | 0.96 x 0.88 | 0.96 x 0.88 | 0.96 x 0.88 | 0.96 x 0.88 | 0.96 x 0.88 |
+| `tdm_efficiency` | a factor on eta_c for TDM windows (native channels of 7.8125 MHz or wider) | not set | not set | not set | 1.049 | 1.049 | 1.070 | 1.070 | 1.070 |
+| `forward_efficiency` | eta_f, the fraction of the beam on the sky; set, Tsys follows the ALMA Technical Handbook's equations (see `atmospheric_tsys`), the receiver temperatures of bands 9 and 10 being double sideband | not set | 0.95 | 0.95 | 0.95 | 0.95 | 0.95 | 0.95 | 0.95 |
 
 Left out, these take ALMA's values from
 `interferometry/data/alma_radiometer.json`, which every run uses for Tsys.
@@ -540,9 +544,9 @@ expected power and expected rms `rms`, multiplies every channel's noise
 sigma: `sigma(k) x (1 + ripple(k))`. It is drawn from the run's seed (its own
 stream, `receiver`), so it is the same in every channel task.
 
-| Parameter | Meaning | alma@1 | alma@2 | alma@3 | alma@4 | alma@5 | alma@6 | alma@7 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `rms` | the ripple's rms, as a fraction of Tsys | 0.02 | 0.016 | 0.016 | 0.016 | 0.017 | 0.016 | 0.016 |
+| Parameter | Meaning | alma@1 | alma@2 | alma@3 | alma@4 | alma@5 | alma@6 | alma@7 | alma@8 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `rms` | the ripple's rms, as a fraction of Tsys | 0.02 | 0.016 | 0.016 | 0.016 | 0.017 | 0.016 | 0.016 | 0.016 |
 
 ### `channel_correlation`: correlated neighbouring channels
 
@@ -589,10 +593,10 @@ same kernel: real correlators smooth each polarisation on its own, so
 `noise extract`, which measures per hand, finds the model's rho1 and rho2 in
 either one (window 61, native: rho1 0.666, the real one 0.69).
 
-| Parameter | Meaning | alma@1 | alma@2 | alma@3 | alma@4 | alma@5 | alma@6 | alma@7 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `rho1`, `rho2` | the native channels' noise correlation one and two apart | 2/3, 1/6 (Hanning) | 0.667, 0.166 (measured) | 0.667, 0.166 (measured) | 0.667, 0.166 (measured) | 0.667, 0.166 (measured) | 0.667, 0.167 (measured) | 0.667, 0.167 (measured) |
-| `average` | native channels per channel; 0: the window's own | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| Parameter | Meaning | alma@1 | alma@2 | alma@3 | alma@4 | alma@5 | alma@6 | alma@7 | alma@8 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `rho1`, `rho2` | the native channels' noise correlation one and two apart | 2/3, 1/6 (Hanning) | 0.667, 0.166 (measured) | 0.667, 0.166 (measured) | 0.667, 0.166 (measured) | 0.667, 0.166 (measured) | 0.667, 0.167 (measured) | 0.667, 0.167 (measured) | 0.667, 0.167 (measured) |
+| `average` | native channels per channel; 0: the window's own | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
 
 ### `antenna_ripple`: each antenna's own noise shape
 
@@ -634,10 +638,10 @@ one 0.019). The same test checks that a simulated channel's noise variance
 across its baselines splits into one term per antenna, its own `g`, with
 nothing left over beyond the sampling, as on the real windows.
 
-| Parameter | Meaning | alma@1 | alma@2 | alma@3 | alma@4 | alma@5 | alma@6 | alma@7 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `rms` | fractional rms of an antenna's noise variance across the window | 0.02 | 0.030 | 0.030 | 0.030 | 0.033 | 0.036 | 0.033 |
-| `scale_mhz` | frequency scale of the ripple (half-width of its autocorrelation) | 120 | 107 | 107 | 107 | 94 | 94 | 101 |
+| Parameter | Meaning | alma@1 | alma@2 | alma@3 | alma@4 | alma@5 | alma@6 | alma@7 | alma@8 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `rms` | fractional rms of an antenna's noise variance across the window | 0.02 | 0.030 | 0.030 | 0.030 | 0.033 | 0.036 | 0.033 | 0.033 |
+| `scale_mhz` | frequency scale of the ripple (half-width of its autocorrelation) | 120 | 107 | 107 | 107 | 94 | 94 | 101 | 101 |
 
 ### `antenna_sefd`: each antenna's own noise level
 
@@ -676,7 +680,7 @@ array's mean. Each baseline's noise sigma is multiplied by `sqrt(g(i) g(j))`,
 on top of `antenna_ripple`'s shape when the model has both, and the rows'
 sigma carries the same factor, so WEIGHT follows it.
 
-| Parameter | Meaning | alma@1 to alma@6 | alma@7 |
+| Parameter | Meaning | alma@1 to alma@6 | alma@7 and alma@8 |
 | --- | --- | --- | --- |
 | `log_rms` | rms of the natural log of an antenna's SEFD about the array's | not in the model | 0.104 |
 
@@ -782,11 +786,11 @@ frequency as `upper_ghz`. In a model file:
   {"diameter_m": 7.0, "upper_ghz": 50.0, "period_mhz": 40.0, "amp": 0.01, "phase_deg": 3.0}]}
 ```
 
-| Parameter | Meaning | alma@1 | alma@2 | alma@3 | alma@4 | alma@5 | alma@6 | alma@7 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `amp_rms` | fractional amplitude error per antenna and scan | 0.08 | 0.110 | 0.110 | 0.110 | 0.138 | 0.138 | 0.110 |
-| `phase_rms_deg` | phase error per antenna and scan (degrees) | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
-| `bandpass` | each dish size's residual bandpass ripple: rows of `diameter_m`, `upper_ghz`, `period_mhz`, `amp`, `phase_deg` | - | - | - | - | - | - | - |
+| Parameter | Meaning | alma@1 | alma@2 | alma@3 | alma@4 | alma@5 | alma@6 | alma@7 | alma@8 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `amp_rms` | fractional amplitude error per antenna and scan | 0.08 | 0.110 | 0.110 | 0.110 | 0.138 | 0.138 | 0.110 | 0.050 |
+| `phase_rms_deg` | phase error per antenna and scan (degrees) | 0 | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| `bandpass` | each dish size's residual bandpass ripple: rows of `diameter_m`, `upper_ghz`, `period_mhz`, `amp`, `phase_deg` | - | - | - | - | - | - | - | - |
 
 ### `slow_phase`: the per-scan atmospheric phase
 
@@ -845,7 +849,7 @@ the array), scaled so its rms path difference 150 m apart is the power
 law's there, `path_um_1km x 0.15^slope` microns, and reads each antenna's
 extra path at its position. Further out the outer scale bends the screen
 below that law: 1 km apart it realises 0.81 of `path_um_1km` at slope 0.35
-(alma@2 to alma@7), 0.74 at 0.45 (alma@1), and 0.66 at 0.35 2 km apart, on
+(alma@2 to alma@8), 0.74 at 0.45 (alma@1), and 0.66 at 0.35 2 km apart, on
 any array's extent. `path_um_1km` is the law's value at 1 km, not the
 screen's; `noise fit` measures through the same screens, so the fitted value
 gives the real data's phases all the same. The
@@ -853,10 +857,10 @@ phase of baseline (i, j) is `2 pi (path(i) - path(j)) / wavelength`, so it is la
 at higher frequencies, as in real data. It multiplies the sky part of the
 visibilities, constant over the scan.
 
-| Parameter | Meaning | alma@1 | alma@2 | alma@3 | alma@4 | alma@5 | alma@6 | alma@7 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `path_um_1km` | rms path difference of antennas 1 km apart on the screen's power law (microns) | 80 | 134 | 134 | 134 | 128 | 128 | 122 |
-| `slope` | growth of the difference with separation | 0.45 | 0.35 | 0.35 | 0.35 | 0.35 | 0.35 | 0.35 |
+| Parameter | Meaning | alma@1 | alma@2 | alma@3 | alma@4 | alma@5 | alma@6 | alma@7 | alma@8 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `path_um_1km` | rms path difference of antennas 1 km apart on the screen's power law (microns) | 80 | 134 | 134 | 134 | 128 | 128 | 122 | 122 |
+| `slope` | growth of the difference with separation | 0.45 | 0.35 | 0.35 | 0.35 | 0.35 | 0.35 | 0.35 | 0.35 |
 
 ### `fast_phase`: the atmospheric phase within a scan
 
@@ -919,7 +923,7 @@ errors' draws do not depend on it. `noise validate` simulates a window that
 has its own in-scan fit (`fit.json` beside its `window.json`) with that fit's
 strength, slope and coherence instead.
 
-**Frozen flow** (`wind_mps`; `alma@7` sets 8.5 m/s). The water vapour
+**Frozen flow** (`wind_mps`; `alma@7` and `alma@8` set 8.5 m/s). The water vapour
 layer is carried over the array by the wind more than it changes, so an
 antenna's phase in time follows the screen in space along the wind. With
 `wind_mps` set, each scan draws one turbulent screen, which moves over the
@@ -944,14 +948,14 @@ strength found (`wind_path_um_1km`). `misfit` and `wind_misfit` (each fit's
 strength error over its strength) say which screen follows the data better.
 `noise aggregate` takes the fitted windows' median `wind_mps`.
 
-| Parameter | Meaning | alma@1 | alma@2 | alma@3 | alma@4 | alma@5 | alma@6 | alma@7 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `path_um_1km` | rms path difference 1 km apart within a scan (microns) | 40 | 130 | 130 | 102 | 96 | 96 | 126 |
-| `slope` | growth with separation | 0.3 | 0.275 | 0.275 | 0.5 | 0.625 | 0.625 | 0.75 |
-| `coherence_s` | how long the in-scan phase stays coherent (s) | 10 | 10 | 10 | 20 | 30 | 30 | 20 |
-| `dishes` | each dish size's own `path_um_1km` | - | - | - | - | 12 m: 68; 7 m: 224 | 12 m: 68; 7 m: 224 | 12 m: 64; 7 m: 363 |
-| `log_spread` | rms of the strength's natural log between observations | - | - | - | - | 0.91 | 0.91 | 0.82 |
-| `wind_mps` | frozen flow: the screen's speed over the array (m/s); unset, the blended screen | - | - | - | - | - | - | 8.5 |
+| Parameter | Meaning | alma@1 | alma@2 | alma@3 | alma@4 | alma@5 | alma@6 | alma@7 | alma@8 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `path_um_1km` | rms path difference 1 km apart within a scan (microns) | 40 | 130 | 130 | 102 | 96 | 96 | 126 | 126 |
+| `slope` | growth with separation | 0.3 | 0.275 | 0.275 | 0.5 | 0.625 | 0.625 | 0.75 | 0.75 |
+| `coherence_s` | how long the in-scan phase stays coherent (s) | 10 | 10 | 10 | 20 | 30 | 30 | 20 | 20 |
+| `dishes` | each dish size's own `path_um_1km` | - | - | - | - | 12 m: 68; 7 m: 224 | 12 m: 68; 7 m: 224 | 12 m: 64; 7 m: 363 | 12 m: 64; 7 m: 363 |
+| `log_spread` | rms of the strength's natural log between observations | - | - | - | - | 0.91 | 0.91 | 0.82 | 0.82 |
+| `wind_mps` | frozen flow: the screen's speed over the array (m/s); unset, the blended screen | - | - | - | - | - | - | 8.5 | 8.5 |
 
 ### `baseline_errors`: errors that do not close
 
@@ -984,7 +988,8 @@ emission is left alone. An external sky model, whose continuum is not known
 separately, takes it on all its emission.
 
 **The instrument's own non-closing errors** (`instrumental_amp_rms`,
-`instrumental_phase_rms_deg`; `alma@7` sets 0.132 and 1.4 degrees). The
+`instrumental_phase_rms_deg`; `alma@7` sets 0.132 and 1.4 degrees, `alma@8`
+0.052 and 2.3 degrees). The
 correlator and the antennas' differing bandpasses also leave errors that do
 not factor, and those act on all the signal. Set, each baseline and scan
 draws a second factor of the same form from a stream spawned from the
@@ -1017,20 +1022,20 @@ window's signal may be the line itself, and the two errors are one): `instrument
 `amp_rms` keeps `sqrt(1 - s^2)` of it, so the continuum sees the windows'
 median in quadrature (the same for the phase).
 
-| Parameter | Meaning | alma@1 | alma@2 | alma@3 | alma@4 | alma@5 | alma@6 | alma@7 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `amp_rms` | fractional amplitude error per baseline and scan | 0.06 | 0.102 | 0.102 | 0.101 | 0.112 | 0.112 | 0.041 |
-| `phase_rms_deg` | phase error per baseline and scan (degrees) | 2.5 | 1.8 | 1.8 | 1.6 | 1.5 | 1.5 | 1.2 |
-| `instrumental_amp_rms`, `instrumental_phase_rms_deg` | the instrument's own non-closing error on all the signal (fraction, degrees) | - | - | - | - | - | - | 0.132, 1.4 |
+| Parameter | Meaning | alma@1 | alma@2 | alma@3 | alma@4 | alma@5 | alma@6 | alma@7 | alma@8 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `amp_rms` | fractional amplitude error per baseline and scan | 0.06 | 0.102 | 0.102 | 0.101 | 0.112 | 0.112 | 0.041 | 0.016 |
+| `phase_rms_deg` | phase error per baseline and scan (degrees) | 2.5 | 1.8 | 1.8 | 1.6 | 1.5 | 1.5 | 1.2 | 2.1 |
+| `instrumental_amp_rms`, `instrumental_phase_rms_deg` | the instrument's own non-closing error on all the signal (fraction, degrees) | - | - | - | - | - | - | 0.132, 1.4 | 0.052, 2.3 |
 
 ### `settings`
 
 Not components, but values components share:
 
-| Setting | Meaning | alma@1 | alma@2 | alma@3 | alma@4 | alma@5 | alma@6 | alma@7 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `scan_length_s` | the length of a scan: gains, slow phase and baseline errors hold for one, and the exported MS numbers its scans by it; 0 (the default when left out) makes the whole observation one scan | 300 | 300 | 300 | 300 | 300 | 300 | 300 |
-| `outer_scale_km` | the largest scale of the turbulent screens | 3 | 3 | 3 | 3 | 3 | 3 | 3 |
+| Setting | Meaning | alma@1 | alma@2 | alma@3 | alma@4 | alma@5 | alma@6 | alma@7 | alma@8 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `scan_length_s` | the length of a scan: gains, slow phase and baseline errors hold for one, and the exported MS numbers its scans by it; 0 (the default when left out) makes the whole observation one scan | 300 | 300 | 300 | 300 | 300 | 300 | 300 | 300 |
+| `outer_scale_km` | the largest scale of the turbulent screens | 3 | 3 | 3 | 3 | 3 | 3 | 3 | 3 |
 
 
 ## A complete worked example: from real data to a released model
@@ -1551,10 +1556,10 @@ almasim noise promote noise/candidate.json \
 ```
 
 It refuses unless that comparison is of this very model (same SHA-256) and
-passed. It writes `src/almasim/services/noise_model/models/alma-8.json` in
+passed. It writes `src/almasim/services/noise_model/models/alma-9.json` in
 your ALMASim checkout (`--models-dir` to write elsewhere), the version being
 the newest released one plus 1. You then open a pull request that adds it:
-`alma` then means version 8, `alma@1` to `alma@7` stay available, the tests that pin
+`alma` then means version 9, `alma@1` to `alma@8` stay available, the tests that pin
 `alma`'s values are updated, and if the default model changes what runs
 produce, the pull request is labelled `golden:supersede` with a new golden
 baseline. The golden simulation runs one case through
