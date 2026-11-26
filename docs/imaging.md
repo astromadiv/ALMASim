@@ -169,7 +169,10 @@ next to the images ALMASim makes:
 ```
 
 **fetch-headers** finds, for each row `compute-parameters` would write, the
-member's `mfs` and `cube` science images of that window (`--kinds`). It
+member's `mfs` and `cube` science images of that window (`--kinds`). With
+`--kinds mfs,cube,cont` it also saves the header of the image of the field's
+windows together (`...spw25_27_29_31.cont...`), whose beam an aggregate
+continuum is restored with (`--header-beam`). It
 needs the delivery tree's `ous_index.csv`, which names each MS's member
 (`--ous-index`, or the one at `--delivery-root`, or the nearest above the
 MSs). The images are those in the member's `product/` folder (`--source
@@ -230,6 +233,20 @@ MS-derived size and cell the check compares with.
 | `continuum_weighting`, `continuum_robust` | the `mfs` image's `weighting`, `robust` | `-weight` of the continuum image |
 | `continuum_niter` | the `mfs` image's `niter` | `-niter` of the continuum image |
 | `continuum_threshold_jy` | the `mfs` image's `threshold` | `-abs-threshold` of the continuum image |
+| `image_bmaj_arcsec`, `image_bmin_arcsec`, `image_bpa_deg` | `BMAJ`, `BMIN`, `BPA` | `-beam-shape`, with `--header-beam` |
+| `continuum_bmaj_arcsec`, `continuum_bmin_arcsec`, `continuum_bpa_deg` | the `mfs` image's `BMAJ`, `BMIN`, `BPA` | `-beam-shape` of the continuum image, with `--header-beam` |
+| `aggregate_bmaj_arcsec`, `aggregate_bmin_arcsec`, `aggregate_bpa_deg` | the `cont` image's `BMAJ`, `BMIN`, `BPA` | `-beam-shape` of the aggregate continuum image, with `--header-beam` |
+
+**The delivered beam.** WSClean restores an image with the Gaussian it fits
+to its own PSF, which differs from tclean's by a few percent, and with it
+the flux per beam of everything that was cleaned. `--header-beam` restores
+with the delivered image's beam instead (WSClean `-beam-shape`), so the two
+images compare pixel by pixel: a cube with its cube's beam, a window's
+continuum with its `mfs` image's, and an aggregate continuum with that of
+the image of the windows together (its windows' first `mfs` beam where the
+member has no such image, or its header was not fetched). A row without a
+beam keeps the fitted one: a cube tclean restored with a beam per channel
+has no `BMAJ` card. A cube's single beam restores every channel.
 | `phasecenter_ra_deg`, `phasecenter_dec_deg` | tclean's `phasecenter` (the `CRVAL` cards without one) | `-shift` |
 | `ms_phasecenter_ra_deg`, `ms_phasecenter_dec_deg` | the field's `PHASE_DIR` in the MS | `-shift` |
 | `image_n_channels`, `image_specmode` | `NAXIS3`, tclean's `specmode` | `-channels-out` of a cube |
@@ -355,6 +372,9 @@ continuum.
   the channels together is kept; the per-channel ones are removed.
 - **The grid.** The finest cell of the windows', and as many pixels as the
   widest of their images needs on it.
+- **The beam.** The Gaussian WSClean fits to the joint PSF, or with
+  `--header-beam` the beam of the delivered image of the windows together
+  (`image fetch-headers --kinds mfs,cube,cont`).
 - **The header.** `SPW` is left out (the image is of several windows); the
   `HISTORY` names the windows imaged and any left out.
 
