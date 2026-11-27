@@ -80,6 +80,11 @@ class CubeGeometry:
         )
 
 
+# How many fields of view a cube spans (``image_size(1.5 * fov, cell)``): the
+# interferometer's grid is twice that, 3 fields of view over 2 n_pix pixels.
+INPUT_FIELDS_OF_VIEW = 1.5
+
+
 def resolve_cube_geometry(params: SimulationParams, *, strict: bool = True) -> CubeGeometry:
     """Frequencies, beam, cell and cube size for a run.
 
@@ -138,6 +143,9 @@ def resolve_cube_geometry(params: SimulationParams, *, strict: bool = True) -> C
         n_pix = cube.n_pix
         if cube.cell_arcsec:
             cell_size = cube.cell_arcsec * U.arcsec
+            # The interferometer grids a cube over 1.5 fields of view: the field
+            # of view that makes its pixel the cube's own.
+            fov = n_pix * cell_size / INPUT_FIELDS_OF_VIEW
     elif n_pix is None:
         n_pix = image_size(1.5 * fov.value, cell_size.value, rounding="pow2")
     else:

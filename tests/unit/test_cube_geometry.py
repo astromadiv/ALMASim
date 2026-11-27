@@ -108,6 +108,10 @@ def test_an_input_cube_sets_its_own_grid(tmp_path):
     geometry = resolve_cube_geometry(params)
     assert (geometry.n_pix, geometry.n_channels) == (48, 6)
     assert geometry.cell_size.to_value(U.arcsec) == pytest.approx(0.3)
+    # The interferometer's pixel is 3 fields of view over twice the cube's
+    # pixels: the field of view that makes it the cube's own 0.3 arcsec.
+    assert geometry.fov.to_value(U.arcsec) == pytest.approx(48 * 0.3 / 1.5)
+    assert 3 * geometry.fov.to_value(U.arcsec) / (2 * 48) == pytest.approx(0.3)
     assert geometry.channel_width_hz == pytest.approx(5e6)
     assert geometry.central_freq.to_value(U.Hz) == pytest.approx(230e9 + 2.5 * 5e6)
     assert geometry.band_range.to_value(U.Hz) == pytest.approx(6 * 5e6)
