@@ -1434,6 +1434,42 @@ def clean_quality(
     typer.echo(f"Wrote {len(results)} quality.json file(s) and {summary_path}")
 
 
+@image_app.command("write-wsclean-scripts")
+def write_wsclean_scripts(
+    output_root: Path = typer.Argument(
+        help="An image-from-ms output directory (or one task directory) to scan."
+    ),
+):
+    """Generate a runnable WSClean script for every task that has a .done marker.
+
+    Each task's recorded command(s) are written as ``<task>.sh`` (beside the
+    task directory) and ``wsclean.sh`` (inside it), so they can be edited and
+    rerun by hand. Tasks without a marker (or without a recorded command) are
+    skipped.
+    """
+    import json
+
+    from almasim.services.imaging import markers
+
+    root = Path(output_root).expanduser().absolute()
+    written = 0
+    for marker in sorted(root.rglob("*.done")):
+        task_dir = marker.with_suffix("")
+        if not task_dir.is_dir():
+            continue
+        try:
+            payload = json.loads(marker.read_text())
+        except (OSError, ValueError):
+            continue
+        command = payload.get("command")
+        commands = payload.get("commands")
+        if command is None and not commands:
+            continue
+        markers.write_imaging_script(task_dir, command=command, commands=commands)
+        written += 1
+    typer.echo(f"Wrote {written} WSClean script(s) under {root}")
+
+
 @image_app.command("pb-correct")
 def pb_correct(
     imaging_parameters: Path = typer.Argument(help="Parameter CSV the outputs were imaged from"),

@@ -37,6 +37,62 @@ def imaging_log_path(output_dir: str | os.PathLike[str]) -> Path:
     return out.with_name(out.name + ".log")
 
 
+def imaging_script_path(output_dir: str | os.PathLike[str]) -> Path:
+    """``<root>/<ms>/SPW-3`` -> ``<root>/<ms>/SPW-3.sh`` (beside the task dir)."""
+    out = Path(output_dir)
+    return out.with_name(out.name + ".sh")
+
+
+# Aliases for the names other callers may use for the same file.
+imaging_run_script_path = imaging_script_path
+wsclean_script_path = imaging_script_path
+script_path = imaging_script_path
+
+
+def write_imaging_script(
+    output_dir: str | os.PathLike[str],
+    *,
+    command: Sequence[str] | None = None,
+    commands: Sequence[Sequence[str]] | None = None,
+) -> Path:
+    """Write a runnable shell script holding the task's WSClean command(s).
+
+    The script sits beside the task directory, next to its ``.log`` and
+    ``.done`` marker, and is made executable. ``command`` or ``commands`` may
+    be given; both are accepted so callers can pass one or several.
+    """
+    out = Path(output_dir)
+    command_list: list[object] = []
+    if commands is not None:
+        command_list.extend(commands)
+    if command is not None:
+        command_list.append(command)
+    lines = ["#!/bin/bash", "set -e", ""]
+    for cmd in command_list:
+        if isinstance(cmd, str):
+            # Already a shell line (e.g. from a .done marker): use it verbatim.
+            lines.append(cmd)
+        elif isinstance(cmd, Sequence):
+            lines.append(shlex.join(str(part) for part in cmd))
+        else:
+            lines.append(str(cmd))
+    lines.append("")
+    path = imaging_script_path(out)
+    path.write_text("\n".join(lines), encoding="utf-8")
+    try:
+        path.chmod(0o755)
+    except OSError:
+        pass
+    # Also leave a copy inside the task directory, where the FITS are.
+    try:
+        inside = out / "wsclean.sh"
+        inside.write_text("\n".join(lines), encoding="utf-8")
+        inside.chmod(0o755)
+    except OSError:
+        pass
+    return path
+
+
 def is_imaging_complete(
     output_dir: str | os.PathLike[str], required: Sequence[str] = (IMAGE_FILENAME,)
 ) -> bool:
