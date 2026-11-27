@@ -101,9 +101,10 @@ A sky model is the sky before the antennas, and the interferometer applies
 the primary beam to it ([The Interferometer](interferometry.md#the-interferometer)).
 A clean model of real data is the sky the antennas saw, the primary beam's
 response already in it: `--apparent-input` observes such a cube as it is,
-without the primary beam again. The model then reproduces the image it was
-cleaned from, edge components included, which a division by the primary
-beam would amplify. A clean model holds no noise, and the real observation's
+without the primary beam again, its negative components included (a sky
+model's negative pixels hold no emission). The model then reproduces the
+image it was cleaned from, edge components included, which a division by the
+primary beam would amplify. A clean model holds no noise, and the real observation's
 calibration errors are part of it: such a simulation takes a noise model's
 thermal components only (`--noise-without calibration`; see
 [Noise Models](noise.md#noise-models)).

@@ -398,3 +398,35 @@ def test_assembled_times_put_the_source_at_the_tracks_hour_angles():
     first = Time(vt.time_mjd_s.min() / 86400.0, format="mjd", scale="utc")
     lst = first.sidereal_time("apparent", alma_location().lon).rad
     assert math.remainder(lst - ra, 2 * math.pi) == pytest.approx(-0.2, abs=1e-4)
+
+
+@pytest.mark.unit
+def test_a_plane_of_odd_size_is_predicted_about_its_centre_pixel():
+    """ducc0 takes even planes: an odd one gains a zero row and column in
+    front, so a source off its centre pixel predicts as it does on an even
+    plane with the same offset."""
+    rng = np.random.default_rng(3)
+    nrows = 50
+    kwargs = dict(
+        modelfft=np.zeros((8, 8)),
+        gains=np.ones((nrows, 1)),
+        noise_samples=np.zeros((nrows, 1)),
+        u_waves=rng.uniform(-2e4, 2e4, (nrows, 1)),
+        v_waves=rng.uniform(-2e4, 2e4, (nrows, 1)),
+        w_waves=np.zeros((nrows, 1)),
+        antnum=np.array([[0, 1]] * nrows),
+        nH=1,
+        Nphf=4,
+        uv_pixsize=1.0,
+        noise_std=1.0,
+        mean_wavelength_m=1e-3,
+        pixsize_rad=np.deg2rad(0.1 / 3600),
+    )
+    odd = np.zeros((31, 31))
+    odd[15 + 3, 15 - 5] = 1.0
+    even = np.zeros((32, 32))
+    even[16 + 3, 16 - 5] = 1.0
+    rows_odd = build_channel_visibility_rows(model_plane=odd, **kwargs)
+    rows_even = build_channel_visibility_rows(model_plane=even, **kwargs)
+    np.testing.assert_allclose(rows_odd["model_data"], rows_even["model_data"], atol=1e-5)
+    assert np.angle(rows_even["model_data"]).std() > 0.1
