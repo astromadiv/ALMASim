@@ -58,7 +58,7 @@ ms-casacore = ["python-casacore"]
 # The web console: `almasim serve` (web console plan, S2.1).
 web = ["fastapi", "uvicorn[standard]"]
 # The MCP server: `almasim mcp`, the commands as tools for an AI assistant.
-mcp = ["mcp>=1.12,<2"]
+mcp = ["mcp>=1.12,<3"]
 
 [project.urls]
 Repository = "https://github.com/astromadiv/ALMASim"
@@ -74,7 +74,7 @@ dev = [
     "fastapi",
     "uvicorn[standard]",
     "httpx",
-    "mcp>=1.12,<2",
+    "mcp>=1.12,<3",
     "ipykernel>=7.2.0",
     "marimo[lsp]>=0.10",
     "sphinx>=9.1.0",
@@ -88,7 +88,7 @@ test = [
     "fastapi",
     "uvicorn[standard]",
     "httpx",
-    "mcp>=1.12,<2",
+    "mcp>=1.12,<3",
 ]
 
 [build-system]
