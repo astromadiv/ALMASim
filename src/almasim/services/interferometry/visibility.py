@@ -8,6 +8,8 @@ from typing import Any
 
 import numpy as np
 
+from almasim.services.instrument.constants import SPEED_OF_LIGHT_M_S
+
 from .observing import alma_location, track_start_mjd_s
 
 
@@ -98,6 +100,8 @@ def build_channel_visibility_rows(
     noise_scale: np.ndarray | None = None,
     beam_models: Sequence[np.ndarray] | None = None,
     baseline_beam: np.ndarray | None = None,
+    model_plane: np.ndarray | None = None,
+    pixsize_rad: float | None = None,
 ) -> dict[str, np.ndarray]:
     """Build per-channel row-wise visibility samples before UV gridding.
 
@@ -107,6 +111,13 @@ def build_channel_visibility_rows(
     (baselines): the model's FFT through each kind of baseline's beam and
     the kind of each baseline, for an array of dishes of more than one size;
     None: every baseline samples ``modelfft``.
+
+    With ``model_plane`` (the model under the primary beam, in FITS order,
+    ``pixsize_rad`` a pixel) and dishes of one size, every row's model
+    visibility is predicted at its own (u, v, w) (``predict_visibilities``),
+    so emission anywhere in the plane is where an imager of the rows finds
+    it. Without it a row takes the cell of ``modelfft`` nearest to it on the
+    simulator's own uv grid, which is right for a source at the centre only.
     """
     nbas = int(antnum.shape[0])
     nrows = int(nbas * nH)
@@ -122,10 +133,33 @@ def build_channel_visibility_rows(
     pix_u = np.rint(u_flat / uv_pixsize).astype(np.int32)
     pix_v = np.rint(v_flat / uv_pixsize).astype(np.int32)
     valid = (np.abs(pix_u) < Nphf) & (np.abs(pix_v) < Nphf)
+    # ducc0 takes planes of even sizes.
+    predicted = bool(
+        model_plane is not None
+        and pixsize_rad
+        and beam_models is None
+        and not (model_plane.shape[0] % 2 or model_plane.shape[1] % 2)
+    )
+    if predicted:
+        valid = np.ones(nrows, dtype=bool)
 
     model_data = np.zeros(nrows, dtype=np.complex64)
     data = np.zeros(nrows, dtype=np.complex64)
-    if np.any(valid):
+    if predicted:
+        from .predict import predict_visibilities
+
+        uvw_rows = np.stack([u_flat, v_flat, w_flat], axis=1).astype(np.float64)
+        sampled = predict_visibilities(
+            uvw_rows * float(mean_wavelength_m),
+            np.array([SPEED_OF_LIGHT_M_S / float(mean_wavelength_m)]),
+            np.asarray(model_plane, dtype=np.float64),
+            float(pixsize_rad or 0.0),
+            float(pixsize_rad or 0.0),
+            nthreads=1,
+        )[:, 0].astype(np.complex64)
+        model_data[:] = sampled
+        data[:] = sampled * gains_flat + noise_flat
+    elif np.any(valid):
         p_v = pix_v[valid] + Nphf
         m_u = -pix_u[valid] + Nphf
         # The gridding path samples model visibilities at (v, -u).

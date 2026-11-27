@@ -134,8 +134,15 @@ def check_lfac(Xmax: float, wavelength: list[float], lfac: float) -> tuple:
     return lfac, ulab, vlab
 
 
-def _prepare_model(Npix: int, img: np.ndarray, Nphf: int, Np4: int, zooming: int) -> tuple:
-    """Prepare model image for processing."""
+def _prepare_model(
+    Npix: int, img: np.ndarray, Nphf: int, Np4: int, zooming: int, positive: bool = True
+) -> tuple:
+    """Prepare model image for processing.
+
+    ``positive`` sets negative pixels to zero, as a sky model's are. A clean
+    model's negative components are part of what was found in the data:
+    ``positive`` off keeps them.
+    """
     modelim = [np.zeros((Npix, Npix), dtype=np.float32) for i in [0, 1]]
     modelimTrue = np.zeros((Npix, Npix), dtype=np.float32)
     dims = np.shape(img)
@@ -159,7 +166,8 @@ def _prepare_model(Npix: int, img: np.ndarray, Nphf: int, Np4: int, zooming: int
             sh0 + Np4 : sh0 + Np4 + zd0,
             sh1 + Np4 : sh1 + Np4 + zd1,
         ] += zoomimg[:zd0, :zd1]
-    modelimTrue[modelimTrue < 0.0] = 0.0
+    if positive:
+        modelimTrue[modelimTrue < 0.0] = 0.0
     return modelim, modelimTrue
 
 
@@ -268,6 +276,7 @@ def image_channel(
     noise_scale: np.ndarray | None = None,
     hour_angles: np.ndarray | None = None,
     antenna_diameters: np.ndarray | None = None,
+    predict_rows: bool = False,
 ) -> tuple:
     """Process a single channel through interferometric simulation.
 
@@ -283,6 +292,9 @@ def image_channel(
     each baseline's visibilities then see the sky through its two dishes'
     beams (``baseline_beam_models``), while the dirty image shows it through
     ``Diameters[0]``'s. None: every dish is ``Diameters[0]``.
+    ``predict_rows``: the visibility rows are predicted from the model at
+    each row's own (u, v, w) (``build_channel_visibility_rows``), not taken
+    from the nearest cell of the simulator's uv grid.
     """
     rng = rng if rng is not None else np.random.default_rng()
     # Convert header dict back to FITS Header if needed (for pickling compatibility)
@@ -346,7 +358,8 @@ def image_channel(
         Nphf,
     )
     lfac, ulab, vlab = check_lfac(Xmax, wavelength, lfac)
-    modelim, modelimTrue = _prepare_model(Npix, img, Nphf, Np4, zooming)
+    # Predicted rows are of the model as it is, its negative pixels included.
+    modelim, modelimTrue = _prepare_model(Npix, img, Nphf, Np4, zooming, positive=not predict_rows)
     modelfft, modelim = set_primary_beam(
         header, distmat, wavelength, Diameters, modelim, modelimTrue
     )
@@ -376,6 +389,9 @@ def image_channel(
         noise_scale=noise_scale,
         beam_models=beam_models,
         baseline_beam=baseline_beam,
+        # The science field: the central Nphf pixels of the padded grid.
+        model_plane=modelim[0][Np4 : Np4 + Nphf, Np4 : Np4 + Nphf] if predict_rows else None,
+        pixsize_rad=float(np.deg2rad(imsize / Npix / 3600.0)),
     )
     del beam_models
     dirtymap, modelvis, dirtyvis = observe(dirtymap, GrobustNoise, modelfft, Grobustsamp, beamScale)

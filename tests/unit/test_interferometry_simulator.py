@@ -37,7 +37,13 @@ def test_image_channels_runs_every_channel_with_the_shared_config(monkeypatch):
     seen = []
 
     def fake_image_channel(
-        image, wavelength, *args, rng=None, hour_angles=None, antenna_diameters=None
+        image,
+        wavelength,
+        *args,
+        rng=None,
+        hour_angles=None,
+        antenna_diameters=None,
+        predict_rows=False,
     ):
         seen.append((float(image.sum()), wavelength, args[4]))  # args[4] is the noise
         return tuple(np.full((4, 4), float(image.sum())) for _ in range(8)) + ([image.sum()],)

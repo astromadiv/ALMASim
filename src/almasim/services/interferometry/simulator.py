@@ -151,6 +151,8 @@ def image_configured_channel(
         rng=config.channel_rng(channel),
         hour_angles=config.hour_angles,
         antenna_diameters=config.antenna_diameters,
+        # Rows that are all the run keeps are predicted at their own (u, v, w).
+        predict_rows=not config.image_products,
         **corrupted,
     )
     if config.image_products:
