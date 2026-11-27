@@ -495,6 +495,22 @@ class Components(BaseModel):
 
 COMPONENT_NAMES: tuple[str, ...] = tuple(Components.model_fields)
 
+# Names a selection (--noise-only, --noise-without) takes for several components at once.
+# ``thermal``: the noise itself. ``calibration``: what calibration leaves on the signal;
+# a clean model of calibrated data already holds the real observation's own, so a
+# simulation of such a model leaves them out.
+COMPONENT_GROUPS: dict[str, tuple[str, ...]] = {
+    "thermal": (
+        "radiometer",
+        "atmospheric_tsys",
+        "receiver_ripple",
+        "channel_correlation",
+        "antenna_ripple",
+        "antenna_sefd",
+    ),
+    "calibration": ("antenna_gains", "slow_phase", "fast_phase", "baseline_errors"),
+}
+
 
 def component_class(name: str) -> type[NoiseComponent]:
     """The class of the component called ``name``."""

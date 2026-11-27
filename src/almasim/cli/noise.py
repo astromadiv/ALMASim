@@ -64,10 +64,20 @@ def show(
         ),
     ),
     only: str | None = typer.Option(
-        None, "--noise-only", help="Show the model with only these components (comma-separated)."
+        None,
+        "--noise-only",
+        help=(
+            "Show the model with only these components (comma-separated; a group, "
+            "'thermal' or 'calibration', names several)."
+        ),
     ),
     without: str | None = typer.Option(
-        None, "--noise-without", help="Show the model without these components (comma-separated)."
+        None,
+        "--noise-without",
+        help=(
+            "Show the model without these components (comma-separated; a group, "
+            "'thermal' or 'calibration', names several)."
+        ),
     ),
     as_json: bool = typer.Option(False, "--json", help="Print the model's JSON."),
 ) -> None:
@@ -118,7 +128,7 @@ def show(
 @noise_app.command("components")
 def components() -> None:
     """The components a noise model can hold, and their parameters."""
-    from ..services.noise_model import COMPONENT_NAMES
+    from ..services.noise_model import COMPONENT_GROUPS, COMPONENT_NAMES
     from ..services.noise_model.components import component_class, describe_component
 
     for name in COMPONENT_NAMES:
@@ -129,6 +139,9 @@ def components() -> None:
                 continue
             default = "required" if spec.is_required() else f"default {spec.default}"
             typer.echo(f"    {field} ({default}): {spec.description or ''}")
+    typer.echo("Groups (one name for several components in --noise-only and --noise-without):")
+    for group, names in COMPONENT_GROUPS.items():
+        typer.echo(f"    {group}: {', '.join(names)}")
 
 
 @noise_app.command("schema")

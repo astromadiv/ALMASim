@@ -17,6 +17,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .components import (
+    COMPONENT_GROUPS,
     COMPONENT_NAMES,
     AntennaGains,
     AntennaRipple,
@@ -123,10 +124,13 @@ class NoiseModel(BaseModel):
         """This model with only the components in ``only`` (all when None)
         applied, less those in ``without``. The others are kept, disabled, so
         the selection is part of the model's identity."""
-        only_set = None if only is None else set(_names(only))
-        without_set = set(_names(without or ()))
         present = dict(self.components.items())
-        unknown = ((only_set or set()) | without_set) - set(present)
+        only_names, only_groups = _names(only or ())
+        without_names, without_groups = _names(without or ())
+        # A group selects those of its components the model has.
+        only_set = None if only is None else set(only_names) | (set(only_groups) & set(present))
+        without_set = set(without_names) | (set(without_groups) & set(present))
+        unknown = (set(only_names) | set(without_names)) - set(present)
         if unknown:
             raise ValueError(
                 f"{self.label()} has no component(s) {', '.join(sorted(unknown))}; "
@@ -250,12 +254,17 @@ def _noise_shape_parts(c: Mapping[str, Any]) -> dict[str, Any]:
     return parts
 
 
-def _names(values: Iterable[str]) -> list[str]:
-    """Component names from an iterable of names or comma-separated lists."""
+def _names(values: Iterable[str]) -> tuple[list[str], list[str]]:
+    """Component names from an iterable of names or comma-separated lists: the
+    names given one by one, and the components of the groups given
+    (``COMPONENT_GROUPS``)."""
     names = [n.strip() for v in values for n in str(v).split(",") if n.strip()]
-    bad = [n for n in names if n not in COMPONENT_NAMES]
+    bad = [n for n in names if n not in COMPONENT_NAMES and n not in COMPONENT_GROUPS]
     if bad:
         raise ValueError(
             f"unknown noise component(s) {', '.join(bad)}; known: {', '.join(COMPONENT_NAMES)}"
+            f"; groups: {', '.join(COMPONENT_GROUPS)}"
         )
-    return names
+    single = [n for n in names if n in COMPONENT_NAMES]
+    grouped = [c for n in names if n in COMPONENT_GROUPS for c in COMPONENT_GROUPS[n]]
+    return single, grouped

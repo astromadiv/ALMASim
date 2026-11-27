@@ -202,6 +202,17 @@ On disk, each product is named `<product>_<idx>` with the save mode's extension,
 
 Writing an MS needs `casatools` or `python-casacore`. The MS records the `OBSERVE_TARGET#ON_SOURCE` intent, each antenna's dish diameter, one observation per execution block, and each row at the time its UVW were computed for (a track around the source's transit at ALMA on the block's day), and Stokes I in both hands: XX and YY each carry their own noise, at each visibility's own sigma and with the window's channel correlation (as two real polarisations, each smoothed by the correlator on its own), and (XX + YY) / 2 is the simulated Stokes I. WEIGHT is `1 / mean(sigma^2)` over a row's channels, half of Stokes I's per hand, with each baseline's own noise scale when the noise model has `antenna_ripple` or `antenna_sefd`. With a noise model, its identity is recorded in the `HISTORY` table.
 
+The MS rows take each visibility from the simulator's uv grid, the cell
+nearest the row's (u, v). With `visibilities_only` (`--visibilities-only`,
+which needs `--ms-export`) the run makes the MS alone: each row is predicted
+from the model at its own (u, v, w) (ducc0's `dirty2vis`), the model's
+negative pixels included, so emission away from the phase centre lands where
+the model has it. A channel's images are dropped as it is simulated, and no
+dirty, beam or sampling cube and no ML shard is written: the run needs the
+memory of the input cube and the visibilities, about a hundredth of the
+image cubes'. This is the mode for observing a large `--input` cube, such as
+a clean model of a real observation ([External Sky Models](skymodels.md#external-sky-models)).
+
 `almasim simulation --ms-export` writes each run's MS, `<project-name>_<run>.ms`, in `--output-dir` (in the run's own folder when there are several runs and products are kept), with any `--save-mode`, `memory` included. Before the first run it checks for an MS writer: without casatools or python-casacore it prints how to install one and, in a terminal, offers to install python-casacore into the running environment (`uv pip`, or `pip`); a job without a terminal stops there. With casatools it first points CASA at its runtime data, `--casa-data-root` (the site profile's on a cluster) or `<output-dir>/.casa-data`, downloaded once when missing: without it casatools fails to load, and python-casacore, loaded after it in the same process, aborts it.
 
 ## Persistence Modes

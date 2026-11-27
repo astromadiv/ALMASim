@@ -236,6 +236,10 @@ MS-derived size and cell the check compares with.
 | `image_bmaj_arcsec`, `image_bmin_arcsec`, `image_bpa_deg` | `BMAJ`, `BMIN`, `BPA` | `-beam-shape`, with `--header-beam` |
 | `continuum_bmaj_arcsec`, `continuum_bmin_arcsec`, `continuum_bpa_deg` | the `mfs` image's `BMAJ`, `BMIN`, `BPA` | `-beam-shape` of the continuum image, with `--header-beam` |
 | `aggregate_bmaj_arcsec`, `aggregate_bmin_arcsec`, `aggregate_bpa_deg` | the `cont` image's `BMAJ`, `BMIN`, `BPA` | `-beam-shape` of the aggregate continuum image, with `--header-beam` |
+| `phasecenter_ra_deg`, `phasecenter_dec_deg` | tclean's `phasecenter` (the `CRVAL` cards without one) | `-shift` |
+| `ms_phasecenter_ra_deg`, `ms_phasecenter_dec_deg` | the field's `PHASE_DIR` in the MS | `-shift` |
+| `image_n_channels`, `image_specmode` | `NAXIS3`, tclean's `specmode` | `-channels-out` of a cube |
+| `image_start_frequency_hz`, `image_channel_width_hz`, `image_spectral_frame` | the first channel's frequency, `CDELT3`, `SPECSYS` | the cube's channels, with `--header-channels` |
 
 **The delivered beam.** WSClean restores an image with the Gaussian it fits
 to its own PSF, which differs from tclean's by a few percent, and with it
@@ -247,14 +251,11 @@ the image of the windows together (its windows' first `mfs` beam where the
 member has no such image, or its header was not fetched). A row without a
 beam keeps the fitted one: a cube tclean restored with a beam per channel
 has no `BMAJ` card. A cube's single beam restores every channel.
-| `phasecenter_ra_deg`, `phasecenter_dec_deg` | tclean's `phasecenter` (the `CRVAL` cards without one) | `-shift` |
-| `ms_phasecenter_ra_deg`, `ms_phasecenter_dec_deg` | the field's `PHASE_DIR` in the MS | `-shift` |
-| `image_n_channels`, `image_specmode` | `NAXIS3`, tclean's `specmode` | `-channels-out` of a cube |
 
 The other `image_*` columns (`image_stokes`, `image_deconvolver`,
 `image_imsize`, `image_cell`, `image_phasecenter`, `image_threshold`,
-`image_channel_width_hz`, `image_reference_frequency`) record tclean's values
-and the header's spectral axis; `image-from-ms` does not read them.
+`image_reference_frequency`) record tclean's values and the header's spectral
+axis; `image-from-ms` does not read them.
 
 **image-from-ms** takes each of these columns in place of the MS-derived
 value where the row has it, and the MS-derived value where it is empty, so a
@@ -278,6 +279,16 @@ window with no delivered image is imaged as from a `compute-parameters` CSV:
   gives 960). This replaces `--spectral-sampling` and
   `--velocity-resolution`; `--max-cube-gb` caps the count as it does
   without a header.
+- **The delivered channels.** With `--by-member` and `--cube`,
+  `--header-channels` makes each cube on the channels of its delivered cube:
+  the execution blocks are regridded onto the delivered cube's first channel,
+  channel width and count (its LSRK axis), so channel *n* of the cube is
+  channel *n* of the delivered one, whatever `--spectral-sampling` and
+  `--max-cube-gb` say. A delivered channel the execution blocks do not all
+  cover, edge to edge, is left out, and the task's log names the channels
+  made. A row whose cube is not in LSRK, or whose header lacks the frequency
+  axis, takes the window's own channels, as `--window-channels` (the
+  default) does for every row.
 
 `--fov-fraction`, `--beam-sampling` and `--min-beams-across` do not change a
 row that has `image_n_pixels` and `image_cell_arcsec`.
@@ -424,7 +435,9 @@ topocentric, so one window starts a few MHz apart from one day to the next:
 channel *n* of one block is not channel *n* of another. `mstransform`
 regrids only onto channels a block covers over its whole time range, so the
 grid is where all the blocks' windows overlap in LSRK, a channel in from each
-end, with the widest block's channel width. It has a few channels fewer than
+end, with the widest block's channel width (with `--header-channels`, the
+delivered cube's channels instead; see
+[the delivered channels](#imaging-on-the-grid-of-the-pipelines-images)). It has a few channels fewer than
 one block's window, and every channel holds every block. A cube keeps the
 planned number of native channels per cube channel, so its `-channels-out`
 follows the grid. The task's log gives the grid, the cube's channel count and

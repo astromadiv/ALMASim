@@ -590,14 +590,19 @@ def simulation_run(
         "--noise-only",
         help=(
             "Apply only these components of the noise model (comma-separated, e.g. "
-            "'radiometer,channel_correlation'); 'almasim noise show' lists them."
+            "'radiometer,channel_correlation', or a group: 'thermal'); "
+            "'almasim noise components' lists them."
         ),
         rich_help_panel="Noise",
     ),
     noise_without: str | None = typer.Option(
         None,
         "--noise-without",
-        help="Apply the noise model without these components (comma-separated).",
+        help=(
+            "Apply the noise model without these components (comma-separated, or a "
+            "group: 'calibration' leaves out the errors calibration leaves, which a "
+            "clean model of real data already holds)."
+        ),
         rich_help_panel="Noise",
     ),
     executions: int | None = typer.Option(

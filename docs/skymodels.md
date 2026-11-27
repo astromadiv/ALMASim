@@ -90,6 +90,24 @@ In Python, the FITS inputs are given by `external_skymodel_path` and the compone
 
 On the command line, `--input` gives a sky-model cube, or a folder of them, and each cube is simulated on its own grid: its size, pixel and frequency axis (centre, channel width, channels) come from its header, so `--n-pix` and `--n-channels` are refused with it. A 2D image sets the size and pixel; the metadata gives the channels. A folder from an imaging run (`<ms>/SPW-<n>_FIELD-<m>/`) gives each spectral window's clean-component cube, `wsclean-cube-model.fits`; other folders give every FITS file.
 
+An input cube's pixels are observed at the cube's own pixel size: the
+interferometer's grid spans 1.5 fields of view over the cube's pixels, so the
+run's field of view is the cube's width over 1.5. The cube's `BUNIT` says what
+a pixel holds. In Jy per pixel (`JY/PIXEL`, as WSClean writes its model
+images) a pixel's value is the flux it holds, observed as it is; in Jy per
+beam it is divided by the beam's area in pixels.
+
+A sky model is the sky before the antennas, and the interferometer applies
+the primary beam to it ([The Interferometer](interferometry.md#the-interferometer)).
+A clean model of real data is the sky the antennas saw, the primary beam's
+response already in it: `--apparent-input` observes such a cube as it is,
+without the primary beam again. The model then reproduces the image it was
+cleaned from, edge components included, which a division by the primary
+beam would amplify. A clean model holds no noise, and the real observation's
+calibration errors are part of it: such a simulation takes a noise model's
+thermal components only (`--noise-without calibration`; see
+[Noise Models](noise.md#noise-models)).
+
 Each cube is simulated with the metadata row of the observation its path names: a member OUS uid matches directly, and an execution block uid is looked up in the resolved products (`--products-csv`; by default the `*products*.csv` files next to `--metadata-path`), which give its member OUS. Every spectral window of an observation matches that row, so there is one run per cube, named after its MeasurementSet and window. A single cube whose path names no observation is used for the chosen rows. With `--input`, a non-external `--source-type` becomes `external-fits-cube`.
 
 With `--source-type external-components`, `--input` is one component table (any format astropy's `Table.read` recognises, such as `.ecsv` or `.csv`), used for every row; a table has no grid, so `--n-pix` and `--n-channels` apply (128 and 32 by default).

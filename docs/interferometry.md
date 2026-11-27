@@ -64,7 +64,7 @@ Plans can be:
 
 For each channel, the `Interferometer`:
 
-- multiplies the model by the primary beam: CASA's Airy model of an ALMA antenna with its central blockage ([`instrument/primary_beam.py`](../src/almasim/services/instrument/primary_beam.py)), the same model the total-power simulation and `--pbcor` use; in an array of two dish sizes each baseline sees the sky through its own dishes' beam ([below](#arrays-of-two-dish-sizes))
+- multiplies the model by the primary beam: CASA's Airy model of an ALMA antenna with its central blockage ([`instrument/primary_beam.py`](../src/almasim/services/instrument/primary_beam.py)), the same model the total-power simulation and `--pbcor` use; in an array of two dish sizes each baseline sees the sky through its own dishes' beam ([below](#arrays-of-two-dish-sizes)). A model that already holds the primary beam's response, as a clean model of real data does, is observed as it is (`--apparent-input`; see [External Sky Models](skymodels.md#external-sky-models))
 - samples the uv plane along the execution block's track: its scans at their hour angles on the block's day (one scan centred on transit for an `Interferometer` built without a track); the exported MS's times are when the source is at each sample's hour angle
 - adds thermal noise at each visibility, and the noise model's corruptions when one is set
 - grids the visibilities with robust weighting (`robust`, `--robust`)
