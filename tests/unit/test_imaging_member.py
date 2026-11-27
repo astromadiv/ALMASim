@@ -338,6 +338,7 @@ def test_a_member_task_images_the_combined_ms(tmp_path, monkeypatch):
         max_weight=None,
         channels_out=None,
         grid=None,
+        selfcal=None,
     ):
         built.append((list(windows), Path(out).name, casa_data, channels_out))
         Path(out).mkdir()

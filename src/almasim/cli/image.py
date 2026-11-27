@@ -629,6 +629,117 @@ def _report_imaging_failures(failures: list[TaskFailure]) -> None:
     report_failures("Image", failures, echo=lambda t: typer.echo(t, err=True))
 
 
+@image_app.command("alma-selfcal")
+def alma_selfcal_replay(
+    root: Path = typer.Argument(help="An ALMA delivery tree's root (it holds ous_index.csv)"),
+    ous_index: Path | None = typer.Option(
+        None, "--ous-index", help="The tree's ous_index.csv (default: <root>/ous_index.csv)."
+    ),
+    output: Path | None = typer.Option(
+        None,
+        "--output",
+        help=(
+            "Write each replay to <output>/member.<uid>/alma-selfcal/ instead of the "
+            "member's own images/alma-selfcal/."
+        ),
+    ),
+    members: list[str] | None = typer.Option(
+        None, "--member", help="Only this member OUS (uid://A001/X.../X...); repeatable."
+    ),
+    casa_data_root: Path | None = typer.Option(
+        None,
+        "--casa-data-root",
+        help="CASA runtime data (default <output or root>/.casa-data, downloaded once).",
+    ),
+    overwrite: bool = typer.Option(
+        False, "--overwrite", help="Replay a member that already has a replay again."
+    ),
+    keep_work: bool = typer.Option(
+        False, "--keep-work", help="Keep the replay's working folder (its MSs and images)."
+    ),
+    timeout: float = typer.Option(
+        86400.0, "--timeout", min=60, help="Seconds a member's replay may take."
+    ),
+) -> None:
+    """Replay the ALMA pipeline's self-calibration of each member.
+
+    A delivery has the execution blocks' calibration tables but not those of
+    the imaging pipeline's self-calibration (hif_selfcal). For every complete
+    member whose log/*casa_commands.log has a hif_selfcal stage, its calls are
+    run again on the member's calibrated MSs, and the gain tables the pipeline
+    applied to its targets are kept, with apply.json saying how they were
+    applied. image-from-ms --by-member --alma-selfcal applies them.
+    """
+    from ..services.archive.delivery import member_status, read_ous_index
+    from ..services.imaging.selfcal.alma_replay import (
+        APPLY_FILE,
+        FOLDER,
+        casa_commands_log,
+    )
+    from ..services.runtime.child import call_in_child
+    from ..services.runtime.env import casa_environment
+
+    root = Path(root).expanduser().absolute()
+    index_path = Path(ous_index).expanduser() if ous_index else root / "ous_index.csv"
+    if not index_path.is_file():
+        raise typer.BadParameter(f"no ous_index.csv at {index_path}: pass --ous-index")
+    tree = index_path.parent.absolute()
+    out_root = Path(output).expanduser().absolute() if output else None
+    casa_data = str(_prepare_selfcal_casa_data(out_root or root, casa_data_root))
+    wanted = set(members or ())
+    replayed = failed = skipped = 0
+    for member, status in sorted(member_status(read_ous_index(index_path)).items()):
+        if wanted and member not in wanted:
+            continue
+        folder = tree / status.member_folder
+        if not status.complete:
+            typer.echo(f"{member}: not every execution block has a calibrated MS; skipped")
+            skipped += 1
+            continue
+        if casa_commands_log(folder) is None:
+            continue  # the pipeline did not self-calibrate it
+        name = "member." + member.replace("uid://", "uid___").replace("/", "_")
+        out = (out_root / name if out_root else folder / "images") / FOLDER
+        if (out / APPLY_FILE).is_file() and not overwrite:
+            typer.echo(f"{member}: already replayed ({out}); --overwrite replays it again")
+            skipped += 1
+            continue
+        out.mkdir(parents=True, exist_ok=True)
+        calibrated = {eb: ms for eb, ms in zip(status.needed, status.calibrated_ms, strict=True)}
+        log_file = out / "alma-selfcal.log"
+        typer.echo(f"{member}: replaying hif_selfcal into {out} (log {log_file})")
+        try:
+            result = call_in_child(
+                "almasim.services.imaging.selfcal.alma_replay:replay_member",
+                {
+                    "member_folder": str(folder),
+                    "calibrated": calibrated,
+                    "out_dir": str(out),
+                    "casa_data": casa_data,
+                    "log_file": str(log_file),
+                    "keep_work": keep_work,
+                },
+                what=f"the self-calibration replay of {member}",
+                env=casa_environment(),
+                timeout=timeout,
+                log_path=log_file,
+            )
+        except Exception as exc:  # noqa: BLE001 - one member must not stop the others
+            failed += 1
+            typer.echo(f"{member}: FAILED: {exc}", err=True)
+            continue
+        recipe = cast(dict[str, list[dict[str, Any]]], result["execution_blocks"])
+        tables = sorted({t for entries in recipe.values() for e in entries for t in e["gaintable"]})
+        typer.echo(
+            f"{member}: {len(recipe)} of {len(calibrated)} execution blocks self-calibrated, "
+            f"{len(tables)} table(s)"
+        )
+        replayed += 1
+    typer.echo(f"Replayed {replayed} member(s); {skipped} skipped, {failed} failed.")
+    if failed:
+        raise typer.Exit(code=1)
+
+
 def _prepare_selfcal_casa_data(output_directory: Path, casa_data_root: Path | None) -> Path:
     """CASA runtime data for the workers' CASA steps, populated here once if missing.
 
@@ -711,6 +822,7 @@ class ImageFromMsOptions:
     aggregate_line_free: bool = True
     header_beam: bool = False
     header_channels: bool = False
+    alma_selfcal: bool = False
 
 
 @image_app.command("image-from-ms")
@@ -1166,6 +1278,18 @@ def image_from_ms(
         ),
         rich_help_panel="Imaging",
     ),
+    alma_selfcal: bool = typer.Option(
+        False,
+        "--alma-selfcal",
+        help=(
+            "With --by-member, self-calibrate each execution block with the ALMA pipeline's "
+            "own self-calibration, replayed by 'almasim image alma-selfcal' (its "
+            "alma-selfcal/ folder in the member's images/, or in the output's member "
+            "folder), before the blocks are combined. A member without a replay is "
+            "combined as it is; the task's log says which blocks were self-calibrated."
+        ),
+        rich_help_panel="Self-calibration",
+    ),
 ):
     """Image every (MS, spectral window) row of a parameter CSV with WSClean.
 
@@ -1194,6 +1318,8 @@ def _image_from_ms_options(o: ImageFromMsOptions) -> tuple[ImagingOptions, ExecO
     # to 1 sigma left 4.1 sigma and 16 % (2026-10-17).
     if 0 < o.auto_mask <= o.auto_threshold:
         raise typer.BadParameter("--auto-mask must be above --auto-threshold (or 0 to disable it)")
+    if o.alma_selfcal and not o.by_member:
+        raise typer.BadParameter("--alma-selfcal needs --by-member")
     if o.plan_only and not o.cube:
         raise typer.BadParameter(
             "Options that need --cube: --plan-only, --contsub, --uv-contsub, --join-channels"
@@ -1301,7 +1427,18 @@ def _image_from_ms_tasks(o: ImageFromMsOptions, imaging: ImagingOptions) -> list
         aggregate_continuum=imaging.aggregate_continuum,
         header_beam=o.header_beam,
         header_channels=o.header_channels,
+        alma_selfcal=o.alma_selfcal,
     )
+    if o.alma_selfcal:
+        without = sorted(
+            {
+                (t.provenance.member_ous_uid if t.provenance else "") or t.label
+                for t in tasks
+                if t.member_windows and t.selfcal is None
+            }
+        )
+        for member in without:
+            typer.echo(f"No replay of ALMA's self-calibration for {member}: imaged without it")
     if skipped:
         typer.echo(f"Skipped {skipped} already-imaged SPW(s).")
     if not tasks:
@@ -1586,6 +1723,9 @@ def image_set(
         by_member=False,
         aggregate_continuum=False,
         aggregate_line_free=True,
+        header_beam=False,
+        header_channels=False,
+        alma_selfcal=False,
         postprocess_backend=postprocess_backend,
         slurm_queue=slurm_queue,
         slurm_project=slurm_project,

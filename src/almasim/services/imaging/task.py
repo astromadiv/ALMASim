@@ -97,6 +97,7 @@ def run_wsclean_task(  # noqa: C901
     provenance: Provenance | None = None,
     member_windows: Sequence[tuple[str, int, Sequence[int]]] | None = None,
     spectral_grid: Sequence[float] | None = None,
+    selfcal: Mapping[str, Sequence[Mapping[str, Any]]] | None = None,
 ) -> dict[str, object]:
     """Run one WSClean task in a subprocess and leave a marker whatever happens.
 
@@ -233,6 +234,7 @@ def run_wsclean_task(  # noqa: C901
                     max_weight=max_weight,
                     channels_out=int(planned) if cube_command and planned else None,
                     grid=spectral_grid if cube_command else None,
+                    selfcal=selfcal,
                 )
             else:
                 extracted = extract_single_window_ms_subprocess(
@@ -272,6 +274,13 @@ def run_wsclean_task(  # noqa: C901
             )
             if extracted.get("grid_note"):
                 extraction_note += f"; {extracted['grid_note']}"
+            if selfcal is not None:
+                applied = list(extracted.get("selfcal_applied") or [])  # type: ignore[call-overload]
+                extraction_note += (
+                    f"; ALMA's self-calibration applied to {len(applied)} of "
+                    f"{len(member_windows)} execution blocks"
+                    + (f" ({', '.join(applied)})" if applied else "")
+                )
             if cube_command and extracted.get("channels_out"):
                 # The plan counted the first EB's channels; the grid has fewer.
                 commands[-1] = (

@@ -187,7 +187,9 @@ The archive is asked once per member for its list of images.
   archive image is matched on its name alone, since its header is not on disk.
 - Of several images of one window and field, the self-calibrated one
   (`.selfcal.`) is taken before the `.regcal.` one, and a Stokes I image
-  before any other.
+  before any other. Its data are self-calibrated: `--alma-selfcal` images
+  from data self-calibrated as they were
+  ([the pipeline's self-calibration](#the-alma-pipelines-self-calibration)).
 - An image's CSV has one row per (MS, window, field) the image is of: an
   image of a member with three execution blocks has three rows, and an image
   of several windows a row for each. A row holds the columns of
@@ -331,7 +333,9 @@ lists every option.
   together. When `cont.dat` cannot be used (no index, member, tarball,
   `cont.dat` or matching window) the log says why and the task goes on with
   ALMASim's own line channels.
-- `--selfcal` self-calibrates each window with CASA `gaincal` before imaging,
+- `--selfcal` self-calibrates each window with CASA `gaincal` before imaging
+  (its own solutions; `--alma-selfcal` applies the ALMA pipeline's instead,
+  [below](#the-alma-pipelines-self-calibration)),
   one round per solution interval (e.g. `inf,30s,ap:inf`). A round is kept
   only if the continuum S/N rises. With `--noise-products` (the default) it
   also keeps what self-calibration removed and the gain tables.
@@ -446,6 +450,61 @@ baseline of the member's execution blocks. Self-calibration, continuum
 subtraction, the cube and the primary-beam correction then run on the
 combined MS as on any other. The regridding needs CASA and its runtime data
 (`--casa-data-root`).
+
+### The ALMA pipeline's self-calibration
+
+The ALMA imaging pipeline self-calibrates a bright target (`hif_selfcal`) and
+delivers the images made from the self-calibrated data (`.selfcal.` in their
+names). The delivery holds the execution blocks' calibration tables
+(`calibration/*.caltables.tgz`) but not the self-calibration's gain tables, and
+ALMA's restore script rebuilds the calibrated data without them. Its record is
+the member's `log/*casa_commands.log`: every CASA call the pipeline made, with
+the parameters it computed (thresholds, solution intervals, reference
+antennas), and which rounds it kept, since a rejected round is followed by
+the restore of its flags and no `applycal`.
+
+`image alma-selfcal` replays those calls on the member's calibrated MSs and
+keeps the tables the pipeline applied to its targets:
+
+```bash
+# 1. replay each self-calibrated member of the tree
+almasim image alma-selfcal /data/deliveries --casa-data-root /data/casa-data
+
+# 2. image the members from their self-calibrated execution blocks
+almasim image image-from-ms /data/deliveries /data/deliveries --by-member --cube --alma-selfcal
+```
+
+The replay follows the pipeline:
+
+1. `hif_mstransform`: each execution block's targets at full resolution, from
+   the calibrated MS's `DATA` (the pipeline's `CORRECTED_DATA`).
+2. `hifa_flagtargets`: the commands of each block's target flagging template,
+   which the member's weblog keeps (`<eb>.flagtargetstemplate.txt`).
+3. `hif_selfcal`: the line channels flagged, a channel-averaged copy of each
+   block's targets in a folder of its own, and on it every round's `tclean`,
+   `gaincal` and `applycal` with the pipeline's arguments (`tclean` runs
+   serially; an argument this CASA does not take is left out, and the log
+   names it; a copy of an image product the serial `tclean` does not write,
+   such as `.gridwt`, is skipped). The pipeline's final application of the tables to its
+   full-resolution data, through a calibration library the delivery does not
+   hold, ends the replay: the last `applycal` of each block and field before
+   it says which tables were applied, and how.
+
+Each member's replay is in its `images/alma-selfcal/` folder (`--output
+<folder>` writes `<folder>/member.<uid>/alma-selfcal/` instead): the gain
+tables, `apply.json` (each block's tables, `interp`, `spwmap` and `applymode`
+per field) and `alma-selfcal.log`. A member already replayed is skipped
+(`--overwrite` replays it again), and one whose log has no `hif_selfcal`
+stage has nothing to replay. A block the pipeline did not apply tables to is
+listed in `apply.json`'s `not_applied`.
+
+With `--alma-selfcal`, `image-from-ms --by-member` applies a member's tables
+to each block's window, once the window is extracted and before it is
+regridded: `applycal` with each table's `spwmap` taken to the extracted window
+(a table solved over the windows together maps every window to the one it was
+solved in). The task's log says which blocks were self-calibrated. A member
+without a replay is imaged from its calibrated data, and `image-from-ms`
+names it.
 
 ### Provenance in the FITS headers
 

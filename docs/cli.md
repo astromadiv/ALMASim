@@ -425,6 +425,7 @@ $ almasim image [OPTIONS] COMMAND [ARGS]...
 * `compute-parameters`: Derive per-spectral-window imaging...
 * `fetch-headers`: Save the FITS header of every (MS, window,...
 * `parse-headers`: Read the saved tclean headers again and...
+* `alma-selfcal`: Replay the ALMA pipeline's...
 * `image-from-ms`: Image every (MS, spectral window) row of a...
 * `clean-quality`: Measure how much source signal the clean...
 * `pb-correct`: Primary-beam correct the images of an...
@@ -523,6 +524,38 @@ $ almasim image parse-headers [OPTIONS] [folder]
 * `--min-beams-across <float range>`: MS-derived size check: minimum beams across.  [default: 32.0; x>=0.0]
 * `--help`: Show this message and exit.
 
+### `almasim image alma-selfcal`
+
+Replay the ALMA pipeline's self-calibration of each member.
+
+A delivery has the execution blocks' calibration tables but not those of
+the imaging pipeline's self-calibration (hif_selfcal). For every complete
+member whose log/*casa_commands.log has a hif_selfcal stage, its calls are
+run again on the member's calibrated MSs, and the gain tables the pipeline
+applied to its targets are kept, with apply.json saying how they were
+applied. image-from-ms --by-member --alma-selfcal applies them.
+
+**Usage**:
+
+```console
+$ almasim image alma-selfcal [OPTIONS] {root}
+```
+
+**Arguments**:
+
+* `root`: An ALMA delivery tree's root (it holds ous_index.csv)  [required]
+
+**Options**:
+
+* `--ous-index <path>`: The tree's ous_index.csv (default: <root>/ous_index.csv).
+* `--output <path>`: Write each replay to <output>/member.<uid>/alma-selfcal/ instead of the member's own images/alma-selfcal/.
+* `--member <str>`: Only this member OUS (uid://A001/X.../X...); repeatable.
+* `--casa-data-root <path>`: CASA runtime data (default <output or root>/.casa-data, downloaded once).
+* `--overwrite`: Replay a member that already has a replay again.
+* `--keep-work`: Keep the replay's working folder (its MSs and images).
+* `--timeout <float range>`: Seconds a member's replay may take.  [default: 86400.0; x>=60]
+* `--help`: Show this message and exit.
+
 ### `almasim image image-from-ms`
 
 Image every (MS, spectral window) row of a parameter CSV with WSClean.
@@ -603,6 +636,7 @@ $ almasim image image-from-ms [OPTIONS] {imaging_parameters} {output_directory}
 * `--aggregate-line-free / --aggregate-all-channels`: Make the --aggregate-continuum image from each window's continuum fitted over its line-free channels (order --contsub-order), so the windows' lines stay out of it; a window with too few line-free channels is left out. --aggregate-all-channels images every channel, lines included.  [default: aggregate-line-free]
 * `--header-beam / --fitted-beam`: Restore every image with the beam of its delivered image (BMAJ, BMIN and BPA of the header image fetch-headers saved; WSClean -beam-shape): a cube with its cube's, a continuum with its mfs image's, an aggregate continuum with that of the image of the windows together. A row without a beam keeps the fitted one. Default --fitted-beam: the Gaussian WSClean fits to its own PSF.  [default: fitted-beam]
 * `--header-channels / --window-channels`: With --by-member and --cube, make each cube on the channels of its delivered cube (first channel, channel width and count of the header image fetch-headers saved, in LSRK): the execution blocks are regridded onto them, so channel n of the cube is channel n of the delivered one, whatever --spectral-sampling and --max-cube-gb say. Channels the execution blocks do not all cover are left out (the log names those made). Default --window-channels: the window's own.  [default: window-channels]
+* `--alma-selfcal`: With --by-member, self-calibrate each execution block with the ALMA pipeline's own self-calibration, replayed by 'almasim image alma-selfcal' (its alma-selfcal/ folder in the member's images/, or in the output's member folder), before the blocks are combined. A member without a replay is combined as it is; the task's log says which blocks were self-calibrated.
 * `--help`: Show this message and exit.
 
 ### `almasim image clean-quality`
