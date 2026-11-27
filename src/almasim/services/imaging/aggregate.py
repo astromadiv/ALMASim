@@ -360,6 +360,9 @@ def run_aggregate_continuum_task(  # noqa: C901
                 data_column=data_column,
                 restart=continuum_restart,
             )
+            from almasim.services.imaging import markers as _imaging_markers
+
+            _imaging_markers.write_imaging_script(out, commands=commands)
             imaged = ", ".join(str(spw) for spw, _ in kept)
             note = (
                 f"aggregate continuum of windows {imaged} "
@@ -380,6 +383,9 @@ def run_aggregate_continuum_task(  # noqa: C901
             plane.unlink(missing_ok=True)
         if not (out / IMAGE_FILENAME).is_file():
             raise task.fail(f"WSClean exited 0 but wrote no {IMAGE_FILENAME} under {out}", 0)
+        from almasim.services.imaging import markers as _imaging_markers
+
+        _imaging_markers.write_imaging_script(out, commands=commands)
         header = task.header()
         # Member windows are on an LSRK grid; WSClean writes TOPOCENT regardless.
         lsrk = bool(windows) and all(w.get("member_windows") for w in windows)

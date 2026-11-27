@@ -408,6 +408,9 @@ def _run_and_mark(  # noqa: C901
     out, log_path, fail = task.out, task.log_path, task.fail
     attempts = 0
     commands = list(commands)
+    from almasim.services.imaging import markers as _imaging_markers
+
+    _imaging_markers.write_imaging_script(out, commands=commands)
     # run_wsclean_task truncated the log; for a single-window task it already
     # holds the extraction notes, so append.
     with log_path.open("a", encoding="utf-8") as log:
@@ -454,6 +457,9 @@ def _run_and_mark(  # noqa: C901
     # copied them; WSClean's own images (the continuum's) get them here, before
     # the primary-beam correction copies them on. ``spectral_frame`` corrects
     # WSClean's SPECSYS on every image, the cubes included.
+    from almasim.services.imaging import markers as _imaging_markers
+
+    _imaging_markers.write_imaging_script(out, commands=commands)
     provenance = task.header()
     for path in sorted(out.glob("*.fits")):
         try:
