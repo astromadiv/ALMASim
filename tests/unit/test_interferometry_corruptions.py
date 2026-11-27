@@ -169,6 +169,7 @@ def test_no_corruption_leaves_unit_gains():
 
 def _config(**extra):
     npix = 64
+    extra.setdefault("distmat", np.zeros((npix, npix)))
     return ChannelImagingConfig(
         Npix=npix,
         Nant=4,
@@ -182,7 +183,6 @@ def _config(**extra):
         imsize=20.0,
         Xmax=0.2,
         lfac=1.0e6,
-        distmat=np.zeros((npix, npix)),
         Nphf=npix // 2,
         Np4=npix // 4,
         zooming=0,
@@ -752,3 +752,27 @@ def test_predicted_rows_keep_an_off_centre_source_and_its_sign():
     assert np.angle(rows["model_data"]).std() > 0.1
     negative = image_configured_channel(config, -sky, wavelength, 0.0, channel=0)[-1]
     np.testing.assert_allclose(negative["model_data"], -rows["model_data"], atol=1e-6)
+
+
+@pytest.mark.unit
+def test_an_apparent_model_is_observed_without_the_primary_beam_again():
+    """A source off the centre: the primary beam lowers it, unless the model
+    already holds the beam's response."""
+    centre = _config().Nphf // 2
+    sky = _science_field(centre, centre + 12)
+    wavelength = [1.0e-6, 1.0e-6, 1.0e-6]
+    # A primary beam that falls off over the field (distmat: minus the squared
+    # distance in arcsec^2 from the centre).
+    axis = (np.arange(64) - 32) * 20.0
+    distmat = -(axis[:, None] ** 2 + axis[None, :] ** 2)
+    beamed = image_configured_channel(
+        _config(image_products=False, distmat=distmat), sky, wavelength, 0.0
+    )[-1]
+    apparent = image_configured_channel(
+        _config(image_products=False, apply_primary_beam=False, distmat=distmat),
+        sky,
+        wavelength,
+        0.0,
+    )[-1]
+    np.testing.assert_allclose(np.abs(apparent["model_data"]), 1.0, rtol=1e-3)
+    assert np.abs(beamed["model_data"]).max() < 0.999

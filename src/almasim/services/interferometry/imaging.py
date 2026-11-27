@@ -277,6 +277,7 @@ def image_channel(
     hour_angles: np.ndarray | None = None,
     antenna_diameters: np.ndarray | None = None,
     predict_rows: bool = False,
+    apply_primary_beam: bool = True,
 ) -> tuple:
     """Process a single channel through interferometric simulation.
 
@@ -295,6 +296,9 @@ def image_channel(
     ``predict_rows``: the visibility rows are predicted from the model at
     each row's own (u, v, w) (``build_channel_visibility_rows``), not taken
     from the nearest cell of the simulator's uv grid.
+    ``apply_primary_beam`` off: ``img`` already holds the primary beam's
+    response (a clean model is the sky as the antennas saw it), so it is
+    observed as it is.
     """
     rng = rng if rng is not None else np.random.default_rng()
     # Convert header dict back to FITS Header if needed (for pickling compatibility)
@@ -360,9 +364,13 @@ def image_channel(
     lfac, ulab, vlab = check_lfac(Xmax, wavelength, lfac)
     # Predicted rows are of the model as it is, its negative pixels included.
     modelim, modelimTrue = _prepare_model(Npix, img, Nphf, Np4, zooming, positive=not predict_rows)
-    modelfft, modelim = set_primary_beam(
-        header, distmat, wavelength, Diameters, modelim, modelimTrue
-    )
+    if apply_primary_beam:
+        modelfft, modelim = set_primary_beam(
+            header, distmat, wavelength, Diameters, modelim, modelimTrue
+        )
+    else:
+        modelim[0][:] = modelimTrue
+        modelfft = np.fft.fft2(np.fft.fftshift(modelim[0]))
     beam_models, baseline_beam = (
         baseline_beam_models(distmat, wavelength, antenna_diameters, antnum, modelimTrue)
         if antenna_diameters is not None

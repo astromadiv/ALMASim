@@ -202,6 +202,7 @@ $ almasim simulation [OPTIONS]
 * `--ml-shard-path <path>`: Destination HDF5 shard path.  [default: ~/almasim_outputs/ddrm_training_sample.h5]
 * `--ms-export`: Also write each run's MeasurementSet, <project-name>_<run>.ms in --output-dir (in the run's own folder when there are several runs and products are kept), with any --save-mode: Stokes I in both hands, with the noise model's noise and WEIGHT. Needs casatools or python-casacore.
 * `--visibilities-only`: Make only the MeasurementSet (needs --ms-export): no dirty, beam or sampling cubes and no ML shard. A channel's images are dropped as it is simulated, so the run needs the memory of the input cube and the visibilities, not of the image cubes (about a hundred times the input cube). For large --input cubes.
+* `--apparent-input`: The --input cube already holds the primary beam's response, as a clean model does (the sky as the antennas saw it): it is observed as it is, the primary beam not applied again.
 * `--casa-data-root <path>`: CASA runtime data for writing the MS with casatools (default <output-dir>/.casa-data, downloaded once when missing). python-casacore alone needs none.
 * `--backend <sync|local>`: How the channels are imaged: sync, one after another in one process; local, in parallel worker processes on this node (--n-workers).  [default: sync]
 * `--n-workers <int range>`: Worker processes for --backend local; give the job as many CPUs.  [default: 1; x>=1]

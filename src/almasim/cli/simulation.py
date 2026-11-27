@@ -169,6 +169,7 @@ def _build_simulation_params(
     ms_export: bool = False,
     ms_path: Path | None = None,
     visibilities_only: bool = False,
+    apparent_input: bool = False,
 ) -> SimulationParams:
     if not 0 <= row_idx < len(metadata):
         usage_error(f"--row-idx {row_idx} is out of range for {len(metadata)} metadata rows")
@@ -226,6 +227,7 @@ def _build_simulation_params(
         ms_save_mode="msv2" if ms_export else "none",
         ms_export_dir=str(ms_path) if ms_export and ms_path is not None else None,
         visibilities_only=visibilities_only,
+        apparent_input=apparent_input,
     )
 
 
@@ -311,6 +313,7 @@ class SimulationRunOptions:
     ml_shard_path: Path
     ms_export: bool
     visibilities_only: bool
+    apparent_input: bool
     casa_data_root: Path | None
     backend: str
     n_workers: int
@@ -520,6 +523,16 @@ def simulation_run(
         ),
         rich_help_panel="Output",
     ),
+    apparent_input: bool = typer.Option(
+        False,
+        "--apparent-input",
+        help=(
+            "The --input cube already holds the primary beam's response, as a clean model "
+            "does (the sky as the antennas saw it): it is observed as it is, the primary "
+            "beam not applied again."
+        ),
+        rich_help_panel="Sky model",
+    ),
     casa_data_root: Path | None = typer.Option(
         None,
         "--casa-data-root",
@@ -715,6 +728,7 @@ def simulation_run(
                     scans=o.scans,
                     ms_export=o.ms_export,
                     visibilities_only=o.visibilities_only,
+                    apparent_input=o.apparent_input,
                     # Several runs whose products are not kept share --output-dir:
                     # each MS by its run's name (two cubes of one row share an index).
                     ms_path=(
@@ -765,6 +779,8 @@ def _validated_input(o: SimulationRunOptions) -> SimulationRunOptions:
         usage_error(f"--input not found: {o.input_path}")
     if o.products_csv is not None and not o.products_csv.expanduser().exists():
         usage_error(f"--products-csv not found: {o.products_csv}")
+    if o.apparent_input and o.input_path is None:
+        usage_error("--apparent-input describes an --input cube: give one")
     if o.visibilities_only and not o.ms_export:
         usage_error("--visibilities-only makes the MeasurementSet alone: add --ms-export")
     if o.source_type == "external-components" and (
@@ -858,6 +874,7 @@ def _run_simulation_stages(
                 terminal_logger=logger,
                 interferometer_progress_callback=_progress_callback(progress_bar, 35, 55),
                 image_products=not o.visibilities_only,
+                apply_primary_beam=not o.apparent_input,
             ),
         )
         logger(f"Dirty cube shape: {simulation_results['dirty_cube'].shape}")

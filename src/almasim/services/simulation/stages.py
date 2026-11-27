@@ -221,6 +221,7 @@ def simulate_observation(  # noqa: C901
     terminal_logger=None,
     interferometer_progress_callback: Callable[[int], None] | None = None,
     image_products: bool = True,
+    apply_primary_beam: bool = True,
 ) -> dict[str, Any]:
     """Run the interferometric observation stage from a prepared clean cube.
 
@@ -228,7 +229,8 @@ def simulate_observation(  # noqa: C901
     are dropped as it is simulated, so the run holds the visibilities and the
     input cube, not the padded model, dirty, beam and sampling cubes (about a
     hundred times the input cube together); those cubes then hold one empty
-    pixel per channel.
+    pixel per channel. ``apply_primary_beam`` off observes a model that
+    already holds the primary beam's response (a clean model) as it is.
 
     Without a ``compute_backend`` the channels are imaged in-process
     (:class:`SyncBackend`); the Interferometer needs one to scatter the cube.
@@ -253,6 +255,7 @@ def simulate_observation(  # noqa: C901
             corruptions=clean_cube_stage.corruptions,
             continuum_fraction=clean_cube_stage.continuum_fraction,
             image_products=image_products,
+            apply_primary_beam=apply_primary_beam,
             **run.interferometer_kwargs(),
         )
         if interferometer_progress_callback is not None:

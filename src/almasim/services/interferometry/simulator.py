@@ -89,6 +89,8 @@ class ChannelImagingConfig:
     # False: a channel hands back its visibility rows and baselines only, not
     # its images (model, dirty image, their Fourier planes, beam and sampling).
     image_products: bool = True
+    # False: the sky model already holds the primary beam's response.
+    apply_primary_beam: bool = True
 
     def channel_rng(self, channel: int) -> np.random.Generator:
         """The generator of ``channel``: the same whichever worker images it."""
@@ -153,6 +155,7 @@ def image_configured_channel(
         antenna_diameters=config.antenna_diameters,
         # Rows that are all the run keeps are predicted at their own (u, v, w).
         predict_rows=not config.image_products,
+        apply_primary_beam=config.apply_primary_beam,
         **corrupted,
     )
     if config.image_products:

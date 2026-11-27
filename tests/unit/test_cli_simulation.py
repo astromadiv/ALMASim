@@ -547,3 +547,8 @@ def test_an_input_cube_in_jy_per_pixel_is_the_flux_of_each_pixel():
     )
     assert not per_pixel_input({"input_bunit": "Jy/beam"}) and not per_pixel_input({})
     assert not per_pixel_input(None)
+
+
+def test_apparent_input_needs_an_input_cube(monkeypatch, tmp_path):
+    _, refused = _params_from_cli(monkeypatch, tmp_path, "--apparent-input")
+    assert refused.exit_code == 2

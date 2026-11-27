@@ -48,6 +48,7 @@ def run_simulation(
         terminal_logger=terminal_logger,
         interferometer_progress_callback=interferometer_progress_callback,
         image_products=not params.visibilities_only,
+        apply_primary_beam=not params.apparent_input,
     )
     ctx.check_cancelled()
     ctx.status("Reconstructing image products")

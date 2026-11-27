@@ -44,6 +44,7 @@ def test_image_channels_runs_every_channel_with_the_shared_config(monkeypatch):
         hour_angles=None,
         antenna_diameters=None,
         predict_rows=False,
+        apply_primary_beam=True,
     ):
         seen.append((float(image.sum()), wavelength, args[4]))  # args[4] is the noise
         return tuple(np.full((4, 4), float(image.sum())) for _ in range(8)) + ([image.sum()],)
