@@ -144,7 +144,11 @@ def generate_clean_cube(
         compute_backend=compute_backend,
         terminal_logger=terminal_logger,
     )
-    model = usm.channel_first(sky.datacube) / beam_area.value
+    model = usm.channel_first(sky.datacube)
+    # A sky model's cube is a surface brightness, per beam area; an input cube
+    # in Jy per pixel (a clean model's) already is the flux of each pixel.
+    if not per_pixel_input(sky.external_input_metadata):
+        model = model / beam_area.value
     totflux = np.sum(model)
     log(f"Total Flux injected in model cube: {round(totflux, 3)} Jy")
     log("Observing with ALMA")
@@ -194,6 +198,13 @@ def generate_clean_cube(
             else spectral.continuum_fraction(geometry.n_channels)
         ),
     )
+
+
+def per_pixel_input(external_input_metadata: dict[str, Any] | None) -> bool:
+    """Whether the run's input cube states its values in Jy per pixel (``BUNIT``),
+    as WSClean's model images do: the flux each pixel holds, used as it is."""
+    unit = str((external_input_metadata or {}).get("input_bunit", ""))
+    return unit.replace(" ", "").upper() in {"JY/PIXEL", "JY/PIX"}
 
 
 def _window_corruptions(params: SimulationParams, geometry: CubeGeometry) -> CorruptionModel | None:

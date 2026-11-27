@@ -537,3 +537,13 @@ def test_visibilities_only_makes_the_ms_alone(monkeypatch, tmp_path):
     assert kwargs["visibilities_only"] and kwargs["ms_export"]
     _, refused = _params_from_cli(monkeypatch, tmp_path, "--visibilities-only")
     assert refused.exit_code == 2
+
+
+def test_an_input_cube_in_jy_per_pixel_is_the_flux_of_each_pixel():
+    from almasim.services.simulation.stages import per_pixel_input
+
+    assert per_pixel_input({"input_bunit": "JY/PIXEL"}) and per_pixel_input(
+        {"input_bunit": "Jy / pix"}
+    )
+    assert not per_pixel_input({"input_bunit": "Jy/beam"}) and not per_pixel_input({})
+    assert not per_pixel_input(None)
