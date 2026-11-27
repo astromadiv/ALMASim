@@ -284,15 +284,16 @@ window with no delivered image is imaged as from a `compute-parameters` CSV:
   `--velocity-resolution`; `--max-cube-gb` caps the count as it does
   without a header.
 - **The delivered channels.** With `--by-member` and `--cube`,
-  `--header-channels` makes each cube on the channels of its delivered cube:
+  `--header-channels` (the default) makes each cube on the channels of its
+  delivered cube:
   the execution blocks are regridded onto the delivered cube's first channel,
   channel width and count (its LSRK axis), so channel *n* of the cube is
   channel *n* of the delivered one, whatever `--spectral-sampling` and
   `--max-cube-gb` say. A delivered channel the execution blocks do not all
   cover, edge to edge, is left out, and the task's log names the channels
   made. A row whose cube is not in LSRK, or whose header lacks the frequency
-  axis, takes the window's own channels, as `--window-channels` (the
-  default) does for every row.
+  axis, takes the window's own channels, as `--window-channels` does for
+  every row.
 
 `--fov-fraction`, `--beam-sampling` and `--min-beams-across` do not change a
 row that has `image_n_pixels` and `image_cell_arcsec`.
@@ -474,7 +475,7 @@ keeps the tables the pipeline applied to its targets:
 almasim image alma-selfcal /data/deliveries --casa-data-root /data/casa-data
 
 # 2. image the members from their self-calibrated execution blocks
-#    (--alma-selfcal, --uv-contsub and --header-beam are the defaults)
+#    (--alma-selfcal, --uv-contsub, --header-beam and --header-channels are the defaults)
 almasim image image-from-ms /data/deliveries /data/deliveries --by-member --cube
 ```
 

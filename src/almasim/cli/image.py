@@ -1270,7 +1270,7 @@ def image_from_ms(
         rich_help_panel="Imaging",
     ),
     header_channels: bool = typer.Option(
-        False,
+        True,
         "--header-channels/--window-channels",
         help=(
             "With --by-member and --cube, make each cube on the channels of its delivered "
@@ -1278,7 +1278,9 @@ def image_from_ms(
             "saved, in LSRK): the execution blocks are regridded onto them, so channel n of "
             "the cube is channel n of the delivered one, whatever --spectral-sampling and "
             "--max-cube-gb say. Channels the execution blocks do not all cover are left out "
-            "(the log names those made). Default --window-channels: the window's own."
+            "(the log names those made). On by default; a row without the delivered "
+            "cube's LSRK axis takes its window's own channels. --window-channels: the "
+            "window's own for every row."
         ),
         rich_help_panel="Imaging",
     ),

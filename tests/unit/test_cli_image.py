@@ -1952,4 +1952,5 @@ def test_image_from_ms_defaults_are_the_round_trips_options():
         for name, p in inspect.signature(cli_image.image_from_ms).parameters.items()
     }
     assert defaults["header_beam"] is True and defaults["overwrite_outputs"] is True
+    assert defaults["header_channels"] is True
     assert defaults["uv_contsub"] is None and defaults["alma_selfcal"] is None
