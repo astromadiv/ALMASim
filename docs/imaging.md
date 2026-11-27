@@ -122,8 +122,9 @@ leaves:
 | `<task>.failed` | failed; JSON with the error (exit code, the `what():` line of a crash, a timeout, a missing binary, or "exited 0 but wrote no image") and the log path |
 | `<task>.log` | the full WSClean output, written live on the shared filesystem: `tail -f` it from the submit node |
 
-Tasks with a `.done` marker are skipped on a rerun and everything else is
-retried. `--overwrite-outputs` redoes all of them, and `--skip-existing` also
+A rerun redoes every task (`--overwrite-outputs`, the default). With
+`--skip-done`, tasks with a `.done` marker are skipped and everything else is
+retried, which resumes an interrupted run, and `--skip-existing` also
 trusts a `wsclean-image.fits` produced before markers existed (and writes its
 marker). Failed tasks are listed at the end and the command exits 1 once every
 task has been attempted; `--fail-fast` stops at the first failure instead. If
@@ -172,7 +173,7 @@ next to the images ALMASim makes:
 member's `mfs` and `cube` science images of that window (`--kinds`). With
 `--kinds mfs,cube,cont` it also saves the header of the image of the field's
 windows together (`...spw25_27_29_31.cont...`), whose beam an aggregate
-continuum is restored with (`--header-beam`). It
+continuum is restored with (`--header-beam`, the default). It
 needs the delivery tree's `ous_index.csv`, which names each MS's member
 (`--ous-index`, or the one at `--delivery-root`, or the nearest above the
 MSs). The images are those in the member's `product/` folder (`--source
@@ -187,8 +188,8 @@ The archive is asked once per member for its list of images.
   archive image is matched on its name alone, since its header is not on disk.
 - Of several images of one window and field, the self-calibrated one
   (`.selfcal.`) is taken before the `.regcal.` one, and a Stokes I image
-  before any other. Its data are self-calibrated: `--alma-selfcal` images
-  from data self-calibrated as they were
+  before any other. Its data are self-calibrated: `--alma-selfcal` (on by
+  default with `--by-member`) images from data self-calibrated as they were
   ([the pipeline's self-calibration](#the-alma-pipelines-self-calibration)).
 - An image's CSV has one row per (MS, window, field) the image is of: an
   image of a member with three execution blocks has three rows, and an image
@@ -245,8 +246,9 @@ MS-derived size and cell the check compares with.
 
 **The delivered beam.** WSClean restores an image with the Gaussian it fits
 to its own PSF, which differs from tclean's by a few percent, and with it
-the flux per beam of everything that was cleaned. `--header-beam` restores
-with the delivered image's beam instead (WSClean `-beam-shape`), so the two
+the flux per beam of everything that was cleaned. `--header-beam` (the
+default; `--fitted-beam` keeps WSClean's) restores with the delivered image's
+beam instead (WSClean `-beam-shape`), so the two
 images compare pixel by pixel: a cube with its cube's beam, a window's
 continuum with its `mfs` image's, and an aggregate continuum with that of
 the image of the windows together (its windows' first `mfs` beam where the
@@ -309,9 +311,10 @@ lists every option.
   dirty to keep. The cube run lets WSClean reorder the visibilities, which
   keeps three files open per channel; `almasim` raises its soft open-file
   limit to the hard one at start-up, and every job it submits inherits that.
-- `--contsub` writes an image-plane continuum-subtracted cube;
-  `--uv-contsub` subtracts the continuum from the visibilities (CASA
-  `uvcontsub`) before imaging instead. It finds the line channels on the
+- `--uv-contsub` subtracts the continuum from the visibilities (CASA
+  `uvcontsub`) before imaging. It is on by default for every cube made from
+  single-window copies; `--no-uv-contsub` keeps the continuum in the cube,
+  and `--contsub` writes an image-plane continuum-subtracted cube instead. It finds the line channels on the
   source spectrum (every row's visibilities averaged per channel) and fits
   the continuum over the others; the task log's "lines in channels" lists
   them.
@@ -471,7 +474,8 @@ keeps the tables the pipeline applied to its targets:
 almasim image alma-selfcal /data/deliveries --casa-data-root /data/casa-data
 
 # 2. image the members from their self-calibrated execution blocks
-almasim image image-from-ms /data/deliveries /data/deliveries --by-member --cube --alma-selfcal
+#    (--alma-selfcal, --uv-contsub and --header-beam are the defaults)
+almasim image image-from-ms /data/deliveries /data/deliveries --by-member --cube
 ```
 
 The replay follows the pipeline:
@@ -498,7 +502,8 @@ per field) and `alma-selfcal.log`. A member already replayed is skipped
 stage has nothing to replay. A block the pipeline did not apply tables to is
 listed in `apply.json`'s `not_applied`.
 
-With `--alma-selfcal`, `image-from-ms --by-member` applies a member's tables
+With `--by-member`, `image-from-ms` applies a member's tables
+(`--alma-selfcal`, the default; `--no-alma-selfcal` leaves them out)
 to each block's window, once the window is extracted and before it is
 regridded: `applycal` with each table's `spwmap` taken to the extracted window
 (a table solved over the windows together maps every window to the one it was

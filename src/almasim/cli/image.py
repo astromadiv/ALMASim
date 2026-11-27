@@ -6,7 +6,7 @@ import os
 import shutil
 import subprocess
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -805,7 +805,7 @@ class ImageFromMsOptions:
     noise_products: bool
     pbcor: bool
     casa_data_root: Path | None
-    uv_contsub: bool
+    uv_contsub: bool | None
     contsub_order: int
     pipeline_line_free: bool
     spectral_sampling: float
@@ -822,7 +822,7 @@ class ImageFromMsOptions:
     aggregate_line_free: bool = True
     header_beam: bool = False
     header_channels: bool = False
-    alma_selfcal: bool = False
+    alma_selfcal: bool | None = None
 
 
 @image_app.command("image-from-ms")
@@ -1005,9 +1005,12 @@ def image_from_ms(
         rich_help_panel="Outputs",
     ),
     overwrite_outputs: bool = typer.Option(
-        False,
-        "--overwrite-outputs",
-        help="Redo every task, including the ones with a .done marker.",
+        True,
+        "--overwrite-outputs/--skip-done",
+        help=(
+            "Redo every task, including the ones with a .done marker (default). "
+            "--skip-done skips them and retries the rest, to resume an interrupted run."
+        ),
         rich_help_panel="Outputs",
     ),
     continue_on_error: bool = typer.Option(
@@ -1099,15 +1102,16 @@ def image_from_ms(
         ),
         rich_help_panel="Self-calibration",
     ),
-    uv_contsub: bool = typer.Option(
-        False,
+    uv_contsub: bool | None = typer.Option(
+        None,
         "--uv-contsub/--no-uv-contsub",
         help=(
             "Subtract the continuum from the visibilities before imaging (CASA uvcontsub): "
             "line channels are found on the source spectrum, the continuum is fitted per "
             "visibility over the others. The continuum image is made from the fitted "
             "continuum and every cube product holds only the lines. Needs --cube and "
-            "--single-window-ms; replaces --contsub."
+            "--single-window-ms; replaces --contsub. On by default whenever --cube and "
+            "--single-window-ms are given without --contsub."
         ),
         rich_help_panel="Continuum subtraction",
     ),
@@ -1254,14 +1258,14 @@ def image_from_ms(
         rich_help_panel="Imaging",
     ),
     header_beam: bool = typer.Option(
-        False,
+        True,
         "--header-beam/--fitted-beam",
         help=(
             "Restore every image with the beam of its delivered image (BMAJ, BMIN and BPA "
             "of the header image fetch-headers saved; WSClean -beam-shape): a cube with its "
             "cube's, a continuum with its mfs image's, an aggregate continuum with that of "
-            "the image of the windows together. A row without a beam keeps the fitted one. "
-            "Default --fitted-beam: the Gaussian WSClean fits to its own PSF."
+            "the image of the windows together (default). A row without a beam keeps the "
+            "fitted one. --fitted-beam: the Gaussian WSClean fits to its own PSF."
         ),
         rich_help_panel="Imaging",
     ),
@@ -1278,15 +1282,16 @@ def image_from_ms(
         ),
         rich_help_panel="Imaging",
     ),
-    alma_selfcal: bool = typer.Option(
-        False,
-        "--alma-selfcal",
+    alma_selfcal: bool | None = typer.Option(
+        None,
+        "--alma-selfcal/--no-alma-selfcal",
         help=(
             "With --by-member, self-calibrate each execution block with the ALMA pipeline's "
             "own self-calibration, replayed by 'almasim image alma-selfcal' (its "
             "alma-selfcal/ folder in the member's images/, or in the output's member "
             "folder), before the blocks are combined. A member without a replay is "
-            "combined as it is; the task's log says which blocks were self-calibrated."
+            "combined as it is; the task's log says which blocks were self-calibrated. On "
+            "by default with --by-member."
         ),
         rich_help_panel="Self-calibration",
     ),
@@ -1295,19 +1300,31 @@ def image_from_ms(
 
     Each task leaves ``SPW-<n>.done`` or ``SPW-<n>.failed`` (with the error and
     the log path) next to its output directory, and ``SPW-<n>.log`` with the
-    full WSClean output. A rerun skips the tasks with a ``.done`` marker and
-    retries the rest, so an interrupted batch can simply be resubmitted.
+    full WSClean output. A rerun redoes every task; with --skip-done it skips
+    the tasks with a ``.done`` marker and retries the rest, so an interrupted
+    batch can be resumed.
 
     An output directory that is the root of an ALMA delivery tree (it holds
     ``ous_index.csv``) puts each task in its member's folder:
     ``<member>/images/SPW-<n>_<field>`` with --by-member, and
     ``<member>/images/<ms>/SPW-<n>`` for one EB's MS.
     """
-    o = ImageFromMsOptions(**locals())
+    o = _with_defaults(ImageFromMsOptions(**locals()))
     imaging, execution = _image_from_ms_options(o)
     tasks = _image_from_ms_tasks(o, imaging)
     if tasks:
         _run_image_from_ms(o, imaging, execution, tasks)
+
+
+def _with_defaults(o: ImageFromMsOptions) -> ImageFromMsOptions:
+    """``o`` with the options left unset decided: --uv-contsub wherever it can run (a
+    cube from single-window copies, no image-plane --contsub), --alma-selfcal with
+    --by-member."""
+    uv_contsub = o.uv_contsub
+    if uv_contsub is None:
+        uv_contsub = o.cube and o.single_window and not o.contsub
+    alma_selfcal = o.by_member if o.alma_selfcal is None else o.alma_selfcal
+    return replace(o, uv_contsub=uv_contsub, alma_selfcal=alma_selfcal)
 
 
 def _image_from_ms_options(o: ImageFromMsOptions) -> tuple[ImagingOptions, ExecOptions]:
@@ -1343,7 +1360,7 @@ def _image_from_ms_options(o: ImageFromMsOptions) -> tuple[ImagingOptions, ExecO
         single_window=o.single_window,
         max_weight=o.max_weight if o.max_weight > 0 else None,
         contsub=o.contsub,
-        uv_contsub=o.uv_contsub,
+        uv_contsub=bool(o.uv_contsub),
         contsub_order=o.contsub_order,
         pipeline_line_free=o.pipeline_line_free,
         ous_index=str(o.ous_index) if o.ous_index is not None else None,
@@ -1427,7 +1444,7 @@ def _image_from_ms_tasks(o: ImageFromMsOptions, imaging: ImagingOptions) -> list
         aggregate_continuum=imaging.aggregate_continuum,
         header_beam=o.header_beam,
         header_channels=o.header_channels,
-        alma_selfcal=o.alma_selfcal,
+        alma_selfcal=bool(o.alma_selfcal),
     )
     if o.alma_selfcal:
         without = sorted(

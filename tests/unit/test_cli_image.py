@@ -1084,7 +1084,9 @@ def test_image_from_ms_nothing_to_do_when_all_done(monkeypatch, tmp_path):
     imaging_markers.write_imaging_marker(done_dir, ms_path="x", spw=0)
     monkeypatch.setattr(cli_image, "run_imaging_tasks", lambda *a, **k: pytest.fail("no run"))
 
-    result = runner.invoke(cli.app, ["image", "image-from-ms", str(csv_path), str(out)])
+    result = runner.invoke(
+        cli.app, ["image", "image-from-ms", str(csv_path), str(out), "--skip-done"]
+    )
     assert result.exit_code == 0, result.output
     assert "Skipped 1 already-imaged SPW(s)." in result.output
     assert "nothing to do" in result.output
@@ -1912,3 +1914,42 @@ def test_ms_overview_fails_cleanly_without_casacore(monkeypatch, tmp_path):
     result = runner.invoke(cli_image.image_app, ["ms-overview", str(tmp_path / "x.ms")])
     assert result.exit_code == 1
     assert "python-casacore" in result.output
+
+
+@dataclasses.dataclass(frozen=True)
+class _Unset:
+    cube: bool = True
+    single_window: bool = True
+    contsub: bool = False
+    by_member: bool = True
+    uv_contsub: bool | None = None
+    alma_selfcal: bool | None = None
+
+
+@pytest.mark.unit
+def test_image_from_ms_decides_the_options_left_unset():
+    o = cli_image._with_defaults(_Unset())  # type: ignore[arg-type]
+    assert (o.uv_contsub, o.alma_selfcal) == (True, True)
+    # Where they cannot run, they are off rather than refused.
+    o = cli_image._with_defaults(  # type: ignore[arg-type]
+        _Unset(cube=False, by_member=False)
+    )
+    assert (o.uv_contsub, o.alma_selfcal) == (False, False)
+    assert cli_image._with_defaults(_Unset(contsub=True)).uv_contsub is False  # type: ignore[arg-type]
+    # Given, they are kept: the checks then refuse what cannot run.
+    o = cli_image._with_defaults(  # type: ignore[arg-type]
+        _Unset(cube=False, by_member=False, uv_contsub=True, alma_selfcal=True)
+    )
+    assert (o.uv_contsub, o.alma_selfcal) == (True, True)
+
+
+@pytest.mark.unit
+def test_image_from_ms_defaults_are_the_round_trips_options():
+    import inspect
+
+    defaults = {
+        name: getattr(p.default, "default", p.default)
+        for name, p in inspect.signature(cli_image.image_from_ms).parameters.items()
+    }
+    assert defaults["header_beam"] is True and defaults["overwrite_outputs"] is True
+    assert defaults["uv_contsub"] is None and defaults["alma_selfcal"] is None
