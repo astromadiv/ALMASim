@@ -21,6 +21,7 @@ from almasim.services.imaging.wsclean_plan import (
     CubeOptions,
     _format_dec,
     _format_ra,
+    beam_arguments,
     cube_channels,
     imaging_parameter_to_command_arg,
 )
@@ -327,3 +328,50 @@ def test_unreadable_image_values_leave_the_defaults() -> None:
     assert imaging_parameter_to_command_arg(junk, 1.0, 4.0) == plain
     options = CubeOptions()
     assert cube_channels(junk, 100, options) == cube_channels(_row(), 100, options)
+
+
+def test_the_header_gives_the_restoring_beam() -> None:
+    geometry = image_geometry(_header())
+    assert geometry["image_bmaj_arcsec"] == pytest.approx(0.072)
+    assert geometry["image_bmin_arcsec"] == pytest.approx(0.054)
+    assert geometry["image_bpa_deg"] == pytest.approx(30.0)
+    # A cube with a beam per channel has no BMAJ card: no beam at all.
+    per_channel = _header()
+    del per_channel["BMAJ"]
+    beam = {k: v for k, v in image_geometry(per_channel).items() if k.startswith("image_b")}
+    assert len(beam) == 3 and all(math.isnan(float(v)) for v in beam.values())
+
+
+def test_the_header_gives_the_first_channel_and_the_frame() -> None:
+    header = _header()
+    header["CRPIX3"] = 3.0
+    header["SPECSYS"] = "LSRK"
+    geometry = image_geometry(header)
+    assert geometry["image_start_frequency_hz"] == pytest.approx(1.0e9 - 2 * 1.0e6)
+    assert geometry["image_spectral_frame"] == "LSRK"
+    header["CTYPE3"] = "STOKES"
+    assert math.isnan(float(image_geometry(header)["image_start_frequency_hz"]))
+
+
+def test_the_header_beam_restores_each_image_with_its_own() -> None:
+    row = _row(
+        image_bmaj_arcsec=0.6127,
+        image_bmin_arcsec=0.5111,
+        image_bpa_deg=-72.35,
+        continuum_bmaj_arcsec=0.6123,
+        continuum_bmin_arcsec=0.5171,
+        continuum_bpa_deg=-71.48,
+    )
+    assert "-beam-shape" not in imaging_parameter_to_command_arg(row, 1.0, 4.0)
+    cube = imaging_parameter_to_command_arg(row, 1.0, 4.0, cube=CubeOptions(), header_beam=True)
+    assert cube[cube.index("-beam-shape") + 1 :][:3] == ["0.6127asec", "0.5111asec", "-72.35deg"]
+    # The continuum is restored with the beam of the window's mfs image.
+    continuum = imaging_parameter_to_command_arg(row, 1.0, 4.0, header_beam=True)
+    following = continuum[continuum.index("-beam-shape") + 1 :]
+    assert following[:3] == ["0.6123asec", "0.5171asec", "-71.48deg"]
+    # A row without a whole beam keeps the one WSClean fits.
+    assert beam_arguments(_row(image_bmaj_arcsec=0.6, image_bpa_deg=10.0)) == []
+    assert beam_arguments(_row(image_bmaj_arcsec=0.6, image_bmin_arcsec=0.0, image_bpa_deg=1)) == []
+    assert beam_arguments(_row(image_bmaj_arcsec="x", image_bmin_arcsec=0.5, image_bpa_deg=1)) == []
+    plain = imaging_parameter_to_command_arg(_row(), 1.0, 4.0, header_beam=True)
+    assert "-beam-shape" not in plain

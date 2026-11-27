@@ -86,6 +86,11 @@ class ChannelImagingConfig:
     # sizes: each baseline sees the sky through its two dishes' beams. None:
     # every dish is Diameters[0].
     antenna_diameters: np.ndarray | None = None
+    # False: a channel hands back its visibility rows and baselines only, not
+    # its images (model, dirty image, their Fourier planes, beam and sampling).
+    image_products: bool = True
+    # False: the sky model already holds the primary beam's response.
+    apply_primary_beam: bool = True
 
     def channel_rng(self, channel: int) -> np.random.Generator:
         """The generator of ``channel``: the same whichever worker images it."""
@@ -122,7 +127,7 @@ def image_configured_channel(
         pairs = baseline_antennas(config.Nant)
         g = config.antenna_noise[:, channel]
         corrupted["noise_scale"] = np.sqrt(g[pairs[:, 0]] * g[pairs[:, 1]])
-    return image_channel(
+    result = image_channel(
         image,
         wavelength,
         config.Npix,
@@ -148,8 +153,17 @@ def image_configured_channel(
         rng=config.channel_rng(channel),
         hour_angles=config.hour_angles,
         antenna_diameters=config.antenna_diameters,
+        apply_primary_beam=config.apply_primary_beam,
         **corrupted,
     )
+    if config.image_products:
+        return result
+    # The six images are on the padded grid, four times the cube's pixels each:
+    # dropped here, in the worker, they are never kept for every channel at once.
+    return tuple(
+        value if name in ("u", "v") else None
+        for name, value in zip(CHANNEL_OUTPUTS, result, strict=False)
+    ) + (result[len(CHANNEL_OUTPUTS)],)
 
 
 def channel_noise(noise: Any, channel: int) -> float:
@@ -185,13 +199,20 @@ def stack_channels(results: list, *, start: int, size: int) -> tuple[dict, list]
     The model sits in the central ``size`` box of the zero-padded FFT grid in
     both domains (the source is centred in the image, the sampled
     visibilities are DC-centred), so the ring around it is the guard band.
+
+    Channels imaged without their images (``image_products`` off) give cubes
+    of one empty pixel per channel in their place.
     """
     stop = start + size
-    cubes = {
-        name: np.stack([res[index] for res in results], axis=0)
-        for index, name in enumerate(CHANNEL_OUTPUTS)
-    }
-    for name in ("model", "dirty", "beam", "model_vis", "dirty_vis", "totsampling"):
-        cubes[name] = cubes[name][:, start:stop, start:stop]
+    images = ("model", "dirty", "beam", "model_vis", "dirty_vis", "totsampling")
+    cubes = {}
+    for index, name in enumerate(CHANNEL_OUTPUTS):
+        if results[0][index] is None:
+            kind = np.complex64 if name.endswith("_vis") else np.float32
+            cubes[name] = np.zeros((len(results), 1, 1), dtype=kind)
+        else:
+            cubes[name] = np.stack([res[index] for res in results], axis=0)
+            if name in images:
+                cubes[name] = cubes[name][:, start:stop, start:stop]
     cubes["uv_mask"] = sampling_to_uv_mask(cubes["totsampling"])
     return cubes, [res[8] for res in results]

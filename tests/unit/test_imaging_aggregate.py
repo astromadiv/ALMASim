@@ -101,6 +101,34 @@ def test_a_field_of_several_windows_gets_an_aggregate_task(tmp_path):
     )
 
 
+def test_the_aggregate_is_restored_with_the_beam_of_the_delivered_one(tmp_path):
+    parameters = _parameters({13: (0.60, 17.0), 19: (0.56, 16.5)})
+    for column, values in {
+        "continuum_bmaj_arcsec": [0.61, 0.57],
+        "continuum_bmin_arcsec": [0.51, 0.48],
+        "continuum_bpa_deg": [-72.0, -70.0],
+        "aggregate_bmaj_arcsec": [0.59, 0.59],
+        "aggregate_bmin_arcsec": [0.5, 0.5],
+        "aggregate_bpa_deg": [-71.0, -71.0],
+    }.items():
+        parameters[column] = values
+    build = dict(aggregate_continuum=True, header_beam=True, **COMMON)
+
+    def beam(command):
+        return command[command.index("-beam-shape") + 1 :][:3]
+
+    first, second, joint = build_imaging_tasks(parameters, tmp_path, **build)[0]
+    assert beam(first.command) == ["0.61asec", "0.51asec", "-72deg"]
+    assert beam(second.command) == ["0.57asec", "0.48asec", "-70deg"]
+    assert beam(joint.command) == ["0.59asec", "0.5asec", "-71deg"]
+    assert joint.command.count("-beam-shape") == 1
+    # Without an image of the windows together: the first window's mfs beam.
+    alone = parameters.drop(columns=[c for c in parameters if c.startswith("aggregate_")])
+    assert beam(build_imaging_tasks(alone, tmp_path, **build)[0][-1].command) == beam(first.command)
+    plain = build_imaging_tasks(parameters, tmp_path, aggregate_continuum=True, **COMMON)[0]
+    assert not any("-beam-shape" in task.command for task in plain)
+
+
 def test_one_window_or_no_flag_gives_no_aggregate_task(tmp_path):
     two = _parameters({13: (0.6, 17.0), 19: (0.56, 16.5)})
     assert not any(t.aggregate for t in build_imaging_tasks(two, tmp_path, **COMMON)[0])

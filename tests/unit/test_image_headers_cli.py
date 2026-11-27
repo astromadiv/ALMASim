@@ -43,6 +43,9 @@ def _header_bytes(kind: str, obj: str = "NGC1", pixels: int = 128) -> bytes:
     header["CRVAL3"] = 230.0e9
     header["CDELT3"] = 1.0e6
     header["OBJECT"] = obj
+    header["BMAJ"] = {"cube": 2.0e-4, "mfs": 1.9e-4}.get(kind, 1.8e-4)
+    header["BMIN"] = 1.5e-4
+    header["BPA"] = -70.0
     for line in (
         "imsize      = [128, 128]",
         "cell        = ['0.036arcsec']",
@@ -151,6 +154,42 @@ def test_each_image_gets_its_header_and_parameter_csv_in_its_member(
         assert rows["continuum_threshold_jy"].tolist() == [pytest.approx(4.0e-5)]
         assert rows["continuum_weighting"].tolist() == ["briggsbwtaper"]
     assert len(cli.image._read_parameters(folder / f"{MFS}.csv")) == 1
+
+
+def test_the_image_of_the_windows_together_gives_the_aggregate_beam(
+    tmp_path: Path, patched
+) -> None:
+    root, ms = _tree(tmp_path, windows=(25, 27))
+    together = f"{PREFIX}.NGC1_sci.spw25_27.cont.I.pbcor.fits"
+    (root / MEMBER_FOLDER / "product" / together).write_bytes(_header_bytes("cont") + b"\0" * 2880)
+    patched(windows=(25, 27))
+    result = runner.invoke(
+        cli.app, ["image", "fetch-headers", str(root), "--kinds", "mfs,cube,cont"]
+    )
+    assert result.exit_code == 0, result.output
+    csv = pd.read_csv(root / HEADERS / f"{together}.csv")
+    assert csv["image_kind"].tolist() == ["cont", "cont"]
+    assert csv["spectral_window_id"].tolist() == [25, 27]
+
+    rows = cli.image._read_parameters(root)
+    # A window's row is its cube's, with the beams of its mfs image and of
+    # the image of the windows together beside the cube's own.
+    assert rows["image_kind"].tolist() == ["cube", "cube"]
+    assert rows["image_bmaj_arcsec"].tolist() == [pytest.approx(0.72)] * 2
+    assert rows["continuum_bmaj_arcsec"].tolist() == [pytest.approx(0.684)] * 2
+    assert rows["aggregate_bmaj_arcsec"].tolist() == [pytest.approx(0.648)] * 2
+    assert rows["aggregate_bmin_arcsec"].tolist() == [pytest.approx(0.54)] * 2
+    assert rows["aggregate_bpa_deg"].tolist() == [pytest.approx(-70.0)] * 2
+    # Without it the columns are there and empty.
+    for path in (root / HEADERS).glob("*.cont.*"):
+        path.unlink()
+    assert cli.image._read_parameters(root)["aggregate_bmaj_arcsec"].isna().all()
+    # The aggregate's rows alone image nothing.
+    for path in (root / HEADERS).glob("*.csv"):
+        frame = pd.read_csv(path)
+        frame.assign(image_kind="cont").to_csv(path, index=False)
+    with pytest.raises(typer.BadParameter, match="no parameter row of a window"):
+        cli.image._read_parameters(root)
 
 
 def test_parse_headers_rewrites_the_csvs_from_the_saved_headers(tmp_path: Path, patched) -> None:

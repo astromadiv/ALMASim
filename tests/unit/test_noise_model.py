@@ -11,6 +11,7 @@ from typer.testing import CliRunner
 
 from almasim.services.interferometry.corruptions import CorruptionModel
 from almasim.services.noise_model import (
+    COMPONENT_GROUPS,
     COMPONENT_NAMES,
     Components,
     NoiseComponent,
@@ -85,6 +86,32 @@ def test_components_are_selected_and_separable():
             version=1,
             components=Components(radiometer=partial.components.radiometer),
         ).select(only=["slow_phase"])
+
+
+@pytest.mark.unit
+def test_a_group_selects_its_components_the_model_has():
+    alma = released_model("alma")
+    thermal = alma.select(without=["calibration"])
+    assert thermal.enabled() == list(COMPONENT_GROUPS["thermal"])
+    assert alma.select(only=["thermal"]).sha256() == thermal.sha256()
+    model = CorruptionModel.from_mapping(thermal.engine_fields())
+    assert model.radiometer_noise and not model.has_antenna_errors
+    assert model.slow_path_um_1km == 0 and model.fast_path_um_1km == 0
+    assert model.baseline_amp_rms == 0
+    # The two groups split every component between them.
+    assert sorted(COMPONENT_GROUPS["thermal"] + COMPONENT_GROUPS["calibration"]) == sorted(
+        COMPONENT_NAMES
+    )
+    # A group passes over the components a model does not hold; a single name does not.
+    radiometer_only = NoiseModel(
+        name="thermal",
+        version=1,
+        components=Components(radiometer=alma.components.radiometer),
+    )
+    assert radiometer_only.select(without=["calibration"]) is radiometer_only
+    assert radiometer_only.select(only=["radiometer,calibration"]).enabled() == ["radiometer"]
+    with pytest.raises(ValueError, match="groups: thermal, calibration"):
+        alma.select(without=["calibrations"])
 
 
 @pytest.mark.unit

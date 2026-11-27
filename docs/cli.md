@@ -201,13 +201,15 @@ $ almasim simulation [OPTIONS]
 * `--persist-standard-outputs`: Persist standard outputs in addition to ML shard.
 * `--ml-shard-path <path>`: Destination HDF5 shard path.  [default: ~/almasim_outputs/ddrm_training_sample.h5]
 * `--ms-export`: Also write each run's MeasurementSet, <project-name>_<run>.ms in --output-dir (in the run's own folder when there are several runs and products are kept), with any --save-mode: Stokes I in both hands, with the noise model's noise and WEIGHT. Needs casatools or python-casacore.
+* `--visibilities-only`: Make only the MeasurementSet (needs --ms-export): no dirty, beam or sampling cubes and no ML shard. A channel's images are dropped as it is simulated, so the run needs the memory of the input cube and the visibilities, not of the image cubes (about a hundred times the input cube). For large --input cubes.
+* `--apparent-input`: The --input cube already holds the primary beam's response, as a clean model does (the sky as the antennas saw it): it is observed as it is, the primary beam not applied again.
 * `--casa-data-root <path>`: CASA runtime data for writing the MS with casatools (default <output-dir>/.casa-data, downloaded once when missing). python-casacore alone needs none.
 * `--backend <sync|local>`: How the channels are imaged: sync, one after another in one process; local, in parallel worker processes on this node (--n-workers).  [default: sync]
 * `--n-workers <int range>`: Worker processes for --backend local; give the job as many CPUs.  [default: 1; x>=1]
 * `--kaggle-token <path>`: Path to a Kaggle credentials file (JSON with username/key, e.g. kaggle.json or access_token) or the directory containing it, used to download morphology images for the galaxy-zoo / hubble-100 source types. Defaults to the standard Kaggle locations if omitted.
 * `--noise-model, --corruptions <str>`: What the visibilities carry besides white thermal noise: a released noise model ('alma', the newest version, or 'alma@1': radiometer noise following ALMA's Tsys, correlated channels, antenna noise ripple and, on bright sources, the gain, atmospheric phase and baseline errors calibration leaves, as measured on real calibrated data; 'none'), a JSON object or a JSON file of a noise model. 'almasim noise show' lists the models.
-* `--noise-only <str>`: Apply only these components of the noise model (comma-separated, e.g. 'radiometer,channel_correlation'); 'almasim noise show' lists them.
-* `--noise-without <str>`: Apply the noise model without these components (comma-separated).
+* `--noise-only <str>`: Apply only these components of the noise model (comma-separated, e.g. 'radiometer,channel_correlation', or a group: 'thermal'); 'almasim noise components' lists them.
+* `--noise-without <str>`: Apply the noise model without these components (comma-separated, or a group: 'calibration' leaves out the errors calibration leaves, which a clean model of real data already holds).
 * `--executions <int range>`: How many of the MOUS's execution blocks to simulate (default: all). A row's Int.Time is the MOUS's total time on source; it is observed in blocks (the row's n_executions, else blocks of at most 3000 s), each a track of its own on its own day (--hour-angle). 1 gives a single execution block.  [x>=1]
 * `--hour-angle <float range>`: Hour angle (h) at the middle of each execution block's track (default: drawn with the seed, uniform within +-2.5 h where the whole track stays above 30 deg elevation; transit when nowhere does).  [-12.0<=x<=12.0]
 * `--track-span <float range>`: Seconds from the start of each execution block's first scan to the end of its last (default: 1.27 times its time on source, the calibrators' scans taking the rest; never less than the time on source).  [x>=0.0]
@@ -486,7 +488,7 @@ $ almasim image fetch-headers [OPTIONS] [archive_folder]
 * `--delivery-root <path>`: Root of the ALMA delivery tree holding the member product folders.
 * `--ous-index <path>`: The delivery tree's ous_index.csv (default: nearest above the MSs).
 * `--source <str>`: Where the tclean images are read: local, archive, or auto (local first).  [default: auto]
-* `--kinds <str>`: Image kinds to read, comma-separated (mfs, cube).  [default: mfs,cube]
+* `--kinds <str>`: Image kinds to read, comma-separated: mfs and cube (a window's own images), cont (the image of a field's windows together, whose beam --aggregate-continuum with --header-beam restores with).  [default: mfs,cube]
 * `--include <str>`: Glob picking image files, e.g. '*_sci.*.pbcor.fits'. Repeatable.
 * `--exclude <str>`: Glob dropping image files. Repeatable.
 * `--require-done-marker / --no-require-done-marker`: Skip an MS whose <ms>.done calibration marker is missing.  [default: require-done-marker]
@@ -599,6 +601,8 @@ $ almasim image image-from-ms [OPTIONS] {imaging_parameters} {output_directory}
 * `--by-member / --by-ms`: Image each member OUS from all its execution blocks: one task per window and field, the EBs' visibilities regridded onto one LSRK grid (CASA mstransform) and combined. Only complete members are imaged: every EB ALMA calibrated for the member has a calibrated MS (the ous_index.csv) and a row in the CSV. Needs --single-window-ms. Default --by-ms: one task per MS.  [default: by-ms]
 * `--aggregate-continuum / --no-aggregate-continuum`: Also image the continuum of all the windows of each field together, in CONT[_<field>] beside the windows' SPW-<n>[_<field>]: one multi-frequency image, one output channel per window, a spectral slope fitted per component. Needs the continuum and --single-window-ms. Off by default.  [default: no-aggregate-continuum]
 * `--aggregate-line-free / --aggregate-all-channels`: Make the --aggregate-continuum image from each window's continuum fitted over its line-free channels (order --contsub-order), so the windows' lines stay out of it; a window with too few line-free channels is left out. --aggregate-all-channels images every channel, lines included.  [default: aggregate-line-free]
+* `--header-beam / --fitted-beam`: Restore every image with the beam of its delivered image (BMAJ, BMIN and BPA of the header image fetch-headers saved; WSClean -beam-shape): a cube with its cube's, a continuum with its mfs image's, an aggregate continuum with that of the image of the windows together. A row without a beam keeps the fitted one. Default --fitted-beam: the Gaussian WSClean fits to its own PSF.  [default: fitted-beam]
+* `--header-channels / --window-channels`: With --by-member and --cube, make each cube on the channels of its delivered cube (first channel, channel width and count of the header image fetch-headers saved, in LSRK): the execution blocks are regridded onto them, so channel n of the cube is channel n of the delivered one, whatever --spectral-sampling and --max-cube-gb say. Channels the execution blocks do not all cover are left out (the log names those made). Default --window-channels: the window's own.  [default: window-channels]
 * `--help`: Show this message and exit.
 
 ### `almasim image clean-quality`
@@ -765,8 +769,8 @@ $ almasim noise show [OPTIONS] [model]
 
 **Options**:
 
-* `--noise-only <str>`: Show the model with only these components (comma-separated).
-* `--noise-without <str>`: Show the model without these components (comma-separated).
+* `--noise-only <str>`: Show the model with only these components (comma-separated; a group, 'thermal' or 'calibration', names several).
+* `--noise-without <str>`: Show the model without these components (comma-separated; a group, 'thermal' or 'calibration', names several).
 * `--json`: Print the model's JSON.
 * `--help`: Show this message and exit.
 

@@ -13,7 +13,7 @@ from almasim.services.instrument.primary_beam import (
     primary_beam_response,
     primary_beam_voltage,
 )
-from almasim.services.interferometry.imaging import baseline_beam_models
+from almasim.services.interferometry.imaging import baseline_beam_models, baseline_beam_planes
 from almasim.services.interferometry.visibility import build_channel_visibility_rows
 
 
@@ -72,6 +72,45 @@ def test_each_baseline_samples_the_model_through_its_own_dishes_beam():
         mean_wavelength_m=wavelength_km * 1e3,
         beam_models=models,
         baseline_beam=which,
+    )
+    radius = 6.0 / 206264.80624709636
+    seven = primary_beam_response(np.array(radius), 650e9, 7.0)
+    mixed = baseline_beam_response(np.array(radius), 650e9, 7.0, 12.0)
+    amplitude = np.abs(rows["model_data"])
+    assert amplitude[0] == pytest.approx(float(seven), rel=1e-5)
+    assert amplitude[1] == pytest.approx(float(mixed), rel=1e-5)
+    assert amplitude[2] == pytest.approx(float(mixed), rel=1e-5)
+
+
+@pytest.mark.unit
+def test_predicted_rows_see_the_model_through_each_baselines_beams():
+    """Rows predicted at their own (u, v, w) take each kind of baseline's plane."""
+    npix = 32
+    yy, xx = np.mgrid[:npix, :npix]
+    distmat = -(((xx - npix // 2) ** 2 + (yy - npix // 2) ** 2).astype(float))
+    sky = np.zeros((npix, npix))
+    sky[npix // 2, npix // 2 + 6] = 1.0
+    wavelength_km = 299_792_458.0 / 650e9 / 1e3
+    diameters = np.array([7.0, 7.0, 12.0])
+    antnum = np.array([[0, 1], [0, 2], [1, 2]])
+    planes, which = baseline_beam_planes(distmat, [0, 0, wavelength_km], diameters, antnum, sky)
+    rows = build_channel_visibility_rows(
+        modelfft=np.zeros((npix, npix)),
+        gains=np.ones((3, 1)),
+        noise_samples=np.zeros((3, 1)),
+        u_waves=np.zeros((3, 1)),
+        v_waves=np.zeros((3, 1)),
+        w_waves=np.zeros((3, 1)),
+        antnum=antnum,
+        nH=1,
+        Nphf=npix // 2,
+        uv_pixsize=1.0,
+        noise_std=1.0,
+        mean_wavelength_m=wavelength_km * 1e3,
+        baseline_beam=which,
+        model_plane=sky,
+        beam_planes=planes,
+        pixsize_rad=1.0 / 206264.80624709636,
     )
     radius = 6.0 / 206264.80624709636
     seven = primary_beam_response(np.array(radius), 650e9, 7.0)

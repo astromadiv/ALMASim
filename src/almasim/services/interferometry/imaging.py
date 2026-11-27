@@ -134,8 +134,15 @@ def check_lfac(Xmax: float, wavelength: list[float], lfac: float) -> tuple:
     return lfac, ulab, vlab
 
 
-def _prepare_model(Npix: int, img: np.ndarray, Nphf: int, Np4: int, zooming: int) -> tuple:
-    """Prepare model image for processing."""
+def _prepare_model(
+    Npix: int, img: np.ndarray, Nphf: int, Np4: int, zooming: int, positive: bool = True
+) -> tuple:
+    """Prepare model image for processing.
+
+    ``positive`` sets negative pixels to zero, as a sky model's are. A clean
+    model's negative components are part of what was found in the data:
+    ``positive`` off keeps them.
+    """
     modelim = [np.zeros((Npix, Npix), dtype=np.float32) for i in [0, 1]]
     modelimTrue = np.zeros((Npix, Npix), dtype=np.float32)
     dims = np.shape(img)
@@ -159,7 +166,8 @@ def _prepare_model(Npix: int, img: np.ndarray, Nphf: int, Np4: int, zooming: int
             sh0 + Np4 : sh0 + Np4 + zd0,
             sh1 + Np4 : sh1 + Np4 + zd1,
         ] += zoomimg[:zd0, :zd1]
-    modelimTrue[modelimTrue < 0.0] = 0.0
+    if positive:
+        modelimTrue[modelimTrue < 0.0] = 0.0
     return modelim, modelimTrue
 
 
@@ -193,6 +201,28 @@ def set_primary_beam(
     return modelfft, modelim
 
 
+def baseline_beam_planes(
+    distmat: np.ndarray,
+    wavelength: list[float],
+    antenna_diameters: np.ndarray,
+    antnum: np.ndarray,
+    modelimTrue: np.ndarray,
+) -> tuple[list[np.ndarray], np.ndarray]:
+    """The model seen by each kind of baseline of an array of dishes of more
+    than one size, and each baseline's kind (an index into them). A baseline
+    between dishes i and j sees the sky through the product of their voltage
+    patterns (``baseline_beam_response``), so a 7 m dish correlated with a
+    12 m one sees a beam between the two dishes' own."""
+    radius_rad = np.sqrt(np.maximum(-distmat, 0.0)) / ARCSEC_PER_RAD
+    frequency_hz = SPEED_OF_LIGHT_M_S / (wavelength[2] * 1e3)  # wavelengths are in km here
+    pairs = np.sort(np.asarray(antenna_diameters, dtype=np.float64)[antnum], axis=1)
+    kinds, which = np.unique(pairs, axis=0, return_inverse=True)
+    planes = [
+        modelimTrue * baseline_beam_response(radius_rad, frequency_hz, d1, d2) for d1, d2 in kinds
+    ]
+    return planes, np.asarray(which).reshape(-1)
+
+
 def baseline_beam_models(
     distmat: np.ndarray,
     wavelength: list[float],
@@ -200,22 +230,11 @@ def baseline_beam_models(
     antnum: np.ndarray,
     modelimTrue: np.ndarray,
 ) -> tuple[list[np.ndarray], np.ndarray]:
-    """The model's FFT seen by each kind of baseline of an array of dishes of
-    more than one size, and each baseline's kind (an index into them). A
-    baseline between dishes i and j sees the sky through the product of their
-    voltage patterns (``baseline_beam_response``), so a 7 m dish correlated
-    with a 12 m one sees a beam between the two dishes' own."""
-    radius_rad = np.sqrt(np.maximum(-distmat, 0.0)) / ARCSEC_PER_RAD
-    frequency_hz = SPEED_OF_LIGHT_M_S / (wavelength[2] * 1e3)  # wavelengths are in km here
-    pairs = np.sort(np.asarray(antenna_diameters, dtype=np.float64)[antnum], axis=1)
-    kinds, which = np.unique(pairs, axis=0, return_inverse=True)
-    models = [
-        np.fft.fft2(
-            np.fft.fftshift(modelimTrue * baseline_beam_response(radius_rad, frequency_hz, d1, d2))
-        )
-        for d1, d2 in kinds
-    ]
-    return models, np.asarray(which).reshape(-1)
+    """The FFTs of ``baseline_beam_planes``' planes, and each baseline's kind."""
+    planes, which = baseline_beam_planes(
+        distmat, wavelength, antenna_diameters, antnum, modelimTrue
+    )
+    return [np.fft.fft2(np.fft.fftshift(plane)) for plane in planes], which
 
 
 def observe(
@@ -268,6 +287,7 @@ def image_channel(
     noise_scale: np.ndarray | None = None,
     hour_angles: np.ndarray | None = None,
     antenna_diameters: np.ndarray | None = None,
+    apply_primary_beam: bool = True,
 ) -> tuple:
     """Process a single channel through interferometric simulation.
 
@@ -283,6 +303,13 @@ def image_channel(
     each baseline's visibilities then see the sky through its two dishes'
     beams (``baseline_beam_models``), while the dirty image shows it through
     ``Diameters[0]``'s. None: every dish is ``Diameters[0]``.
+    The visibility rows are predicted from the model at each row's own
+    (u, v, w) (``build_channel_visibility_rows``); the dirty image is made on
+    the simulator's uv grid.
+    ``apply_primary_beam`` off: ``img`` already holds the primary beam's
+    response (a clean model is the sky as the antennas saw it), so it is
+    observed as it is, its negative components included; a sky model's
+    negative pixels hold no emission.
     """
     rng = rng if rng is not None else np.random.default_rng()
     # Convert header dict back to FITS Header if needed (for pickling compatibility)
@@ -346,15 +373,25 @@ def image_channel(
         Nphf,
     )
     lfac, ulab, vlab = check_lfac(Xmax, wavelength, lfac)
-    modelim, modelimTrue = _prepare_model(Npix, img, Nphf, Np4, zooming)
-    modelfft, modelim = set_primary_beam(
-        header, distmat, wavelength, Diameters, modelim, modelimTrue
+    # A clean model's negative components are part of what was found in the data.
+    modelim, modelimTrue = _prepare_model(
+        Npix, img, Nphf, Np4, zooming, positive=apply_primary_beam
     )
-    beam_models, baseline_beam = (
-        baseline_beam_models(distmat, wavelength, antenna_diameters, antnum, modelimTrue)
-        if antenna_diameters is not None
+    if apply_primary_beam:
+        modelfft, modelim = set_primary_beam(
+            header, distmat, wavelength, Diameters, modelim, modelimTrue
+        )
+    else:
+        modelim[0][:] = modelimTrue
+        modelfft = np.fft.fft2(np.fft.fftshift(modelim[0]))
+    # Dishes of two sizes: each kind of baseline sees the sky through its own
+    # dishes' beams (a model that already holds a beam is seen as it is).
+    beam_planes, baseline_beam = (
+        baseline_beam_planes(distmat, wavelength, antenna_diameters, antnum, modelimTrue)
+        if antenna_diameters is not None and apply_primary_beam
         else (None, None)
     )
+    science = np.s_[Np4 : Np4 + Nphf, Np4 : Np4 + Nphf]  # the central Nphf pixels
     w = (
         B[:, 0][:, None] * trdec[1] * H[1][None, :]
         - B[:, 1][:, None] * trdec[1] * H[0][None, :]
@@ -374,10 +411,12 @@ def image_channel(
         noise_std=float(noise),
         mean_wavelength_m=float(wavelength[2] * 1e3),
         noise_scale=noise_scale,
-        beam_models=beam_models,
         baseline_beam=baseline_beam,
+        model_plane=modelim[0][science],
+        beam_planes=None if beam_planes is None else [plane[science] for plane in beam_planes],
+        pixsize_rad=float(np.deg2rad(imsize / Npix / 3600.0)),
     )
-    del beam_models
+    del beam_planes
     dirtymap, modelvis, dirtyvis = observe(dirtymap, GrobustNoise, modelfft, Grobustsamp, beamScale)
     del noisemap, robustsamp, Gsampling, Grobustsamp, GrobustNoise
     del Nbas, B, basnum, basidx, antnum, Gains, Noise, H, ravelDims

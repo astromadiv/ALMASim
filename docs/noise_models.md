@@ -116,7 +116,14 @@ almasim simulation ... --noise-model alma --noise-without fast_phase,baseline_er
 
 # Only the thermal noise and its channel correlation:
 almasim simulation ... --noise-model alma --noise-only radiometer,channel_correlation
+
+# The thermal noise alone, without what calibration leaves on the signal
+# (a clean model of real data already holds the real observation's own):
+almasim simulation ... --noise-model alma --noise-without calibration
 ```
+
+`thermal` and `calibration` are groups: each names several components
+([Noise Models](noise.md#noise-models) lists them).
 
 The components are **separable**: each one that draws random numbers draws
 them from its own stream, so switching one off leaves the other components'

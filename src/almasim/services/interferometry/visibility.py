@@ -8,6 +8,8 @@ from typing import Any
 
 import numpy as np
 
+from almasim.services.instrument.constants import SPEED_OF_LIGHT_M_S
+
 from .observing import alma_location, track_start_mjd_s
 
 
@@ -81,6 +83,52 @@ class VisibilityTable:
         }
 
 
+def _even_plane(plane: np.ndarray) -> np.ndarray:
+    """``plane`` with sides of even length, as ducc0 takes them: an odd side
+    gains a zero row (column) in front, which keeps its centre pixel, (n - 1) / 2,
+    at the even plane's reference pixel, n_even / 2."""
+    ny, nx = plane.shape
+    return np.pad(plane, ((ny % 2, 0), (nx % 2, 0)))
+
+
+def _predict_rows(
+    uvw_m: np.ndarray, frequency_hz: np.ndarray, plane: np.ndarray, pixsize_rad: float
+) -> np.ndarray:
+    """The model visibilities of ``plane`` (FITS order) at rows ``uvw_m`` (metres)."""
+    from .predict import predict_visibilities
+
+    return predict_visibilities(
+        uvw_m,
+        frequency_hz,
+        _even_plane(np.asarray(plane, dtype=np.float64)),
+        pixsize_rad,
+        pixsize_rad,
+        nthreads=1,  # the channels run in parallel
+    )[:, 0].astype(np.complex64)
+
+
+def _predicted_model(
+    uvw_m: np.ndarray,
+    wavelength_m: float,
+    model_plane: np.ndarray,
+    pixsize_rad: float,
+    beam_planes: Sequence[np.ndarray] | None,
+    row_kind: np.ndarray | None,
+) -> np.ndarray:
+    """Every row's model visibility: of ``model_plane``, or, with
+    ``beam_planes``, of the plane of the row's kind of baseline (``row_kind``)."""
+    frequency = np.array([SPEED_OF_LIGHT_M_S / wavelength_m])
+    if beam_planes is None or row_kind is None:
+        return _predict_rows(uvw_m, frequency, model_plane, pixsize_rad)
+    # Each kind of baseline from the model through its own two dishes' beam.
+    sampled = np.zeros(len(uvw_m), dtype=np.complex64)
+    for k, plane in enumerate(beam_planes):
+        rows = row_kind == k
+        if np.any(rows):
+            sampled[rows] = _predict_rows(uvw_m[rows], frequency, plane, pixsize_rad)
+    return sampled
+
+
 def build_channel_visibility_rows(
     *,
     modelfft: np.ndarray,
@@ -98,15 +146,26 @@ def build_channel_visibility_rows(
     noise_scale: np.ndarray | None = None,
     beam_models: Sequence[np.ndarray] | None = None,
     baseline_beam: np.ndarray | None = None,
+    model_plane: np.ndarray | None = None,
+    pixsize_rad: float | None = None,
+    beam_planes: Sequence[np.ndarray] | None = None,
 ) -> dict[str, np.ndarray]:
     """Build per-channel row-wise visibility samples before UV gridding.
 
     ``noise_scale`` (baselines): each baseline's noise over the channel's, as
     in ``noise_samples`` (its antennas' own noise shape); the rows' sigma
-    carries it too. None: 1. ``beam_models`` and ``baseline_beam``
-    (baselines): the model's FFT through each kind of baseline's beam and
-    the kind of each baseline, for an array of dishes of more than one size;
-    None: every baseline samples ``modelfft``.
+    carries it too. None: 1. ``baseline_beam`` (baselines): the kind of each
+    baseline, for an array of dishes of more than one size, and
+    ``beam_models`` (or ``beam_planes``) the model through each kind's beam;
+    None: every baseline samples the one model.
+
+    With ``model_plane`` (the model as the dishes see it, in FITS order,
+    ``pixsize_rad`` a pixel), every row's model visibility is predicted at
+    its own (u, v, w) (``predict_visibilities``), so emission anywhere in the
+    plane is where an imager of the rows finds it; ``beam_planes`` are then
+    the planes of each kind of baseline. Without it a row takes the cell of
+    ``modelfft`` nearest to it on the simulator's own uv grid, which is right
+    for a source at the centre only.
     """
     nbas = int(antnum.shape[0])
     nrows = int(nbas * nH)
@@ -122,10 +181,28 @@ def build_channel_visibility_rows(
     pix_u = np.rint(u_flat / uv_pixsize).astype(np.int32)
     pix_v = np.rint(v_flat / uv_pixsize).astype(np.int32)
     valid = (np.abs(pix_u) < Nphf) & (np.abs(pix_v) < Nphf)
+    mixed = baseline_beam is not None and (beam_planes is not None or beam_models is not None)
+    predicted = bool(
+        model_plane is not None and pixsize_rad and (not mixed or beam_planes is not None)
+    )
+    if predicted:
+        valid = np.ones(nrows, dtype=bool)
 
     model_data = np.zeros(nrows, dtype=np.complex64)
     data = np.zeros(nrows, dtype=np.complex64)
-    if np.any(valid):
+    if predicted:
+        uvw_rows = np.stack([u_flat, v_flat, w_flat], axis=1).astype(np.float64)
+        sampled = _predicted_model(
+            uvw_rows * float(mean_wavelength_m),
+            float(mean_wavelength_m),
+            np.asarray(model_plane),
+            float(pixsize_rad or 0.0),
+            beam_planes if mixed else None,
+            None if baseline_beam is None else np.repeat(np.asarray(baseline_beam), nH),
+        )
+        model_data[:] = sampled
+        data[:] = sampled * gains_flat + noise_flat
+    elif np.any(valid):
         p_v = pix_v[valid] + Nphf
         m_u = -pix_u[valid] + Nphf
         # The gridding path samples model visibilities at (v, -u).

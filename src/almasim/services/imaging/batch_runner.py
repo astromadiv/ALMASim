@@ -107,6 +107,7 @@ def _task_call(
         "field_ids": list(task.field_ids),
         "cube_command": task.cube_command,
         "member_windows": _member_windows(task),
+        "spectral_grid": list(task.spectral_grid) if task.spectral_grid else None,
         **common,
     }
 

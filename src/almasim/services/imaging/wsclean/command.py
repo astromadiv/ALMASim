@@ -17,6 +17,7 @@ _ARITY = {
     "-abs-mem": 1,
     "-auto-mask": 1,
     "-auto-threshold": 1,
+    "-beam-shape": 3,
     "-continue": 0,
     "-data-column": 1,
     "-fits-mask": 1,

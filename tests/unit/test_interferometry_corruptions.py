@@ -169,6 +169,7 @@ def test_no_corruption_leaves_unit_gains():
 
 def _config(**extra):
     npix = 64
+    extra.setdefault("distmat", np.zeros((npix, npix)))
     return ChannelImagingConfig(
         Npix=npix,
         Nant=4,
@@ -182,7 +183,6 @@ def _config(**extra):
         imsize=20.0,
         Xmax=0.2,
         lfac=1.0e6,
-        distmat=np.zeros((npix, npix)),
         Nphf=npix // 2,
         Np4=npix // 4,
         zooming=0,
@@ -709,3 +709,72 @@ def test_each_antennas_level_reaches_its_noise_shape_from_a_stream_of_its_own():
     sim.corruptions = CorruptionModel(antenna_ripple_rms=0.02, antenna_sefd_log_rms=0.2)
     both = Interferometer._corruption_fields(sim)["antenna_noise"]
     np.testing.assert_allclose(both, ripple * level[:, :1])
+
+
+def _science_field(row: int, column: int, flux: float = 1.0) -> np.ndarray:
+    """A sky of the science field's own size (no resampling): one pixel lit."""
+    side = _config().Nphf
+    sky = np.zeros((side, side))
+    sky[row, column] = flux
+    return sky
+
+
+@pytest.mark.unit
+def test_a_channel_can_hand_back_its_visibilities_alone():
+    """image_products off: the rows and baselines, none of the six images."""
+    centre = _config().Nphf // 2
+    sky = _science_field(centre, centre)
+    wavelength = [1.0e-6, 1.0e-6, 1.0e-6]
+    whole = image_configured_channel(_config(), sky, wavelength, 0.0, channel=0)
+    lean = image_configured_channel(_config(image_products=False), sky, wavelength, 0.0, channel=0)
+    assert [value is None for value in lean[:8]] == [True] * 4 + [False] * 2 + [True] * 2
+    assert np.array_equal(lean[4], whole[4]) and np.array_equal(lean[5], whole[5])
+    assert np.array_equal(lean[-1]["uvw_m"], whole[-1]["uvw_m"])
+    # Either way the rows are predicted at their own (u, v): every one of them,
+    # and for a source at the centre, its flux without a phase.
+    assert lean[-1]["valid"].all() and whole[-1]["valid"].all()
+    np.testing.assert_allclose(lean[-1]["model_data"], whole[-1]["model_data"])
+    np.testing.assert_allclose(np.abs(lean[-1]["model_data"]), 1.0, rtol=1e-3)
+    assert np.abs(np.angle(lean[-1]["model_data"])).max() < 1e-3
+
+
+@pytest.mark.unit
+def test_predicted_rows_keep_an_off_centre_source_and_a_clean_models_sign():
+    """Rows predicted at their own (u, v): a source off the centre has a phase
+    that changes from row to row. A clean model's negative component stays
+    negative; a sky model's negative pixel holds no emission."""
+    centre = _config().Nphf // 2
+    sky = _science_field(centre, centre + 5)
+    wavelength = [1.0e-6, 1.0e-6, 1.0e-6]
+    rows = image_configured_channel(_config(), sky, wavelength, 0.0, channel=0)[-1]
+    assert np.angle(rows["model_data"]).std() > 0.1
+    clean_model = _config(apply_primary_beam=False)
+    positive = image_configured_channel(clean_model, sky, wavelength, 0.0, channel=0)[-1]
+    negative = image_configured_channel(clean_model, -sky, wavelength, 0.0, channel=0)[-1]
+    np.testing.assert_allclose(negative["model_data"], -positive["model_data"], atol=1e-6)
+    zeroed = image_configured_channel(_config(), -sky, wavelength, 0.0, channel=0)[-1]
+    assert np.abs(zeroed["model_data"]).max() < 1e-6
+
+
+@pytest.mark.unit
+def test_an_apparent_model_is_observed_without_the_primary_beam_again():
+    """A source off the centre: the primary beam lowers it, unless the model
+    already holds the beam's response."""
+    centre = _config().Nphf // 2
+    sky = _science_field(centre, centre + 12)
+    wavelength = [1.0e-6, 1.0e-6, 1.0e-6]
+    # A primary beam that falls off over the field (distmat: minus the squared
+    # distance in arcsec^2 from the centre).
+    axis = (np.arange(64) - 32) * 20.0
+    distmat = -(axis[:, None] ** 2 + axis[None, :] ** 2)
+    beamed = image_configured_channel(
+        _config(image_products=False, distmat=distmat), sky, wavelength, 0.0
+    )[-1]
+    apparent = image_configured_channel(
+        _config(image_products=False, apply_primary_beam=False, distmat=distmat),
+        sky,
+        wavelength,
+        0.0,
+    )[-1]
+    np.testing.assert_allclose(np.abs(apparent["model_data"]), 1.0, rtol=1e-3)
+    assert np.abs(beamed["model_data"]).max() < 0.999

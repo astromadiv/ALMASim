@@ -66,6 +66,7 @@ almasim simulation ... --noise-model alma@1            # a fixed version
 almasim simulation ... --noise-model candidate.json    # any model file
 almasim simulation ... --noise-model alma --noise-without fast_phase,baseline_errors
 almasim simulation ... --noise-model alma --noise-only radiometer,channel_correlation
+almasim simulation ... --noise-model alma --noise-without calibration   # thermal noise only
 almasim noise show                  # the released models
 almasim noise show alma             # one model, its components on or off
 almasim noise components            # every component and its parameters
@@ -105,6 +106,21 @@ off, so it is part of the model's identity: every product of a run with a
 model records its label (`alma@1 without fast_phase`) and the SHA-256 of its
 JSON, in the metadata (`noise_model`), the `sim_params_<idx>.txt` file and
 the exported MS's `HISTORY` table.
+
+A selection also takes a group, one name for several components:
+
+| Group | Components | What they are |
+| --- | --- | --- |
+| `thermal` | `radiometer`, `atmospheric_tsys`, `receiver_ripple`, `channel_correlation`, `antenna_ripple`, `antenna_sefd` | the noise itself |
+| `calibration` | `antenna_gains`, `slow_phase`, `fast_phase`, `baseline_errors` | what calibration leaves on the signal |
+
+A group selects those of its components the model has, and `almasim noise
+components` lists the groups. A clean model of real data
+([`--apparent-input`](skymodels.md#external-sky-models)) holds no noise, but the
+real observation's calibration errors are already in it: the clean model is
+what the calibrated visibilities showed. `--noise-without calibration`
+simulates it with the thermal noise alone, so those errors are not applied a
+second time. A sky model that was never observed takes the whole model.
 
 To add a component, see
 [Adding a component](noise_models.md#adding-a-component) in the guide.

@@ -94,6 +94,8 @@ class Interferometer:
         noise_entropy: tuple[int, ...] | None = None,
         corruptions: CorruptionModel | None = None,
         continuum_fraction: np.ndarray | None = None,
+        image_products: bool = True,
+        apply_primary_beam: bool = True,
         sample_time_s: float | None = None,
         execution: int | None = None,
         track: Track | None = None,
@@ -170,6 +172,10 @@ class Interferometer:
         self.noise_entropy = noise_entropy
         self.corruptions = corruptions
         self.continuum_fraction = continuum_fraction
+        # False: the visibilities only; the image cubes hold one empty pixel a channel.
+        self.image_products = image_products
+        # False: the sky model is already under the primary beam (a clean model).
+        self.apply_primary_beam = apply_primary_beam
         self.idx = idx
         self.skymodel = skymodel
         self.backend = backend
@@ -466,6 +472,8 @@ class Interferometer:
             scan_time_s=self.scan_time,
             noise_entropy=self.noise_entropy,
             hour_angles=self.hour_angles,
+            image_products=self.image_products,
+            apply_primary_beam=self.apply_primary_beam,
             **self._channel_fields(),
         )
         wavelengths = [self.get_channel_wavelength(i)[0] for i in range(self.Nchan)]

@@ -526,3 +526,29 @@ def test_casatools_gets_its_runtime_data_before_any_run(monkeypatch, tmp_path):
     configured.clear()
     cli_simulation._prepare_ms_export(tmp_path, tmp_path / "shared")
     assert configured == [(tmp_path / ".casa-work", (tmp_path / "shared").absolute())]
+
+
+def test_visibilities_only_makes_the_ms_alone(monkeypatch, tmp_path):
+    monkeypatch.setattr(cli_simulation, "_prepare_ms_export", lambda out, casa: None)
+    kwargs, result = _params_from_cli(monkeypatch, tmp_path)
+    assert result.exit_code == 0 and not kwargs["visibilities_only"]
+    kwargs, result = _params_from_cli(monkeypatch, tmp_path, "--ms-export", "--visibilities-only")
+    assert result.exit_code == 0, result.output
+    assert kwargs["visibilities_only"] and kwargs["ms_export"]
+    _, refused = _params_from_cli(monkeypatch, tmp_path, "--visibilities-only")
+    assert refused.exit_code == 2
+
+
+def test_an_input_cube_in_jy_per_pixel_is_the_flux_of_each_pixel():
+    from almasim.services.simulation.stages import per_pixel_input
+
+    assert per_pixel_input({"input_bunit": "JY/PIXEL"}) and per_pixel_input(
+        {"input_bunit": "Jy / pix"}
+    )
+    assert not per_pixel_input({"input_bunit": "Jy/beam"}) and not per_pixel_input({})
+    assert not per_pixel_input(None)
+
+
+def test_apparent_input_needs_an_input_cube(monkeypatch, tmp_path):
+    _, refused = _params_from_cli(monkeypatch, tmp_path, "--apparent-input")
+    assert refused.exit_code == 2

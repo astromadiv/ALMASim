@@ -37,7 +37,13 @@ def test_image_channels_runs_every_channel_with_the_shared_config(monkeypatch):
     seen = []
 
     def fake_image_channel(
-        image, wavelength, *args, rng=None, hour_angles=None, antenna_diameters=None
+        image,
+        wavelength,
+        *args,
+        rng=None,
+        hour_angles=None,
+        antenna_diameters=None,
+        apply_primary_beam=True,
     ):
         seen.append((float(image.sum()), wavelength, args[4]))  # args[4] is the noise
         return tuple(np.full((4, 4), float(image.sum())) for _ in range(8)) + ([image.sum()],)
@@ -123,3 +129,17 @@ def test_each_configuration_appends_epoch_to_its_own_header(monkeypatch):
     assert "EPOCH" not in shared
     assert list(first.header.keys()).count("EPOCH") == 1
     assert list(second.header.keys()).count("EPOCH") == 1
+
+
+def test_channels_without_their_images_stack_into_one_empty_pixel_each():
+    """A channel imaged for its visibilities alone hands back its baselines and rows."""
+    results = [
+        (None, None, None, None, np.full((3, 5), c), np.full((3, 5), -c), None, None, [c])
+        for c in (1.0, 2.0)
+    ]
+    cubes, rows = simulator.stack_channels(results, start=1, size=2)
+    for name in ("model", "dirty", "beam", "totsampling", "uv_mask"):
+        assert cubes[name].shape == (2, 1, 1) and not cubes[name].any()
+    assert cubes["model_vis"].dtype == np.complex64 and cubes["dirty_vis"].shape == (2, 1, 1)
+    assert cubes["u"].shape == (2, 3, 5) and cubes["v"][1, 0, 0] == -2.0
+    assert rows == [[1.0], [2.0]]

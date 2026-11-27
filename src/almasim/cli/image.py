@@ -26,6 +26,7 @@ from almasim.services.imaging.batch_runner import (
 )
 from almasim.services.imaging.image_headers import (
     FAILED_FILENAME,
+    IMAGE_KINDS,
     collect_headers,
     headers_folder,
     listed_mss,
@@ -448,7 +449,11 @@ def fetch_headers(
     kinds: str = typer.Option(
         "mfs,cube",
         "--kinds",
-        help="Image kinds to read, comma-separated (mfs, cube).",
+        help=(
+            "Image kinds to read, comma-separated: mfs and cube (a window's own images), "
+            "cont (the image of a field's windows together, whose beam "
+            "--aggregate-continuum with --header-beam restores with)."
+        ),
     ),
     include: list[str] | None = typer.Option(
         None,
@@ -493,8 +498,8 @@ def fetch_headers(
     if source not in {"local", "archive", "auto"}:
         raise typer.BadParameter("--source must be local, archive or auto")
     image_kinds = tuple(part.strip() for part in kinds.split(",") if part.strip())
-    if not image_kinds or any(kind not in {"mfs", "cube"} for kind in image_kinds):
-        raise typer.BadParameter("--kinds must be a comma-separated subset of mfs, cube")
+    if not image_kinds or any(kind not in IMAGE_KINDS for kind in image_kinds):
+        raise typer.BadParameter("--kinds must be a comma-separated subset of mfs, cube, cont")
 
     mss = _find_mss(archive_folder, pattern)
     if len(mss) == 0:
@@ -704,6 +709,8 @@ class ImageFromMsOptions:
     by_member: bool
     aggregate_continuum: bool = False
     aggregate_line_free: bool = True
+    header_beam: bool = False
+    header_channels: bool = False
 
 
 @image_app.command("image-from-ms")
@@ -1134,6 +1141,31 @@ def image_from_ms(
         ),
         rich_help_panel="Imaging",
     ),
+    header_beam: bool = typer.Option(
+        False,
+        "--header-beam/--fitted-beam",
+        help=(
+            "Restore every image with the beam of its delivered image (BMAJ, BMIN and BPA "
+            "of the header image fetch-headers saved; WSClean -beam-shape): a cube with its "
+            "cube's, a continuum with its mfs image's, an aggregate continuum with that of "
+            "the image of the windows together. A row without a beam keeps the fitted one. "
+            "Default --fitted-beam: the Gaussian WSClean fits to its own PSF."
+        ),
+        rich_help_panel="Imaging",
+    ),
+    header_channels: bool = typer.Option(
+        False,
+        "--header-channels/--window-channels",
+        help=(
+            "With --by-member and --cube, make each cube on the channels of its delivered "
+            "cube (first channel, channel width and count of the header image fetch-headers "
+            "saved, in LSRK): the execution blocks are regridded onto them, so channel n of "
+            "the cube is channel n of the delivered one, whatever --spectral-sampling and "
+            "--max-cube-gb say. Channels the execution blocks do not all cover are left out "
+            "(the log names those made). Default --window-channels: the window's own."
+        ),
+        rich_help_panel="Imaging",
+    ),
 ):
     """Image every (MS, spectral window) row of a parameter CSV with WSClean.
 
@@ -1267,6 +1299,8 @@ def _image_from_ms_tasks(o: ImageFromMsOptions, imaging: ImagingOptions) -> list
         join_channels=o.join_channels,
         ous_index_csv=o.ous_index,
         aggregate_continuum=imaging.aggregate_continuum,
+        header_beam=o.header_beam,
+        header_channels=o.header_channels,
     )
     if skipped:
         typer.echo(f"Skipped {skipped} already-imaged SPW(s).")

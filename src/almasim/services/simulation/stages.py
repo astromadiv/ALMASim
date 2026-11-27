@@ -144,7 +144,11 @@ def generate_clean_cube(
         compute_backend=compute_backend,
         terminal_logger=terminal_logger,
     )
-    model = usm.channel_first(sky.datacube) / beam_area.value
+    model = usm.channel_first(sky.datacube)
+    # A sky model's cube is a surface brightness, per beam area; an input cube
+    # in Jy per pixel (a clean model's) already is the flux of each pixel.
+    if not per_pixel_input(sky.external_input_metadata):
+        model = model / beam_area.value
     totflux = np.sum(model)
     log(f"Total Flux injected in model cube: {round(totflux, 3)} Jy")
     log("Observing with ALMA")
@@ -196,6 +200,13 @@ def generate_clean_cube(
     )
 
 
+def per_pixel_input(external_input_metadata: dict[str, Any] | None) -> bool:
+    """Whether the run's input cube states its values in Jy per pixel (``BUNIT``),
+    as WSClean's model images do: the flux each pixel holds, used as it is."""
+    unit = str((external_input_metadata or {}).get("input_bunit", ""))
+    return unit.replace(" ", "").upper() in {"JY/PIXEL", "JY/PIX"}
+
+
 def _window_corruptions(params: SimulationParams, geometry: CubeGeometry) -> CorruptionModel | None:
     """The run's corruption model on its window's channels."""
     model = CorruptionModel.from_mapping(params.corruptions)
@@ -209,8 +220,17 @@ def simulate_observation(  # noqa: C901
     robust: float = 0.0,
     terminal_logger=None,
     interferometer_progress_callback: Callable[[int], None] | None = None,
+    image_products: bool = True,
+    apply_primary_beam: bool = True,
 ) -> dict[str, Any]:
     """Run the interferometric observation stage from a prepared clean cube.
+
+    ``image_products`` off makes the visibilities only: each channel's images
+    are dropped as it is simulated, so the run holds the visibilities and the
+    input cube, not the padded model, dirty, beam and sampling cubes (about a
+    hundred times the input cube together); those cubes then hold one empty
+    pixel per channel. ``apply_primary_beam`` off observes a model that
+    already holds the primary beam's response (a clean model) as it is.
 
     Without a ``compute_backend`` the channels are imaged in-process
     (:class:`SyncBackend`); the Interferometer needs one to scatter the cube.
@@ -234,6 +254,8 @@ def simulate_observation(  # noqa: C901
             noise_entropy=stream_entropy(clean_cube_stage.seed, "interferometer", config_index),
             corruptions=clean_cube_stage.corruptions,
             continuum_fraction=clean_cube_stage.continuum_fraction,
+            image_products=image_products,
+            apply_primary_beam=apply_primary_beam,
             **run.interferometer_kwargs(),
         )
         if interferometer_progress_callback is not None:

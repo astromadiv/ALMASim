@@ -130,6 +130,10 @@ class SimulationParams:
     external_header_mode: str = _coerced(str, default="observation")
     external_header_overrides: dict[str, Any] | None = None
     ms_export: bool = _coerced(bool, default=False)
+    # Only the visibilities: no dirty, beam or sampling cubes and no ML shard.
+    visibilities_only: bool = _coerced(bool, default=False)
+    # The input cube already holds the primary beam's response (a clean model).
+    apparent_input: bool = _coerced(bool, default=False)
     ms_export_dir: str | None = _coerced(_optional(_expand_path), default=None)
     ms_save_mode: str = _coerced(str, default="msv2")
     imaging_algorithm: str = _coerced(str, default="legacy")
