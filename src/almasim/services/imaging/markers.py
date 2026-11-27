@@ -72,8 +72,10 @@ def write_imaging_script(
         if isinstance(cmd, str):
             # Already a shell line (e.g. from a .done marker): use it verbatim.
             lines.append(cmd)
+        elif isinstance(cmd, Sequence):
+            lines.append(shlex.join(str(part) for part in cmd))
         else:
-            lines.append(shlex.join(str(part) for part in cmd))  # type: ignore[arg-type]
+            lines.append(str(cmd))
     lines.append("")
     path = imaging_script_path(out)
     path.write_text("\n".join(lines), encoding="utf-8")
