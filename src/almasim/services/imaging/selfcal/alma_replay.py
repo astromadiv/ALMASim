@@ -80,12 +80,32 @@ def _join(text: str, line: str) -> str:
     return f"{text} {line}" if text else line
 
 
+class _NumpyScalars(ast.NodeTransformer):
+    """``np.str_('G')`` → ``'G'``: the pipeline logs a NumPy scalar argument by its repr."""
+
+    def visit_Call(self, node: ast.Call) -> ast.AST:
+        func = node.func
+        if (
+            isinstance(func, ast.Attribute)
+            and isinstance(func.value, ast.Name)
+            and func.value.id in ("np", "numpy")
+            and len(node.args) == 1
+            and not node.keywords
+        ):
+            return self.visit(node.args[0])
+        return self.generic_visit(node)
+
+
+def _literal(node: ast.expr) -> Any:
+    return ast.literal_eval(_NumpyScalars().visit(node))
+
+
 def _parse_call(text: str, line: int) -> CasaCall:
     node = ast.parse(text, mode="eval").body
     if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
         raise ValueError(f"line {line}: not a call: {text[:80]}")
-    kwargs = {k.arg: ast.literal_eval(k.value) for k in node.keywords if k.arg}
-    args = tuple(ast.literal_eval(a) for a in node.args)
+    kwargs = {k.arg: _literal(k.value) for k in node.keywords if k.arg}
+    args = tuple(_literal(a) for a in node.args)
     return CasaCall(task=node.func.id, kwargs=kwargs, line=line, args=args)
 
 

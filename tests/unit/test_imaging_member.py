@@ -129,6 +129,30 @@ def test_member_rows_merge_the_ebs_of_one_window_and_field_by_name():
 
 
 @pytest.mark.unit
+def test_a_window_named_with_a_leading_hash_in_some_ebs_is_one_window():
+    # Two EBs of a member can name one window with and without a leading "#"
+    # (uid://A001/X362b/Xac7); the rows of a member's CSVs can repeat index labels.
+    parameters = pd.DataFrame(
+        [
+            _row(EBS[0], 25, 2000.0),
+            _row(EBS[1], 25, 3000.0, window=f"#{WINDOW}"),
+            _row(EBS[2], 25, 1000.0, window=f"#{WINDOW}"),
+        ],
+        index=[0, 0, 1],
+    )
+
+    rows, skipped = member_parameters(parameters, _index())
+
+    assert skipped == []
+    assert len(rows) == 1, "one task per window, so no two tasks share its folder"
+    assert [p.name for p, _, _ in member_windows(rows.iloc[0])] == [
+        f"{EBS[2]}.ms.split.cal",
+        f"{EBS[0]}.ms.split.cal",
+        f"{EBS[1]}.ms.split.cal",
+    ]
+
+
+@pytest.mark.unit
 def test_an_incomplete_member_is_not_imaged():
     rows, skipped = member_parameters(_parameters(), _index(calibrated=EBS[:2]))
 

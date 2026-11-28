@@ -108,6 +108,20 @@ def test_the_log_parses_into_stages_and_rejoins_wrapped_strings():
 
 
 @pytest.mark.unit
+def test_a_numpy_scalar_argument_is_read_as_its_value():
+    # Newer pipelines log a NumPy scalar by its repr (uid://A001/X362b/Xac7).
+    stages = replay.parse_casa_commands(
+        "# hif_selfcal()\n#\n"
+        f"gaincal(vis='{EB1}_targets.ms', caltable='a.g', minsnr=np.float64(2.0),\n"
+        "        gaintype=np.str_('G'), spwmap=[numpy.int64(25)])\n"
+    )
+    (call,) = replay.stage_calls(stages, "hif_selfcal")
+    assert call.kwargs["gaintype"] == "G"
+    assert call.kwargs["minsnr"] == 2.0
+    assert call.kwargs["spwmap"] == [25]
+
+
+@pytest.mark.unit
 def test_the_plan_runs_each_call_where_the_pipeline_did(tmp_path):
     template = tmp_path / f"{EB1}.flagtargetstemplate.txt"
     template.write_text("# none of these\nmode='manual' antenna='DA41'\n")

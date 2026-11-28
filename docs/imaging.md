@@ -421,7 +421,8 @@ imaged: every execution block ALMA calibrated for it (`alma_calibrated`) has a
 calibrated MS and rows in the CSV. Every other member is listed with the
 execution blocks it lacks. The windows of different execution blocks are
 matched by name (`spectral_window_name`): each EB numbers its windows its own
-way. Fields are matched by name too. A mosaic, whose pointings share one name,
+way. The names are compared without leading or trailing `#`, which some EBs of
+one member add to the same window's name and others do not. Fields are matched by name too. A mosaic, whose pointings share one name,
 is listed and left out.
 
 A member task writes to `<output>/member.<uid>/SPW-<n>_<field>/`, where

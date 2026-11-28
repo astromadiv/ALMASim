@@ -4,10 +4,12 @@ ALMA images a member from all the execution blocks it calibrated for it. The
 parameter rows (``compute_imaging_parameters``) are one per MS, window and
 field; :func:`member_parameters` merges the rows of one member's EBs into one
 per window and field, matching windows by name (an EB numbers its windows its
-own way) and fields by name. The merged row keeps the earliest EB's row, with
-the beam of the longest baseline and the time of all the EBs, and lists every
-EB's MS, window and fields in ``member_windows``; the imaging task combines
-them into one MS (``build_member_window_ms``).
+own way; the name is compared without leading or trailing ``#``, which some
+EBs of one member add and others do not) and fields by name. The merged row
+keeps the earliest EB's row, with the beam of the longest baseline and the
+time of all the EBs, and lists every EB's MS, window and fields in
+``member_windows``; the imaging task combines them into one MS
+(``build_member_window_ms``).
 
 Only a complete member is imaged: every EB ALMA calibrated for it has a
 calibrated MS (``member_status``) and a parameter row. A mosaic, whose
@@ -95,9 +97,16 @@ def member_parameters(
                 )
             )
             continue
-        rows = pd.concat([by_eb[eb] for eb in ebs]).sort_values("start_mjd_s", kind="stable")
+        rows = (
+            pd.concat([by_eb[eb] for eb in ebs])
+            .sort_values("start_mjd_s", kind="stable")
+            .reset_index(drop=True)
+        )
         mosaics: set[str] = set()
-        for (_, field), group in rows.groupby([WINDOW_NAME_COLUMN, "field_name"], sort=False):
+        # One window can be named "X1#ALMA_RB_07#BB_1#SW-01#FULL_RES" in one EB and
+        # "#X1#ALMA_RB_07#BB_1#SW-01#FULL_RES" in another: both are the same window.
+        window = rows[WINDOW_NAME_COLUMN].astype(str).str.strip("#").rename("window_key")
+        for (_, field), group in rows.groupby([window, rows["field_name"]], sort=False):
             if group["filename"].duplicated().any():
                 mosaics.add(str(field))
                 continue
