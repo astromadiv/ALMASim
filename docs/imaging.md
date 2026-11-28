@@ -122,8 +122,9 @@ leaves:
 | `<task>.failed` | failed; JSON with the error (exit code, the `what():` line of a crash, a timeout, a missing binary, or "exited 0 but wrote no image") and the log path |
 | `<task>.log` | the full WSClean output, written live on the shared filesystem: `tail -f` it from the submit node |
 
-Tasks with a `.done` marker are skipped on a rerun and everything else is
-retried. `--overwrite-outputs` redoes all of them, and `--skip-existing` also
+A rerun redoes every task (`--overwrite-outputs`, the default). With
+`--skip-done`, tasks with a `.done` marker are skipped and everything else is
+retried, which resumes an interrupted run, and `--skip-existing` also
 trusts a `wsclean-image.fits` produced before markers existed (and writes its
 marker). Failed tasks are listed at the end and the command exits 1 once every
 task has been attempted; `--fail-fast` stops at the first failure instead. If
@@ -172,7 +173,7 @@ next to the images ALMASim makes:
 member's `mfs` and `cube` science images of that window (`--kinds`). With
 `--kinds mfs,cube,cont` it also saves the header of the image of the field's
 windows together (`...spw25_27_29_31.cont...`), whose beam an aggregate
-continuum is restored with (`--header-beam`). It
+continuum is restored with (`--header-beam`, the default). It
 needs the delivery tree's `ous_index.csv`, which names each MS's member
 (`--ous-index`, or the one at `--delivery-root`, or the nearest above the
 MSs). The images are those in the member's `product/` folder (`--source
@@ -187,7 +188,9 @@ The archive is asked once per member for its list of images.
   archive image is matched on its name alone, since its header is not on disk.
 - Of several images of one window and field, the self-calibrated one
   (`.selfcal.`) is taken before the `.regcal.` one, and a Stokes I image
-  before any other.
+  before any other. Its data are self-calibrated: `--alma-selfcal` (on by
+  default with `--by-member`) images from data self-calibrated as they were
+  ([the pipeline's self-calibration](#the-alma-pipelines-self-calibration)).
 - An image's CSV has one row per (MS, window, field) the image is of: an
   image of a member with three execution blocks has three rows, and an image
   of several windows a row for each. A row holds the columns of
@@ -243,8 +246,9 @@ MS-derived size and cell the check compares with.
 
 **The delivered beam.** WSClean restores an image with the Gaussian it fits
 to its own PSF, which differs from tclean's by a few percent, and with it
-the flux per beam of everything that was cleaned. `--header-beam` restores
-with the delivered image's beam instead (WSClean `-beam-shape`), so the two
+the flux per beam of everything that was cleaned. `--header-beam` (the
+default; `--fitted-beam` keeps WSClean's) restores with the delivered image's
+beam instead (WSClean `-beam-shape`), so the two
 images compare pixel by pixel: a cube with its cube's beam, a window's
 continuum with its `mfs` image's, and an aggregate continuum with that of
 the image of the windows together (its windows' first `mfs` beam where the
@@ -280,15 +284,16 @@ window with no delivered image is imaged as from a `compute-parameters` CSV:
   `--velocity-resolution`; `--max-cube-gb` caps the count as it does
   without a header.
 - **The delivered channels.** With `--by-member` and `--cube`,
-  `--header-channels` makes each cube on the channels of its delivered cube:
+  `--header-channels` (the default) makes each cube on the channels of its
+  delivered cube:
   the execution blocks are regridded onto the delivered cube's first channel,
   channel width and count (its LSRK axis), so channel *n* of the cube is
   channel *n* of the delivered one, whatever `--spectral-sampling` and
   `--max-cube-gb` say. A delivered channel the execution blocks do not all
   cover, edge to edge, is left out, and the task's log names the channels
   made. A row whose cube is not in LSRK, or whose header lacks the frequency
-  axis, takes the window's own channels, as `--window-channels` (the
-  default) does for every row.
+  axis, takes the window's own channels, as `--window-channels` does for
+  every row.
 
 `--fov-fraction`, `--beam-sampling` and `--min-beams-across` do not change a
 row that has `image_n_pixels` and `image_cell_arcsec`.
@@ -307,9 +312,10 @@ lists every option.
   dirty to keep. The cube run lets WSClean reorder the visibilities, which
   keeps three files open per channel; `almasim` raises its soft open-file
   limit to the hard one at start-up, and every job it submits inherits that.
-- `--contsub` writes an image-plane continuum-subtracted cube;
-  `--uv-contsub` subtracts the continuum from the visibilities (CASA
-  `uvcontsub`) before imaging instead. It finds the line channels on the
+- `--uv-contsub` subtracts the continuum from the visibilities (CASA
+  `uvcontsub`) before imaging. It is on by default for every cube made from
+  single-window copies; `--no-uv-contsub` keeps the continuum in the cube,
+  and `--contsub` writes an image-plane continuum-subtracted cube instead. It finds the line channels on the
   source spectrum (every row's visibilities averaged per channel) and fits
   the continuum over the others; the task log's "lines in channels" lists
   them.
@@ -331,7 +337,9 @@ lists every option.
   together. When `cont.dat` cannot be used (no index, member, tarball,
   `cont.dat` or matching window) the log says why and the task goes on with
   ALMASim's own line channels.
-- `--selfcal` self-calibrates each window with CASA `gaincal` before imaging,
+- `--selfcal` self-calibrates each window with CASA `gaincal` before imaging
+  (its own solutions; `--alma-selfcal` applies the ALMA pipeline's instead,
+  [below](#the-alma-pipelines-self-calibration)),
   one round per solution interval (e.g. `inf,30s,ap:inf`). A round is kept
   only if the continuum S/N rises. With `--noise-products` (the default) it
   also keeps what self-calibration removed and the gain tables.
@@ -413,7 +421,8 @@ imaged: every execution block ALMA calibrated for it (`alma_calibrated`) has a
 calibrated MS and rows in the CSV. Every other member is listed with the
 execution blocks it lacks. The windows of different execution blocks are
 matched by name (`spectral_window_name`): each EB numbers its windows its own
-way. Fields are matched by name too. A mosaic, whose pointings share one name,
+way. The names are compared without leading or trailing `#`, which some EBs of
+one member add to the same window's name and others do not. Fields are matched by name too. A mosaic, whose pointings share one name,
 is listed and left out.
 
 A member task writes to `<output>/member.<uid>/SPW-<n>_<field>/`, where
@@ -446,6 +455,63 @@ baseline of the member's execution blocks. Self-calibration, continuum
 subtraction, the cube and the primary-beam correction then run on the
 combined MS as on any other. The regridding needs CASA and its runtime data
 (`--casa-data-root`).
+
+### The ALMA pipeline's self-calibration
+
+The ALMA imaging pipeline self-calibrates a bright target (`hif_selfcal`) and
+delivers the images made from the self-calibrated data (`.selfcal.` in their
+names). The delivery holds the execution blocks' calibration tables
+(`calibration/*.caltables.tgz`) but not the self-calibration's gain tables, and
+ALMA's restore script rebuilds the calibrated data without them. Its record is
+the member's `log/*casa_commands.log`: every CASA call the pipeline made, with
+the parameters it computed (thresholds, solution intervals, reference
+antennas), and which rounds it kept, since a rejected round is followed by
+the restore of its flags and no `applycal`.
+
+`image alma-selfcal` replays those calls on the member's calibrated MSs and
+keeps the tables the pipeline applied to its targets:
+
+```bash
+# 1. replay each self-calibrated member of the tree
+almasim image alma-selfcal /data/deliveries --casa-data-root /data/casa-data
+
+# 2. image the members from their self-calibrated execution blocks
+#    (--alma-selfcal, --uv-contsub, --header-beam and --header-channels are the defaults)
+almasim image image-from-ms /data/deliveries /data/deliveries --by-member --cube
+```
+
+The replay follows the pipeline:
+
+1. `hif_mstransform`: each execution block's targets at full resolution, from
+   the calibrated MS's `DATA` (the pipeline's `CORRECTED_DATA`).
+2. `hifa_flagtargets`: the commands of each block's target flagging template,
+   which the member's weblog keeps (`<eb>.flagtargetstemplate.txt`).
+3. `hif_selfcal`: the line channels flagged, a channel-averaged copy of each
+   block's targets in a folder of its own, and on it every round's `tclean`,
+   `gaincal` and `applycal` with the pipeline's arguments (`tclean` runs
+   serially; an argument this CASA does not take is left out, and the log
+   names it; a copy of an image product the serial `tclean` does not write,
+   such as `.gridwt`, is skipped). The pipeline's final application of the tables to its
+   full-resolution data, through a calibration library the delivery does not
+   hold, ends the replay: the last `applycal` of each block and field before
+   it says which tables were applied, and how.
+
+Each member's replay is in its `images/alma-selfcal/` folder (`--output
+<folder>` writes `<folder>/member.<uid>/alma-selfcal/` instead): the gain
+tables, `apply.json` (each block's tables, `interp`, `spwmap` and `applymode`
+per field) and `alma-selfcal.log`. A member already replayed is skipped
+(`--overwrite` replays it again), and one whose log has no `hif_selfcal`
+stage has nothing to replay. A block the pipeline did not apply tables to is
+listed in `apply.json`'s `not_applied`.
+
+With `--by-member`, `image-from-ms` applies a member's tables
+(`--alma-selfcal`, the default; `--no-alma-selfcal` leaves them out)
+to each block's window, once the window is extracted and before it is
+regridded: `applycal` with each table's `spwmap` taken to the extracted window
+(a table solved over the windows together maps every window to the one it was
+solved in). The task's log says which blocks were self-calibrated. A member
+without a replay is imaged from its calibrated data, and `image-from-ms`
+names it.
 
 ### Provenance in the FITS headers
 

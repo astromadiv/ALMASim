@@ -560,7 +560,9 @@ def test_imaging_arguments():
         wsclean_bin="/bin/wsclean", casa_data_root="/casa", num_cores=4, extra=("--multiscale",)
     )
     args = imaging.arguments()
-    assert args[:4] == ["--backend", "sync", "--cube", "--uv-contsub"]
+    assert args[:6] == [
+        "--backend", "sync", "--cube", "--uv-contsub", "--fitted-beam", "--skip-done"
+    ]  # fmt: skip
     assert ["--wsclean-bin", "/bin/wsclean"] == args[
         args.index("--wsclean-bin") : args.index("--wsclean-bin") + 2
     ]

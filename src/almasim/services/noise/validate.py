@@ -65,7 +65,9 @@ class Imaging:
 
     def arguments(self) -> list[str]:
         args = [
-            "--backend", "sync", "--cube", "--uv-contsub",
+            # The simulated windows restore with WSClean's fitted beam, as the real
+            # windows they are compared with were, and a rerun resumes the tasks left.
+            "--backend", "sync", "--cube", "--uv-contsub", "--fitted-beam", "--skip-done",
             "--num-cores", str(self.num_cores),
             "--task-memory-gb", str(self.task_memory_gb),
             "--task-timeout", str(int(self.task_timeout)),

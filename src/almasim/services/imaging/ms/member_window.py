@@ -19,7 +19,7 @@ from __future__ import annotations
 import os
 import shutil
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +42,7 @@ def build_member_window_ms(
     max_weight: float | None = DEFAULT_MAX_WEIGHT,
     channels_out: int | None = None,
     grid: Sequence[float] | None = None,
+    selfcal: Mapping[str, Sequence[Mapping[str, Any]]] | None = None,
 ) -> dict[str, object]:
     """Combine ``windows`` ((MS, window, field ids) per EB, earliest first) into ``out_path``.
 
@@ -53,13 +54,17 @@ def build_member_window_ms(
     count on the grid (``regrid_and_concat``). With ``grid`` (first channel's
     centre in Hz, channel width in Hz, channel count) the grid is that one, as
     far as the EBs cover it, and ``grid_note`` in the result says which of its
-    channels were made.
+    channels were made. With ``selfcal`` (``{eb: applycal entries}``, from a replay
+    of the ALMA pipeline's self-calibration: ``alma_replay.entries_for``) each
+    EB's window is self-calibrated with them before it is regridded, and
+    ``selfcal_applied`` in the result lists those EBs.
     """
     if not windows:
         raise ValueError("build_member_window_ms needs at least one execution block")
     out = Path(out_path)
     started = time.time()
     copies: list[Path] = []
+    calibrations: list[dict[str, Any] | None] = []
     kept = dropped = 0
     try:
         for ms, spw, fields in windows:
@@ -75,6 +80,12 @@ def build_member_window_ms(
                 max_weight=max_weight,
             )
             copies.append(copy)
+            entries = (selfcal or {}).get(eb)
+            calibrations.append(
+                {"eb": eb, "spw": int(spw), "entries": [dict(e) for e in entries]}
+                if entries
+                else None
+            )
             kept += int(extracted.get("rows") or 0)
             dropped += int(extracted.get("dropped_rows") or 0)
         combined = call_in_child(
@@ -86,6 +97,7 @@ def build_member_window_ms(
                 "log_file": str(log_path) if log_path else str(out.with_suffix(".casa.log")),
                 "channels_out": channels_out,
                 "grid": [float(v) for v in grid] if grid else None,
+                "selfcal": calibrations if any(calibrations) else None,
             },
             what="combining the execution blocks",
             env=casa_environment(),
@@ -119,6 +131,7 @@ def regrid_and_concat(
     log_file: str,
     channels_out: int | None = None,
     grid: Sequence[float] | None = None,
+    selfcal: Sequence[Mapping[str, Any] | None] | None = None,
 ) -> dict[str, object]:
     """CASA: regrid single-window MSs onto one LSRK grid and concatenate them.
 
@@ -141,6 +154,11 @@ def regrid_and_concat(
     centred where its is; ``channels_out`` is their count and ``grid_note``
     names them. A grid narrower than the EBs' own channels, or outside their
     overlap, is not used, and ``grid_note`` says so.
+
+    ``selfcal``: for each input, None or its EB (``eb``), its window's id in
+    the EB (``spw``) and the replayed self-calibration's ``entries``
+    (``alma_replay.apply_selfcal``), applied before the regridding, which then
+    reads CORRECTED_DATA.
     """
     import math
 
@@ -152,6 +170,18 @@ def regrid_and_concat(
 
     _configure_casa(casa_data, log_file)
     tasks, tools = casa_tasks(), casa_tools()
+
+    # Each input's column: CORRECTED_DATA once self-calibrated.
+    data_column: dict[str, str] = {}
+    applied: list[str] = []
+    for ms_path, calibration in zip(window_mss, selfcal or [None] * len(window_mss), strict=True):
+        data_column[ms_path] = "data"
+        if calibration:
+            from almasim.services.imaging.selfcal.alma_replay import apply_selfcal
+
+            apply_selfcal(tasks, ms_path, calibration["entries"], int(calibration["spw"]))
+            data_column[ms_path] = "corrected"
+            applied.append(str(calibration["eb"]))
 
     def column(table_path: str, name: str, row: int | None = None):
         table = tools.table()
@@ -172,7 +202,7 @@ def regrid_and_concat(
                 outputvis=probe,
                 field=",".join(str(f) for f in fields),
                 scan=f"{scans[0]},{scans[-1]}",
-                datacolumn="data",
+                datacolumn=data_column[ms_path],
                 regridms=True,
                 mode="channel",
                 outframe="LSRK",
@@ -231,7 +261,7 @@ def regrid_and_concat(
             vis=ms_path,
             outputvis=target,
             field=",".join(str(f) for f in info["fields"]),  # type: ignore[attr-defined]
-            datacolumn="data",
+            datacolumn=data_column[ms_path],
             regridms=True,
             mode="frequency",
             nchan=channels,
@@ -261,6 +291,7 @@ def regrid_and_concat(
         "shifts_hz": [round(float(c["low"]) - reference, 1) for c in coverage],  # type: ignore[arg-type]
         "channels_out": channels // per_cube_channel if channels_out else None,
         "grid_note": grid_note,
+        "selfcal_applied": applied,
     }
 
 

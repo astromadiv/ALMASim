@@ -273,6 +273,7 @@ def run_aggregate_continuum_task(  # noqa: C901
                             timeout=timeout,
                             log_path=log_path,
                             max_weight=max_weight,
+                            selfcal=window.get("selfcal") or None,
                         )
                     else:
                         extract_single_window_ms_subprocess(

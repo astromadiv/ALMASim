@@ -22,7 +22,7 @@ from almasim.services.imaging.ms_geometry import (
     image_override,
     image_pixels,
 )
-from almasim.services.imaging.provenance import Provenance, find_ous_index
+from almasim.services.imaging.provenance import Provenance, eb_uid_from_ms, find_ous_index
 from almasim.services.instrument.constants import SPEED_OF_LIGHT_M_S
 
 
@@ -375,6 +375,9 @@ class ImagingTask:
     # A member's cube on the delivered cube's channels: the centre of the
     # first (lowest) channel, the channel width and the channel count.
     spectral_grid: tuple[float, float, int] | None = None
+    # A member's ALMA self-calibration, replayed: each execution block's
+    # applycal entries (``alma_replay.entries_for``); None: not applied.
+    selfcal: dict[str, list[dict[str, Any]]] | None = None
     # An aggregate continuum task: the windows it images together, each with
     # its own task's values (``aggregate_window``); ``command`` is the joint one.
     aggregate: tuple[dict[str, Any], ...] = ()
@@ -388,7 +391,34 @@ def aggregate_window(task: ImagingTask) -> dict[str, Any]:
         "field_ids": list(task.field_ids),
         "command": list(task.command),
         "member_windows": [(str(ms), spw, list(f)) for ms, spw, f in task.member_windows],
+        "selfcal": task.selfcal,
     }
+
+
+def member_selfcal(
+    row: pd.Series, output_root: str | Path | None = None, tree_root: str | Path | None = None
+) -> dict[str, list[dict[str, Any]]] | None:
+    """A member row's replay of the ALMA pipeline's self-calibration
+    (``almasim image alma-selfcal``): each execution block's applycal entries
+    for the row's field, or None where the member has no replay. The row's
+    ``member_folder`` is relative to ``tree_root``, the delivery tree's root."""
+    from almasim.services.imaging.selfcal.alma_replay import entries_for, find_apply_file
+
+    folder = row.get("member_folder")
+    member = str(row.get("member_ous_uid") or "")
+    if folder is None or (isinstance(folder, float) and math.isnan(folder)):
+        folder = None
+    elif tree_root is not None and not Path(str(folder)).is_absolute():
+        folder = Path(tree_root) / str(folder)
+    apply_file = find_apply_file(folder, member, output_root)
+    if apply_file is None:
+        return None
+    entries: dict[str, list[dict[str, Any]]] = {}
+    for ms, _, _ in member_windows(row):
+        eb = eb_uid_from_ms(ms)
+        if eb is not None:
+            entries[eb] = entries_for(apply_file, eb, str(row["field_name"]))
+    return entries
 
 
 def _field_arguments(row: pd.Series) -> list[str]:
@@ -557,6 +587,7 @@ def build_imaging_tasks(  # noqa: C901
     aggregate_continuum: bool = False,
     header_beam: bool = False,
     header_channels: bool = False,
+    alma_selfcal: bool = False,
 ) -> tuple[list[ImagingTask], int]:
     """Turn parameter rows into WSClean tasks, skipping the ones already done.
 
@@ -596,6 +627,11 @@ def build_imaging_tasks(  # noqa: C901
     delivered cube (``header_spectral_grid``; the task's ``spectral_grid``):
     the execution blocks are regridded onto them, whatever ``cube`` would
     give the window.
+
+    With ``alma_selfcal`` a member's execution blocks are self-calibrated with
+    the ALMA pipeline's tables, replayed by ``almasim image alma-selfcal``
+    (``member_selfcal``), before they are combined; a member without a replay
+    is combined as it is (the task's ``selfcal`` is None).
 
     Each task carries its data's provenance (``row_provenance``) for the
     products' FITS headers: the OUSs from ``ous_index_csv``, or from the
@@ -709,6 +745,15 @@ def build_imaging_tasks(  # noqa: C901
             dish_diameter=row_dish_diameter(row),
             provenance=row_provenance(row, ous_index_csv, indexes),
             member_windows=member_windows(row),
+            selfcal=(
+                member_selfcal(
+                    row,
+                    output_directory,
+                    Path(ous_index_csv).parent if ous_index_csv else output_directory,
+                )
+                if alma_selfcal and is_member_row(row)
+                else None
+            ),
             spectral_grid=(
                 header_spectral_grid(row)
                 if header_channels and cube is not None and is_member_row(row)
@@ -792,6 +837,7 @@ def _aggregate_task(
         dish_diameter=min(diameters) if diameters else None,
         provenance=first.provenance,
         member_windows=first.member_windows,
+        selfcal=first.selfcal,
         aggregate=tuple(aggregate_window(w) for w in windows),
     )
 

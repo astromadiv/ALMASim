@@ -425,6 +425,7 @@ $ almasim image [OPTIONS] COMMAND [ARGS]...
 * `compute-parameters`: Derive per-spectral-window imaging...
 * `fetch-headers`: Save the FITS header of every (MS, window,...
 * `parse-headers`: Read the saved tclean headers again and...
+* `alma-selfcal`: Replay the ALMA pipeline's...
 * `image-from-ms`: Image every (MS, spectral window) row of a...
 * `clean-quality`: Measure how much source signal the clean...
 * `pb-correct`: Primary-beam correct the images of an...
@@ -523,14 +524,47 @@ $ almasim image parse-headers [OPTIONS] [folder]
 * `--min-beams-across <float range>`: MS-derived size check: minimum beams across.  [default: 32.0; x>=0.0]
 * `--help`: Show this message and exit.
 
+### `almasim image alma-selfcal`
+
+Replay the ALMA pipeline's self-calibration of each member.
+
+A delivery has the execution blocks' calibration tables but not those of
+the imaging pipeline's self-calibration (hif_selfcal). For every complete
+member whose log/*casa_commands.log has a hif_selfcal stage, its calls are
+run again on the member's calibrated MSs, and the gain tables the pipeline
+applied to its targets are kept, with apply.json saying how they were
+applied. image-from-ms --by-member --alma-selfcal applies them.
+
+**Usage**:
+
+```console
+$ almasim image alma-selfcal [OPTIONS] {root}
+```
+
+**Arguments**:
+
+* `root`: An ALMA delivery tree's root (it holds ous_index.csv)  [required]
+
+**Options**:
+
+* `--ous-index <path>`: The tree's ous_index.csv (default: <root>/ous_index.csv).
+* `--output <path>`: Write each replay to <output>/member.<uid>/alma-selfcal/ instead of the member's own images/alma-selfcal/.
+* `--member <str>`: Only this member OUS (uid://A001/X.../X...); repeatable.
+* `--casa-data-root <path>`: CASA runtime data (default <output or root>/.casa-data, downloaded once).
+* `--overwrite`: Replay a member that already has a replay again.
+* `--keep-work`: Keep the replay's working folder (its MSs and images).
+* `--timeout <float range>`: Seconds a member's replay may take.  [default: 86400.0; x>=60]
+* `--help`: Show this message and exit.
+
 ### `almasim image image-from-ms`
 
 Image every (MS, spectral window) row of a parameter CSV with WSClean.
 
 Each task leaves ``SPW-<n>.done`` or ``SPW-<n>.failed`` (with the error and
 the log path) next to its output directory, and ``SPW-<n>.log`` with the
-full WSClean output. A rerun skips the tasks with a ``.done`` marker and
-retries the rest, so an interrupted batch can simply be resubmitted.
+full WSClean output. A rerun redoes every task; with --skip-done it skips
+the tasks with a ``.done`` marker and retries the rest, so an interrupted
+batch can be resumed.
 
 An output directory that is the root of an ALMA delivery tree (it holds
 ``ous_index.csv``) puts each task in its member's folder:
@@ -576,7 +610,7 @@ $ almasim image image-from-ms [OPTIONS] {imaging_parameters} {output_directory}
 * `--scheduler-interface <str>`: Scheduler/worker network interface (e.g. ib0, eth0).
 * `--task-timeout <float range>`: Timeout in seconds for each worker-side command.  [default: 3600; x>=1]
 * `--skip-existing`: Also trust an existing wsclean-image.fits that has no .done marker (an output from before markers existed) and write its marker. Tasks with a marker are always skipped.
-* `--overwrite-outputs`: Redo every task, including the ones with a .done marker.
+* `--overwrite-outputs / --skip-done`: Redo every task, including the ones with a .done marker (default). --skip-done skips them and retries the rest, to resume an interrupted run.  [default: overwrite-outputs]
 * `--continue-on-error / --fail-fast`: Keep imaging the rest of the batch when a task fails (default); the failed tasks are listed at the end and the command exits 1. --fail-fast stops at the first failure.  [default: continue-on-error]
 * `--continuum / --no-continuum`: Make the continuum image of every window (wsclean-image.fits; default). --no-continuum with --cube adds cubes next to existing continuum images.  [default: continuum]
 * `--cube / --no-cube`: Also image every window as a spectral cube (WSClean -channels-out, the channel count chosen per window by --spectral-sampling, --velocity-resolution and --max-cube-gb), stacked into wsclean-cube-<product>.fits.  [default: no-cube]
@@ -586,7 +620,7 @@ $ almasim image image-from-ms [OPTIONS] {imaging_parameters} {output_directory}
 * `--noise-products / --no-noise-products`: Where self-calibration was applied, also image what it removed and keep it: wsclean[-cube]-selfcal-correction.fits, wsclean[-cube]-residual-total.fits (residual + correction: all the data the model does not explain) and the gain tables in selfcal_gains/ (default).  [default: noise-products]
 * `--pbcor / --no-pbcor`: Also primary-beam correct the continuum image and the image cube: wsclean[-cube]-pb.fits (the beam, CASA's ALMA Airy model, per channel) and wsclean[-cube]-image.pbcor.fits (blanked below 0.2). Off by default; 'image pb-correct' adds them to an existing run.  [default: no-pbcor]
 * `--casa-data-root <path>`: CASA runtime data for --selfcal and --by-member (default <output>/.casa-data, downloaded once by the driver when missing, as the calibration stage does).
-* `--uv-contsub / --no-uv-contsub`: Subtract the continuum from the visibilities before imaging (CASA uvcontsub): line channels are found on the source spectrum, the continuum is fitted per visibility over the others. The continuum image is made from the fitted continuum and every cube product holds only the lines. Needs --cube and --single-window-ms; replaces --contsub.  [default: no-uv-contsub]
+* `--uv-contsub / --no-uv-contsub`: Subtract the continuum from the visibilities before imaging (CASA uvcontsub): line channels are found on the source spectrum, the continuum is fitted per visibility over the others. The continuum image is made from the fitted continuum and every cube product holds only the lines. Needs --cube and --single-window-ms; replaces --contsub. On by default whenever --cube and --single-window-ms are given without --contsub.
 * `--contsub-order <int range>`: Continuum polynomial order for --contsub and --uv-contsub: 0 (constant) or 1 (linear, default).  [default: 1; 0<=x<=1]
 * `--pipeline-line-free / --no-pipeline-line-free`: Also leave out of the line-free channels of --uv-contsub and --selfcal the channels the ALMA pipeline's cont.dat calls line (read from the member's calibration/*auxproducts.tgz, found through the ous_index.csv): a channel is line-free only when both call it continuum. Off by default.  [default: no-pipeline-line-free]
 * `--spectral-sampling <float range>`: Cube channels per spectral resolution element (the spectral counterpart of --beam-sampling). 2 keeps the native channels of ALMA's Hanning-smoothed windows; 1 halves them.  [default: 2.0; x>=1e-06]
@@ -601,8 +635,9 @@ $ almasim image image-from-ms [OPTIONS] {imaging_parameters} {output_directory}
 * `--by-member / --by-ms`: Image each member OUS from all its execution blocks: one task per window and field, the EBs' visibilities regridded onto one LSRK grid (CASA mstransform) and combined. Only complete members are imaged: every EB ALMA calibrated for the member has a calibrated MS (the ous_index.csv) and a row in the CSV. Needs --single-window-ms. Default --by-ms: one task per MS.  [default: by-ms]
 * `--aggregate-continuum / --no-aggregate-continuum`: Also image the continuum of all the windows of each field together, in CONT[_<field>] beside the windows' SPW-<n>[_<field>]: one multi-frequency image, one output channel per window, a spectral slope fitted per component. Needs the continuum and --single-window-ms. Off by default.  [default: no-aggregate-continuum]
 * `--aggregate-line-free / --aggregate-all-channels`: Make the --aggregate-continuum image from each window's continuum fitted over its line-free channels (order --contsub-order), so the windows' lines stay out of it; a window with too few line-free channels is left out. --aggregate-all-channels images every channel, lines included.  [default: aggregate-line-free]
-* `--header-beam / --fitted-beam`: Restore every image with the beam of its delivered image (BMAJ, BMIN and BPA of the header image fetch-headers saved; WSClean -beam-shape): a cube with its cube's, a continuum with its mfs image's, an aggregate continuum with that of the image of the windows together. A row without a beam keeps the fitted one. Default --fitted-beam: the Gaussian WSClean fits to its own PSF.  [default: fitted-beam]
-* `--header-channels / --window-channels`: With --by-member and --cube, make each cube on the channels of its delivered cube (first channel, channel width and count of the header image fetch-headers saved, in LSRK): the execution blocks are regridded onto them, so channel n of the cube is channel n of the delivered one, whatever --spectral-sampling and --max-cube-gb say. Channels the execution blocks do not all cover are left out (the log names those made). Default --window-channels: the window's own.  [default: window-channels]
+* `--header-beam / --fitted-beam`: Restore every image with the beam of its delivered image (BMAJ, BMIN and BPA of the header image fetch-headers saved; WSClean -beam-shape): a cube with its cube's, a continuum with its mfs image's, an aggregate continuum with that of the image of the windows together (default). A row without a beam keeps the fitted one. --fitted-beam: the Gaussian WSClean fits to its own PSF.  [default: header-beam]
+* `--header-channels / --window-channels`: With --by-member and --cube, make each cube on the channels of its delivered cube (first channel, channel width and count of the header image fetch-headers saved, in LSRK): the execution blocks are regridded onto them, so channel n of the cube is channel n of the delivered one, whatever --spectral-sampling and --max-cube-gb say. Channels the execution blocks do not all cover are left out (the log names those made). On by default; a row without the delivered cube's LSRK axis takes its window's own channels. --window-channels: the window's own for every row.  [default: header-channels]
+* `--alma-selfcal / --no-alma-selfcal`: With --by-member, self-calibrate each execution block with the ALMA pipeline's own self-calibration, replayed by 'almasim image alma-selfcal' (its alma-selfcal/ folder in the member's images/, or in the output's member folder), before the blocks are combined. A member without a replay is combined as it is; the task's log says which blocks were self-calibrated. On by default with --by-member.
 * `--help`: Show this message and exit.
 
 ### `almasim image clean-quality`
